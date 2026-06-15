@@ -1,0 +1,444 @@
+@import url('https://fonts.googleapis.com/css2?family=Faculty+Glyphic&family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+
+/* PF2E Kingdom Lite - Design System Variables */
+/* Simple CSS variables for consistent theming */
+/* Note: Font declarations moved to fonts.css which is copied directly without processing */
+
+/* Global font fallback for all module content (excludes Font Awesome icons) */
+/* Using :where() for 0 specificity - component styles can override naturally */
+:where(.pf2e-creature-crispr),
+:where(.pf2e-creature-crispr *:not([class*="fa-"])) {
+  font-family: var(--font-sans-rm);
+}
+
+:root {
+  /* Base Colors - Improved Contrast Distribution */
+  --color-gray-50: hsla(0, 0%, 98%, 1);     /* Lightest - unchanged */
+  --color-gray-100: hsla(240, 5%, 93%, 1);  /* Was 96%, now 93% for better step */
+  --color-gray-200: hsla(220, 13%, 86%, 1); /* Was 90%, now 86% for consistency */
+  --color-gray-300: hsla(216, 12%, 78%, 1); /* Was 84%, now 78% - fixes large gap */
+  --color-gray-400: hsla(240, 5%, 68%, 1);  /* Was 65%, now 68% - smoother transition */
+  --color-gray-500: hsla(240, 5%, 56%, 1);  /* Was 46%, now 56% - better mid-tone */
+  --color-gray-600: hsla(240, 5%, 44%, 1);  /* Was 34%, now 44% - consistent steps */
+  --color-gray-700: hsla(240, 5%, 32%, 1);  /* Was 26%, now 32% - smoother dark range */
+  --color-gray-800: hsla(240, 10%, 22%, 1);  /* Was 16%, now 22% - better contrast */
+  --color-gray-850: hsla(229, 20%, 16%, 1);  /* Increased slightly for better visibility of highest surface */
+  --color-gray-900: hsla(240, 30%, 6%, 1);  /* Unchanged - good anchor */
+  --color-gray-950: hsla(229, 34%, 3%, 1);   /* Darkest - unchanged */
+  
+  /* Accent Colors */
+  --color-crimson: hsla(0, 58%, 50%, 1);
+  --color-crimson-light: hsla(0, 78%, 57%, 1);
+  --color-crimson-dark: hsla(0, 90%, 25%, 1);
+  --color-burgundy: hsla(0, 100%, 18%, 1);
+  --color-burgundy-dark: hsla(0, 100%, 11%, 1);
+  --color-burgundy-darker: hsla(0, 75%, 15%, 1);
+  
+  --color-gold: hsla(41, 100%, 40%, 1);
+  --color-gold-light: hsla(41, 85%, 80%, 1);
+  --color-gold-dark: hsla(42, 85%, 20%, 1);
+  --color-gold-bright: hsla(51, 100%, 50%, 1);
+  --color-amber: hsla(38, 91%, 50%, 1);
+  --color-amber-light: hsla(44, 97%, 56%, 1);
+  --color-amber-lighter: hsla(45, 97%, 64%, 1);
+  
+  --color-green: hsla(142, 71%, 45%, 1);
+  --color-green-dark: hsla(134, 33%, 25%, 1);
+  --color-green-darker: hsla(135, 32%, 17%, 1);
+  --color-green-light: hsla(122, 39%, 49%, 1);
+  --color-green-lighter: hsla(123, 25%, 70%, 1);
+  --color-green-border: hsla(133, 29%, 32%, 1);
+  --color-green-hover: hsla(132, 27%, 31%, 1);
+  
+  --color-blue: hsla(217, 100%, 80%, 1);
+  --color-blue-light: hsla(217, 100%, 65%, 1);
+  --color-blue-bg: hsla(217, 100%, 30%, 1);
+  
+  --color-orange: hsla(36, 100%, 50%, 1);
+  --color-orange-bg: hsla(46, 17%, 12%, 1);
+  --color-orange-border: hsla(46, 100%, 51%, 1);
+  
+  --color-red: hsla(4, 66%, 58%, 1);
+  --color-red-bg: hsla(4, 24%, 14%, 1);
+  --color-red-dark: hsla(0, 75%, 12%, 1);
+  --color-red-darker: hsla(0, 80%, 8%, 1);
+  
+  /* Brown/Tan Colors - Used for resource icons */
+  --color-brown-light: hsla(29, 48%, 64%, 1);
+  
+  /* Icon Colors - Consistent colors for game icons */
+  --icon-fame: var(--color-amber);
+  --icon-gold: var(--color-amber-light);
+  --icon-unrest-none: var(--color-gray-500);
+  --icon-unrest-minor: var(--color-orange);
+  --icon-unrest-moderate: var(--color-crimson);
+  --icon-unrest-major: var(--color-red);
+  --icon-prison: var(--color-warning);
+  --icon-food: var(--color-brown-light);
+  --icon-lumber: var(--color-green);
+  --icon-stone: var(--color-gray-500);
+  --icon-ore: var(--color-blue);
+
+  /* Terrain palette — used by editor mode terrain selection icons */
+  --terrain-plains: #90C650;
+  --terrain-forest: #228B22;
+  --terrain-hills: #8B7355;
+  --terrain-mountains: #808080;
+  --terrain-swamp: #6B8E23;
+  --terrain-desert: #EDC9AF;
+  --terrain-water: #4682B4;
+
+  /* Resource Colors - For terrain badges and resource displays */
+  --color-food: var(--color-brown-light);
+  --color-food-subtle: hsla(29, 22%, 16%, 1);
+  --color-lumber: var(--color-green);
+  --color-lumber-subtle: hsla(142, 23%, 12%, 1);
+  --color-stone: var(--color-gray-500);
+  --color-stone-subtle: hsla(240, 7%, 13%, 1);
+  --color-ore: var(--color-blue);
+  --color-ore-subtle: hsla(217, 29%, 19%, 1);
+  --color-swamp: #556b2f; /* dark olive for swamp terrain badge text */
+  --color-swamp-subtle: rgba(85, 107, 47, 0.2); /* matching subtle bg */
+  --color-primary-subtle: hsla(0, 23%, 12%, 1);
+  --color-primary-overlay: rgba(94, 0, 0, 0.3); /* deep red overlay for selected state */
+  --color-info-overlay-low: rgba(74, 158, 255, 0.1); /* light blue tint for info-state backgrounds */
+  --color-info-overlay-medium: rgba(74, 158, 255, 0.3); /* medium blue tint for info-state borders */
+  --color-warning-subtle: hsla(38, 17%, 9%, 1);
+
+  /* Background & Surface System - Ultra-Muted 7-point hierarchy (10-15% luminance) */
+  /* The void/empty canvas beneath all UI */
+  --empty: var(--color-gray-950);  /* 6% - Base application background */
+  
+  /* Surfaces - Perceptually uniform interpolation using color-mix() in oklch space */
+  /* 7-point scale from gray-900 (10%) to gray-800 (22%) - expanded range for better differentiation */
+  --surface-lowest: color-mix(in oklch, var(--color-gray-900) 86%, var(--color-gray-850) 14%); /* ~11% - Deepest surface layer (was 10%) */
+  --surface-lower: color-mix(in oklch, var(--color-gray-900) 71%, var(--color-gray-850) 29%);   /* ~12% - Very subtle lift */
+  --surface-low: color-mix(in oklch, var(--color-gray-900) 57%, var(--color-gray-850) 43%);     /* ~13% - Subtle panels */
+  --surface: color-mix(in oklch, var(--color-gray-900) 43%, var(--color-gray-850) 57%);         /* ~14% - MIDPOINT - Standard surface */
+  --surface-high: color-mix(in oklch, var(--color-gray-900) 29%, var(--color-gray-850) 71%);    /* ~14.5% - Elevated panels */
+  --surface-higher: var(--color-gray-850);                                                       /* 16% - Prominent elements */
+  --surface-highest: color-mix(in oklch, var(--color-gray-850) 71%, var(--color-gray-800) 29%); /* ~18% - Most elevated (modals, tooltips) */
+  
+  /* Semi-Transparent Overlays - 7-point scale */
+  --overlay-lowest: rgba(0, 0, 0, 0.05);    /* Barely visible tint */
+  --overlay-lower: rgba(0, 0, 0, 0.1);      /* Very subtle overlay */
+  --overlay-low: rgba(0, 0, 0, 0.2);        /* Light overlay */
+  --overlay: rgba(0, 0, 0, 0.3);            /* MIDPOINT - Standard overlay */
+  --overlay-high: rgba(0, 0, 0, 0.5);       /* Heavy overlay */
+  --overlay-higher: rgba(0, 0, 0, 0.7);     /* Modal backdrop */
+  --overlay-highest: rgba(0, 0, 0, 0.95);   /* Nearly opaque */
+  
+  /* Interactive Hover States - 3-point scale */
+  --hover-low: rgba(255, 255, 255, 0.05);   /* Subtle hover effect */
+  --hover: rgba(255, 255, 255, 0.1);        /* Standard hover effect */
+  --hover-high: rgba(255, 255, 255, 0.15);  /* Prominent hover effect */
+  
+  /* Colored Surfaces - 7-point scales for semantic states */
+  /* Primary (Crimson/Red) - Danger, errors, critical states */
+  --surface-primary-lowest: hsla(0, 20%, 8%, 1);     /* Deepest */
+  --surface-primary-lower: hsla(0, 26%, 12%, 1);     /* Barely perceptible */
+  --surface-primary-low: hsla(0, 32%, 17%, 1);       /* Subtle */
+  --surface-primary: hsla(0, 36%, 21%, 1);           /* MIDPOINT - Default */
+  --surface-primary-high: hsla(0, 40%, 26%, 1);      /* More prominent */
+  --surface-primary-higher: hsla(0, 44%, 30%, 1);    /* Very prominent */
+  --surface-primary-highest: hsla(0, 48%, 35%, 1);   /* Most prominent */
+  
+  /* Success (Green) - Success states, confirmations, positive feedback */
+  --surface-success-lowest: hsla(142, 50%, 8%, 1);   /* Deepest */
+  --surface-success-lower: hsla(142, 54%, 14%, 1);   /* Barely perceptible */
+  --surface-success-low: hsla(142, 58%, 20%, 1);     /* Subtle */
+  --surface-success: hsla(142, 62%, 26%, 1);         /* MIDPOINT - Default */
+  --surface-success-high: hsla(142, 66%, 34%, 1);    /* More prominent */
+  --surface-success-higher: hsla(142, 70%, 42%, 1);  /* Very prominent */
+  --surface-success-highest: hsla(142, 75%, 50%, 1); /* Most prominent */
+  
+  /* Warning (Orange) - Warnings, cautions, attention needed */
+  --surface-warning-lowest: hsla(25, 50%, 8%, 1);    /* Deepest */
+  --surface-warning-lower: hsla(25, 55%, 14%, 1);    /* Barely perceptible */
+  --surface-warning-low: hsla(25, 60%, 20%, 1);      /* Subtle */
+  --surface-warning: hsla(25, 65%, 26%, 1);          /* MIDPOINT - Default */
+  --surface-warning-high: hsla(25, 70%, 34%, 1);     /* More prominent */
+  --surface-warning-higher: hsla(25, 75%, 42%, 1);   /* Very prominent */
+  --surface-warning-highest: hsla(25, 80%, 50%, 1);  /* Most prominent */
+  
+  /* Accent (Amber) - Highlights, emphasis, featured content */
+  --surface-accent-lowest: hsla(38, 18%, 6%, 1);     /* Deepest */
+  --surface-accent-lower: hsla(38, 24%, 9%, 1);      /* Barely perceptible */
+  --surface-accent-low: hsla(38, 32%, 13%, 1);       /* Subtle */
+  --surface-accent: hsla(38, 38%, 18%, 1);           /* MIDPOINT - Default */
+  --surface-accent-high: hsla(38, 44%, 23%, 1);      /* More prominent */
+  --surface-accent-higher: hsla(38, 50%, 30%, 1);    /* Very prominent */
+  --surface-accent-highest: hsla(38, 55%, 38%, 1);   /* Most prominent */
+  
+  /* Info (Blue) - Information, in-progress, neutral notifications */
+  --surface-info-lowest: hsla(217, 50%, 8%, 1);      /* Deepest */
+  --surface-info-lower: hsla(217, 54%, 14%, 1);      /* Barely perceptible */
+  --surface-info-low: hsla(217, 58%, 20%, 1);        /* Subtle */
+  --surface-info: hsla(217, 62%, 26%, 1);            /* MIDPOINT - Default */
+  --surface-info-high: hsla(217, 66%, 34%, 1);       /* More prominent */
+  --surface-info-higher: hsla(217, 70%, 42%, 1);     /* Very prominent */
+  --surface-info-highest: hsla(217, 75%, 50%, 1);    /* Most prominent */
+  
+  /* Special (Purple) - Special items, unique states, premium features */
+  --surface-special-lowest: hsla(267, 12%, 6%, 1);   /* Deepest */
+  --surface-special-lower: hsla(267, 17%, 10%, 1);   /* Barely perceptible */
+  --surface-special-low: hsla(267, 24%, 15%, 1);     /* Subtle */
+  --surface-special: hsla(267, 28%, 19%, 1);         /* MIDPOINT - Default */
+  --surface-special-high: hsla(267, 32%, 24%, 1);    /* More prominent */
+  --surface-special-higher: hsla(267, 37%, 31%, 1);  /* Very prominent */
+  --surface-special-highest: hsla(267, 42%, 39%, 1); /* Most prominent */
+  
+  /* Danger (Bright Pink-Red) - Destructive actions, critical warnings, errors - 7-point scale */
+  --color-danger-red: hsla(350, 100%, 80%, 1);         /* Base danger color - bright pink-red */
+  --surface-danger-lowest: hsla(350, 55%, 8%, 1);      /* Deepest - very dark */
+  --surface-danger-lower: hsla(350, 58%, 14%, 1);      /* Barely perceptible */
+  --surface-danger-low: hsla(350, 62%, 20%, 1);        /* Subtle */
+  --surface-danger: hsla(350, 68%, 28%, 1);            /* MIDPOINT - Default */
+  --surface-danger-high: hsla(350, 74%, 38%, 1);       /* More prominent */
+  --surface-danger-higher: hsla(350, 80%, 48%, 1);     /* Very prominent */
+  --surface-danger-highest: hsla(350, 85%, 57%, 1);    /* Most prominent */
+  
+  /* Base Text Colors - Hierarchy system */
+  --text-primary: var(--color-gray-50);
+  --text-secondary: var(--color-gray-300);
+  --text-tertiary: var(--color-gray-400);
+  --text-muted: var(--color-gray-500);
+  --text-disabled: var(--color-gray-600);
+  --text-inverted: var(--color-gray-900);  /* Dark text for light backgrounds */
+  
+  /* Semantic Text Colors - 5-point hierarchy matching base text structure */
+  /* Brand/Primary (Crimson) - Smooth ramp from bright to dim/desaturated - BOOSTED SATURATION */
+  --text-brand: hsla(0, 82%, 65%, 1);           /* Primary - Main text color - brighter crimson */
+  --text-brand-secondary: var(--color-crimson-light); /* Secondary - Less prominent (0, 78%, 57%) */
+  --text-brand-tertiary: hsla(0, 64%, 42%, 1);  /* Tertiary - Subtle text */
+  --text-brand-muted: hsla(0, 52%, 34%, 1);     /* Muted - De-emphasized */
+  --text-brand-disabled: hsla(0, 38%, 26%, 1);  /* Disabled - Dim & desaturated */
+  
+  /* Accent (Amber) - Smooth ramp from bright to dim/desaturated - BOOSTED SATURATION */
+  --text-accent-primary: hsla(38, 95%, 58%, 1);           /* Primary - Main text color - brighter amber */
+  --text-accent-secondary: var(--color-amber);            /* Secondary - Less prominent (38, 91%, 50%) */
+  --text-accent-tertiary: hsla(38, 75%, 38%, 1);          /* Tertiary - Subtle text */
+  --text-accent-muted: hsla(38, 60%, 32%, 1);             /* Muted - De-emphasized */
+  --text-accent-disabled: hsla(38, 42%, 26%, 1);          /* Disabled - Dim & desaturated */
+  
+  /* Success (Green) - Smooth ramp from bright to dim/desaturated - BOOSTED SATURATION */
+  --text-success: hsla(142, 90%, 70%, 1);           /* Primary - Main text color - brighter green */
+  --text-success-secondary: hsla(142, 85%, 62%, 1); /* Secondary - Less prominent */
+  --text-success-tertiary: hsla(142, 62%, 44%, 1);  /* Tertiary - Subtle text */
+  --text-success-muted: hsla(142, 48%, 36%, 1);     /* Muted - De-emphasized */
+  --text-success-disabled: hsla(142, 32%, 28%, 1);  /* Disabled - Dim & desaturated */
+  
+  /* Danger (Bright Pink-Red) - Smooth ramp from bright to dim/desaturated - BOOSTED SATURATION */
+  --text-danger: hsla(350, 100%, 78%, 1);          /* Primary - Main text color - bright pink-red */
+  --text-danger-secondary: hsla(350, 90%, 68%, 1); /* Secondary - Less prominent */
+  --text-danger-tertiary: hsla(350, 78%, 56%, 1);  /* Tertiary - Subtle text */
+  --text-danger-muted: hsla(350, 62%, 46%, 1);     /* Muted - De-emphasized */
+  --text-danger-disabled: hsla(350, 44%, 36%, 1);  /* Disabled - Dim & desaturated */
+  
+  /* Warning (Orange) - Smooth ramp from bright to dim/desaturated - BOOSTED SATURATION, hue 25 matching surfaces */
+  --text-warning: hsla(25, 95%, 55%, 1);           /* Primary - Main text color */
+  --text-warning-secondary: hsla(25, 85%, 46%, 1); /* Secondary - Less prominent */
+  --text-warning-tertiary: hsla(25, 70%, 38%, 1);  /* Tertiary - Subtle text */
+  --text-warning-muted: hsla(25, 52%, 31%, 1);     /* Muted - De-emphasized */
+  --text-warning-disabled: hsla(25, 35%, 25%, 1);  /* Disabled - Dim & desaturated */
+  
+  /* Info (Blue) - Smooth ramp from bright to dim/desaturated - BOOSTED SATURATION */
+  --text-info: hsla(217, 100%, 78%, 1);            /* Primary - Main text color - bright blue */
+  --text-info-secondary: hsla(217, 95%, 70%, 1);   /* Secondary - Less prominent */
+  --text-info-tertiary: hsla(217, 85%, 60%, 1);    /* Tertiary - Subtle text */
+  --text-info-muted: hsla(217, 68%, 50%, 1);       /* Muted - De-emphasized */
+  --text-info-disabled: hsla(217, 48%, 42%, 1);    /* Disabled - Dim & desaturated */
+  
+  /* Special (Purple) - Smooth ramp from bright to dim/desaturated - BOOSTED SATURATION */
+  --text-special: hsla(258, 95%, 74%, 1);          /* Primary - Main text color - brighter purple */
+  --text-special-secondary: hsla(258, 90%, 66%, 1); /* Secondary - Less prominent */
+  --text-special-tertiary: hsla(258, 70%, 49%, 1);  /* Tertiary - Subtle text */
+  --text-special-muted: hsla(258, 52%, 42%, 1);     /* Muted - De-emphasized */
+  --text-special-disabled: hsla(258, 34%, 34%, 1);  /* Disabled - Dim & desaturated */
+  
+  --color-primary: var(--color-crimson);
+  --color-primary-hover: var(--color-crimson-light);
+  --color-primary-dark: var(--color-crimson-dark);
+  
+  --color-accent: var(--color-amber);
+  
+  --color-success: var(--color-green-light);
+  --color-danger: var(--color-crimson-light);
+  --color-warning: var(--color-amber);
+  --color-info: var(--color-blue);
+  
+  /* Info/In-Progress State Colors (Blue) */
+  --info-text: var(--color-blue);
+  --info-text-secondary: var(--color-blue-light);
+  --info-icon: var(--color-blue);
+  --info-background: hsla(217, 37%, 23%, 1);
+  --info-background-hover: hsla(217, 43%, 30%, 1);
+  --info-border: hsla(217, 37%, 30%, 1);
+  --info-border-hover: hsla(217, 52%, 42%, 1);
+  
+  /* Status Colors */
+  --status-critical-success: var(--color-blue-light);
+  --status-success: var(--color-green-light);
+  --status-failure: var(--color-orange);
+  --status-critical-failure: var(--color-red);
+  
+  /* Button Colors */
+  --btn-primary-bg: hsla(0, 63%, 31%, 1);
+  --btn-primary-hover: hsla(0, 70%, 35%, 1);
+  --btn-secondary-bg: hsla(215, 19%, 27%, 1);
+  --btn-secondary-hover: hsla(215, 14%, 34%, 1);
+  --btn-tertiary-border: hsla(218, 9%, 46%, 1);
+  --btn-tertiary-hover-border: hsla(214, 14%, 65%, 1);
+  --btn-tertiary-text: hsla(214, 17%, 84%, 1);
+  
+  /* Borders - 5-point luminance scale (faint → strong) */
+  --border-faint: hsla(240, 5%, 22%, 1);    /* Barely visible borders */
+  --border-subtle: hsla(240, 5%, 28%, 1);   /* Low visibility borders */
+  --border-default: hsla(240, 5%, 32%, 1);  /* Standard border visibility (middle point) */
+  --border-medium: hsla(240, 5%, 38%, 1);   /* More prominent borders */
+  --border-strong: hsla(240, 5%, 48%, 1);   /* High contrast borders */
+  
+  /* Primary (Crimson) borders - 5-point scale */
+  --border-primary-faint: hsla(0, 20%, 14%, 1);      /* Barely visible */
+  --border-primary-subtle: hsla(0, 32%, 24%, 1);     /* Low visibility */
+  --border-primary: var(--color-crimson);             /* Standard (middle point) */
+  --border-primary-medium: hsla(0, 68%, 60%, 1);     /* More prominent */
+  --border-primary-strong: hsla(0, 78%, 70%, 1);     /* High contrast */
+  
+  /* Accent (Amber) borders - 5-point scale */
+  --border-accent-faint: hsla(38, 20%, 15%, 1);      /* Barely visible */
+  --border-accent-subtle: hsla(38, 35%, 26%, 1);     /* Low visibility */
+  --border-accent: var(--color-amber);                /* Standard (middle point) */
+  --border-accent-medium: hsla(41, 95%, 58%, 1);     /* More prominent */
+  --border-accent-strong: hsla(44, 100%, 70%, 1);    /* High contrast */
+  
+  /* Info (Blue) borders - 6-level scale - Extended dark range, capped bright at 82% */
+  --border-info-faint: hsla(217, 30%, 14%, 1);       /* Darkest - human eye good at perceiving blue */
+  --border-info-darker: hsla(217, 45%, 28%, 1);      /* Very dark - new level between faint and subtle */
+  --border-info-subtle: hsla(217, 55%, 48%, 1);      /* Low visibility */
+  --border-info: hsla(217, 100%, 68%, 1);             /* Standard (middle point) - highly saturated */
+  --border-info-medium: hsla(217, 100%, 75%, 1);     /* More prominent - between default and strong */
+  --border-info-strong: hsla(217, 100%, 82%, 1);     /* Brightest - capped to avoid white shift */
+  
+  /* Success (Green) borders - 5-point scale */
+  --border-success-faint: hsla(142, 19%, 12%, 1);    /* Barely visible */
+  --border-success-subtle: hsla(142, 32%, 21%, 1);   /* Low visibility */
+  --border-success: var(--color-green);               /* Standard (middle point) */
+  --border-success-medium: hsla(142, 71%, 55%, 1);   /* More prominent */
+  --border-success-strong: hsla(142, 71%, 65%, 1);   /* High contrast */
+  
+  /* Warning (Orange) borders - 5-point scale (based on surface-warning-highest + 10% luminance) */
+  --border-warning-faint: hsla(25, 30%, 16%, 1);     /* Barely visible */
+  --border-warning-subtle: hsla(25, 45%, 26%, 1);    /* Low visibility */
+  --border-warning: hsla(25, 65%, 38%, 1);           /* Standard (middle point) */
+  --border-warning-medium: hsla(25, 75%, 48%, 1);    /* More prominent */
+  --border-warning-strong: hsla(25, 85%, 58%, 1);    /* High contrast - surface-warning-highest + 10% */
+  
+  /* Special (Purple) borders - 5-point scale */
+  --border-special-faint: hsla(258, 22%, 15%, 1);    /* Barely visible */
+  --border-special-subtle: hsla(258, 38%, 31%, 1);   /* Low visibility */
+  --border-special: hsla(258, 90%, 66%, 1);          /* Standard (middle point) */
+  --border-special-medium: hsla(258, 90%, 75%, 1);   /* More prominent */
+  --border-special-strong: hsla(258, 90%, 85%, 1);   /* High contrast */
+  
+  /* Danger (Bright Pink-Red) borders - 5-point scale (based on surface-danger-highest + 10% luminance) */
+  --border-danger-faint: hsla(350, 32%, 18%, 1);     /* Barely visible - slightly boosted saturation */
+  --border-danger-subtle: hsla(350, 55%, 32%, 1);    /* Low visibility */
+  --border-danger: hsla(350, 70%, 45%, 1);           /* Standard (middle point) */
+  --border-danger-medium: hsla(350, 80%, 55%, 1);    /* More prominent */
+  --border-danger-strong: hsla(350, 85%, 63%, 1);    /* High contrast - danger-highest + 10% luminance */
+  
+  /* Border Radius */
+  --radius-sm: 0.125rem;    /* 2px */
+  --radius-md: 0.25rem;     /* 4px */
+  --radius-lg: 0.375rem;    /* 6px */
+  --radius-xl: 0.5rem;      /* 8px */
+  --radius-2xl: 0.625rem;   /* 10px */
+  --radius-3xl: 0.75rem;    /* 12px */
+  --radius-full: 1.25rem;   /* 20px */
+  
+  /* Spacing */
+  --space-2: 0.125rem;    /* 2px */
+  --space-4: 0.25rem;     /* 4px */
+  --space-6: 0.375rem;    /* 6px */
+  --space-8: 0.5rem;      /* 8px */
+  --space-10: 0.625rem;   /* 10px */
+  --space-12: 0.75rem;    /* 12px */
+  --space-16: 1rem;       /* 16px */
+  --space-20: 1.25rem;    /* 20px */
+  --space-24: 1.5rem;     /* 24px */
+  --space-32: 2rem;       /* 32px */
+  --space-48: 3rem;       /* 48px */
+  
+  /* Font Families - Module-scoped to avoid Foundry conflicts */
+  --font-sans-rm:   "Signika", "Montserrat", 'Segoe UI', 'Open Sans', 'Helvetica Neue', sans-serif;
+  --font-serif-rm:  "Faculty Glyphic", "Domine", serif;
+  
+  /* Font Sizes */
+  --font-xs: 0.75rem;     /* 12px */
+  --font-sm: 0.875rem;    /* 14px */
+  --font-md: 1rem;        /* 16px */
+  --font-lg: 1.125rem;    /* 18px */
+  --font-xl: 1.25rem;     /* 20px */
+  --font-2xl: 1.375rem;   /* 22px */
+  --font-3xl: 1.625rem;   /* 26px */
+  --font-4xl: 2rem;       /* 32px */
+  --font-5xl: 2.5rem;     /* 40px */
+  --font-6xl: 3rem;       /* 48px */
+  
+  /* Font Weights */
+  --font-weight-thin: 100;
+  --font-weight-light: 200;
+  --font-weight-medium: 300;
+  --font-weight-semibold: 500;
+  --font-weight-bold: 800;
+  
+  /* Gradients */
+  --gradient-header: linear-gradient(to bottom, var(--color-burgundy), var(--color-burgundy-dark));
+  --gradient-primary: linear-gradient(135deg, var(--color-crimson), var(--color-gold));
+  --gradient-success: linear-gradient(to bottom, var(--color-green-dark), var(--color-green-darker));
+  --gradient-progress: linear-gradient(90deg, var(--color-crimson), var(--color-gold));
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 hsla(0, 0%, 0%, 0.05);
+  --shadow-md: 0 4px 6px -1px hsla(0, 0%, 0%, 0.1);
+  --shadow-lg: 0 10px 15px -3px hsla(0, 0%, 0%, 0.1);
+  --shadow-xl: 0 20px 25px -5px hsla(0, 0%, 0%, 0.1);
+  --shadow-2xl: 0 25px 50px -12px hsla(0, 0%, 0%, 0.25);
+  --shadow-card: 0 4px 8px hsla(0, 0%, 0%, 0.2);
+  --shadow-overlay: 0 10px 40px hsla(0, 0%, 0%, 0.5);
+  --shadow-app: 0 0 20px hsla(0, 0%, 0%, 0.8);
+  --shadow-focus: 0 0 0 3px hsla(0, 78%, 60%, 0.1);
+  --shadow-glow-green: 0 0 5px hsla(123, 25%, 70%, 0.3);
+  
+  /* Text Shadows */
+  --text-shadow-sm: 1px 1px 2px hsla(0, 0%, 0%, 0.5);
+  --text-shadow-md: 2px 2px 4px hsla(0, 0%, 0%, 0.3);
+  
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+  
+  /* Z-Index Layers */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 1000;
+  --z-modal: 1100;
+  --z-popover: 1200;
+  --z-tooltip: 1300;
+  --z-fullscreen-blocker: 9999; /* fullscreen blocking overlay (e.g. player waiting screen) */
+  
+  /* Opacity */
+  --opacity-disabled: 0.6;
+  --opacity-hover: 0.8;
+  --opacity-muted: 0.5;
+  
+  /* Line Heights */
+  --line-height-tight: 1;
+  --line-height-snug: 1.2;
+  --line-height-normal: 1.4;
+  --line-height-relaxed: 1.5;
+  --line-height-loose: 2;
+}

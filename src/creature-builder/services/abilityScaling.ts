@@ -1,0 +1,1143 @@
+/**
+ * Ability Scaling Service
+ *
+ * Parses special ability descriptions to find damage formulas and DCs,
+ * then scales them appropriately when creature level changes.
+ *
+ * Uses the official PF2e Spell DC/Attack table (3-benchmark: Moderate, High, Extreme)
+ */
+
+import type { SpecialAbility, ScalableValue } from '../models';
+import {
+  getStatRangesForLevel,
+  scaleStrikeDamage
+} from '../config/creatureStatTables';
+
+// ============================================================================
+// ABILITY DC AND SPELL ATTACK TABLES
+// From PF2e Building Creatures rules - 3 benchmark system
+// ============================================================================
+
+interface AbilityDCRange {
+  moderate: number;
+  high: number;
+  extreme: number;
+}
+
+interface SpellAttackRange {
+  moderate: number;
+  high: number;
+  extreme: number;
+}
+
+type CreatureLevel = -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24;
+
+const ABILITY_DC_TABLE: Record<CreatureLevel, AbilityDCRange> = {
+  [-1]: { moderate: 13, high: 16, extreme: 19 },
+  [0]:  { moderate: 13, high: 16, extreme: 19 },
+  [1]:  { moderate: 14, high: 17, extreme: 20 },
+  [2]:  { moderate: 15, high: 18, extreme: 22 },
+  [3]:  { moderate: 17, high: 20, extreme: 23 },
+  [4]:  { moderate: 18, high: 21, extreme: 25 },
+  [5]:  { moderate: 19, high: 22, extreme: 26 },
+  [6]:  { moderate: 21, high: 24, extreme: 27 },
+  [7]:  { moderate: 22, high: 25, extreme: 29 },
+  [8]:  { moderate: 23, high: 26, extreme: 30 },
+  [9]:  { moderate: 25, high: 28, extreme: 32 },
+  [10]: { moderate: 26, high: 29, extreme: 33 },
+  [11]: { moderate: 27, high: 30, extreme: 34 },
+  [12]: { moderate: 29, high: 32, extreme: 36 },
+  [13]: { moderate: 30, high: 33, extreme: 37 },
+  [14]: { moderate: 31, high: 34, extreme: 39 },
+  [15]: { moderate: 33, high: 36, extreme: 40 },
+  [16]: { moderate: 34, high: 37, extreme: 41 },
+  [17]: { moderate: 35, high: 38, extreme: 43 },
+  [18]: { moderate: 37, high: 40, extreme: 44 },
+  [19]: { moderate: 38, high: 41, extreme: 46 },
+  [20]: { moderate: 39, high: 42, extreme: 47 },
+  [21]: { moderate: 41, high: 44, extreme: 48 },
+  [22]: { moderate: 42, high: 45, extreme: 50 },
+  [23]: { moderate: 43, high: 46, extreme: 51 },
+  [24]: { moderate: 45, high: 48, extreme: 52 }
+};
+
+const SPELL_ATTACK_TABLE: Record<CreatureLevel, SpellAttackRange> = {
+  [-1]: { moderate: 5, high: 8, extreme: 11 },
+  [0]:  { moderate: 5, high: 8, extreme: 11 },
+  [1]:  { moderate: 6, high: 9, extreme: 12 },
+  [2]:  { moderate: 7, high: 10, extreme: 14 },
+  [3]:  { moderate: 9, high: 12, extreme: 15 },
+  [4]:  { moderate: 10, high: 13, extreme: 17 },
+  [5]:  { moderate: 11, high: 14, extreme: 18 },
+  [6]:  { moderate: 13, high: 16, extreme: 19 },
+  [7]:  { moderate: 14, high: 17, extreme: 21 },
+  [8]:  { moderate: 15, high: 18, extreme: 22 },
+  [9]:  { moderate: 17, high: 20, extreme: 24 },
+  [10]: { moderate: 18, high: 21, extreme: 25 },
+  [11]: { moderate: 19, high: 22, extreme: 26 },
+  [12]: { moderate: 21, high: 24, extreme: 28 },
+  [13]: { moderate: 22, high: 25, extreme: 29 },
+  [14]: { moderate: 23, high: 26, extreme: 31 },
+  [15]: { moderate: 25, high: 28, extreme: 32 },
+  [16]: { moderate: 26, high: 29, extreme: 33 },
+  [17]: { moderate: 27, high: 30, extreme: 35 },
+  [18]: { moderate: 29, high: 32, extreme: 36 },
+  [19]: { moderate: 30, high: 33, extreme: 38 },
+  [20]: { moderate: 31, high: 34, extreme: 39 },
+  [21]: { moderate: 33, high: 36, extreme: 40 },
+  [22]: { moderate: 34, high: 37, extreme: 42 },
+  [23]: { moderate: 35, high: 38, extreme: 43 },
+  [24]: { moderate: 37, high: 40, extreme: 44 }
+};
+
+// ============================================================================
+// PERSISTENT DAMAGE TABLE
+// Persistent damage scales more slowly than strike damage.
+// Values are dice formulas for low/moderate/high benchmarks.
+// Based on analysis of PF2e monsters across levels.
+// ============================================================================
+
+interface PersistentDamageRange {
+  low: string;      // Low persistent damage
+  moderate: string; // Moderate persistent damage
+  high: string;     // High persistent damage
+}
+
+const PERSISTENT_DAMAGE_TABLE: Record<CreatureLevel, PersistentDamageRange> = {
+  [-1]: { low: '1d4', moderate: '1d4', high: '1d6' },
+  [0]:  { low: '1d4', moderate: '1d4', high: '1d6' },
+  [1]:  { low: '1d4', moderate: '1d6', high: '1d6' },
+  [2]:  { low: '1d4', moderate: '1d6', high: '1d8' },
+  [3]:  { low: '1d6', moderate: '1d6', high: '2d4' },
+  [4]:  { low: '1d6', moderate: '1d8', high: '2d6' },
+  [5]:  { low: '1d6', moderate: '1d8', high: '2d6' },
+  [6]:  { low: '1d6', moderate: '2d4', high: '2d6' },
+  [7]:  { low: '1d6', moderate: '2d6', high: '2d8' },
+  [8]:  { low: '1d8', moderate: '2d6', high: '2d8' },
+  [9]:  { low: '1d8', moderate: '2d6', high: '3d6' },
+  [10]: { low: '2d4', moderate: '2d6', high: '3d6' },
+  [11]: { low: '2d6', moderate: '2d8', high: '3d6' },
+  [12]: { low: '2d6', moderate: '2d8', high: '3d8' },
+  [13]: { low: '2d6', moderate: '3d6', high: '3d8' },
+  [14]: { low: '2d6', moderate: '3d6', high: '4d6' },
+  [15]: { low: '2d8', moderate: '3d6', high: '4d6' },
+  [16]: { low: '2d8', moderate: '3d8', high: '4d6' },
+  [17]: { low: '3d6', moderate: '3d8', high: '4d8' },
+  [18]: { low: '3d6', moderate: '4d6', high: '4d8' },
+  [19]: { low: '3d6', moderate: '4d6', high: '5d6' },
+  [20]: { low: '3d8', moderate: '4d6', high: '5d6' },
+  [21]: { low: '3d8', moderate: '4d8', high: '5d8' },
+  [22]: { low: '4d6', moderate: '4d8', high: '5d8' },
+  [23]: { low: '4d6', moderate: '5d6', high: '6d6' },
+  [24]: { low: '4d8', moderate: '5d6', high: '6d6' }
+};
+
+// ============================================================================
+// BENCHMARK VALUES FOR 3-BENCHMARK SYSTEM
+// ============================================================================
+
+/** Scalar values for 3-benchmark system (moderate=0, high=0.5, extreme=1) */
+export const ABILITY_BENCHMARK_VALUES = {
+  moderate: 0,
+  high: 0.5,
+  extreme: 1
+} as const;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+function getAbilityDCRange(level: number): AbilityDCRange {
+  const clampedLevel = Math.max(-1, Math.min(24, Math.round(level))) as CreatureLevel;
+  return ABILITY_DC_TABLE[clampedLevel];
+}
+
+function getSpellAttackRange(level: number): SpellAttackRange {
+  const clampedLevel = Math.max(-1, Math.min(24, Math.round(level))) as CreatureLevel;
+  return SPELL_ATTACK_TABLE[clampedLevel];
+}
+
+function getPersistentDamageRange(level: number): PersistentDamageRange {
+  const clampedLevel = Math.max(-1, Math.min(24, Math.round(level))) as CreatureLevel;
+  return PERSISTENT_DAMAGE_TABLE[clampedLevel];
+}
+
+/**
+ * Interpolate a value in a 3-benchmark range
+ * scalar: 0 = moderate, 0.5 = high, 1 = extreme
+ */
+function interpolateAbilityValue(scalar: number, range: AbilityDCRange | SpellAttackRange): number {
+  const s = Math.max(0, Math.min(1, scalar));
+
+  if (s <= 0.5) {
+    // Interpolate between moderate and high
+    const t = s / 0.5;
+    return range.moderate + t * (range.high - range.moderate);
+  } else {
+    // Interpolate between high and extreme
+    const t = (s - 0.5) / 0.5;
+    return range.high + t * (range.extreme - range.high);
+  }
+}
+
+/**
+ * Convert a value to a scalar in a 3-benchmark range
+ * Returns: 0 = moderate, 0.5 = high, 1 = extreme
+ */
+function valueToAbilityScalar(value: number, range: AbilityDCRange | SpellAttackRange): number {
+  if (value <= range.moderate) return 0;
+  if (value >= range.extreme) return 1;
+
+  if (value <= range.high) {
+    // Between moderate and high
+    const t = (value - range.moderate) / (range.high - range.moderate);
+    return t * 0.5;
+  } else {
+    // Between high and extreme
+    const t = (value - range.high) / (range.extreme - range.high);
+    return 0.5 + t * 0.5;
+  }
+}
+
+/**
+ * Get the benchmark label for a scalar value
+ */
+export function getAbilityBenchmarkLabel(scalar: number): 'moderate' | 'high' | 'extreme' {
+  if (scalar < 0.25) return 'moderate';
+  if (scalar < 0.75) return 'high';
+  return 'extreme';
+}
+
+// ============================================================================
+// DAMAGE TYPES (PF2e Remaster)
+// ============================================================================
+
+const DAMAGE_TYPES = [
+  // Physical
+  'bludgeoning', 'piercing', 'slashing', 'bleed',
+  // Energy
+  'acid', 'cold', 'electricity', 'fire', 'force', 'sonic', 'vitality', 'void',
+  // Other
+  'mental', 'poison', 'spirit', 'untyped'
+];
+
+// ============================================================================
+// REGEX PATTERNS
+// ============================================================================
+
+// Matches dice formulas like "2d6", "1d8+4", "3d10-2", "2d6+5 fire"
+const DICE_FORMULA_PATTERN = /(\d+d\d+(?:[+-]\d+)?)\s*(?:points?\s+of\s+)?(\w+)?\s*damage/gi;
+
+// Matches persistent damage like "1d6 persistent fire damage", "2d6 persistent poison"
+const PERSISTENT_DAMAGE_PATTERN = /(\d+d\d+(?:[+-]\d+)?)\s+persistent\s+(\w+)(?:\s+damage)?/gi;
+
+// Matches DC values like "DC 25", "DC 22 Fortitude", "basic Reflex DC 20"
+const DC_PATTERN = /(?:DC\s*(\d+)|(\d+)\s*DC)\s*(?:basic\s+)?(?:Fortitude|Reflex|Will)?/gi;
+
+// Matches PF2e @Check format like "@Check[will|dc:29]", "@Check[fortitude|dc:31|basic]", "@Check[flat|dc:15]"
+// Group 1: check type (will, fortitude, reflex, flat, etc.)
+// Group 2: DC value
+const CHECK_PATTERN = /@Check\[(\w+)\|dc:(\d+)(?:\|[^\]]+)?\]/gi;
+
+// Matches PF2e @Damage format for single-instance damage:
+//   @Damage[2d6]                    — untyped damage
+//   @Damage[2d6[fire]]              — typed damage
+//   @Damage[1d10[persistent,void]]  — persistent typed damage
+// Group 1: dice formula (e.g., "1d10", "2d6+4")
+// Group 2: comma-separated type tokens inside the inner brackets (e.g., "persistent,void", "fire", or undefined)
+// Multi-instance forms like @Damage[2d6[fire],1d4[cold]] intentionally don't match.
+const AT_DAMAGE_PATTERN = /@Damage\[(\d+d\d+(?:[+-]\d+)?)(?:\[([^\]]+)\])?\]/gi;
+
+// ============================================================================
+// PUBLIC FUNCTIONS
+// ============================================================================
+
+/**
+ * Parse a dice formula and calculate its average damage
+ * Handles formulas like "2d6+9", "2d6 + 9", "1d10 - 2"
+ */
+export function parseDiceFormulaAverage(formula: string): number {
+  const components = parseDiceComponents(formula);
+  if (!components) return 0;
+  const avgPerDie = (components.die + 1) / 2;
+  return components.count * avgPerDie + components.bonus;
+}
+
+/**
+ * Parse a simple dice formula (e.g. "2d6+4", "1d10", "3d8-1") into its structural
+ * components. Returns `null` if the formula isn't a simple `NdM[+B]` shape — e.g.
+ * compound formulas like "1d6+1d4" or anything with multiple dice terms.
+ *
+ * Used by the ability editor's structured dice input to initialise its sub-fields.
+ */
+export function parseDiceComponents(
+  formula: string
+): { count: number; die: number; bonus: number } | null {
+  const normalized = formula.replace(/\s+/g, '');
+  const match = normalized.match(/^(\d+)d(\d+)([+-]\d+)?$/);
+  if (!match) return null;
+  return {
+    count: parseInt(match[1], 10),
+    die: parseInt(match[2], 10),
+    bonus: match[3] ? parseInt(match[3], 10) : 0
+  };
+}
+
+/**
+ * Build a dice formula string from structural components. Omits a `+0` suffix.
+ * Count is clamped to ≥1, die to valid PF2e die faces, bonus passed through.
+ */
+export function formatDiceFormula(count: number, die: number, bonus: number): string {
+  const safeCount = Math.max(1, Math.floor(count));
+  const safeDie = Math.max(2, Math.floor(die));
+  const base = `${safeCount}d${safeDie}`;
+  if (bonus === 0) return base;
+  return bonus > 0 ? `${base}+${bonus}` : `${base}${bonus}`;
+}
+
+/**
+ * Determine the benchmark scalar for a damage value at a given level
+ * Uses the 4-benchmark strike damage table
+ */
+export function damageToBenchmark(avgDamage: number, level: number): number {
+  const ranges = getStatRangesForLevel(level);
+  const dmgRange = ranges.strikeDamage;
+
+  // Find the closest benchmark based on average damage
+  const benchmarks = [
+    { scalar: 0, avg: dmgRange.low.average },
+    { scalar: 1 / 3, avg: dmgRange.moderate.average },
+    { scalar: 2 / 3, avg: dmgRange.high.average },
+    { scalar: 1, avg: dmgRange.extreme.average }
+  ];
+
+  let closest = benchmarks[0];
+  let closestDiff = Math.abs(avgDamage - closest.avg);
+
+  for (const bm of benchmarks) {
+    const diff = Math.abs(avgDamage - bm.avg);
+    if (diff < closestDiff) {
+      closestDiff = diff;
+      closest = bm;
+    }
+  }
+
+  // If the value is between benchmarks, interpolate
+  for (let i = 0; i < benchmarks.length - 1; i++) {
+    const low = benchmarks[i];
+    const high = benchmarks[i + 1];
+    if (avgDamage >= low.avg && avgDamage <= high.avg) {
+      const t = (avgDamage - low.avg) / (high.avg - low.avg);
+      return low.scalar + t * (high.scalar - low.scalar);
+    }
+  }
+
+  return closest.scalar;
+}
+
+/**
+ * Determine the benchmark scalar for a DC value at a given level
+ * Uses the 3-benchmark ability DC table (moderate=0, high=0.5, extreme=1)
+ */
+export function dcToBenchmark(dc: number, level: number): number {
+  const range = getAbilityDCRange(level);
+  return valueToAbilityScalar(dc, range);
+}
+
+/**
+ * Determine the benchmark scalar for a spell attack bonus at a given level
+ * Uses the 3-benchmark spell attack table (moderate=0, high=0.5, extreme=1)
+ */
+export function spellAttackToBenchmark(bonus: number, level: number): number {
+  const range = getSpellAttackRange(level);
+  return valueToAbilityScalar(bonus, range);
+}
+
+/**
+ * Calculate scaled damage formula for a benchmark at a new level
+ * Preserves relative damage position by interpolating the target average
+ * and adjusting the closest benchmark formula if needed
+ */
+export function scaleDamage(benchmark: number, newLevel: number): string {
+  const ranges = getStatRangesForLevel(newLevel);
+  const entry = scaleStrikeDamage(benchmark, ranges.strikeDamage);
+  return entry.formula;
+}
+
+/**
+ * Calculate scaled DC for a benchmark at a new level
+ */
+export function scaleDC(benchmark: number, newLevel: number): number {
+  const range = getAbilityDCRange(newLevel);
+  return Math.round(interpolateAbilityValue(benchmark, range));
+}
+
+/**
+ * Calculate scaled spell attack bonus for a benchmark at a new level
+ */
+export function scaleSpellAttack(benchmark: number, newLevel: number): number {
+  const range = getSpellAttackRange(newLevel);
+  return Math.round(interpolateAbilityValue(benchmark, range));
+}
+
+/**
+ * Determine the benchmark scalar for persistent damage at a given level
+ * Uses a 3-benchmark system (0 = low, 0.5 = moderate, 1 = high)
+ */
+export function persistentDamageToBenchmark(avgDamage: number, level: number): number {
+  const range = getPersistentDamageRange(level);
+
+  // Calculate averages for each benchmark
+  const lowAvg = parseDiceFormulaAverage(range.low);
+  const modAvg = parseDiceFormulaAverage(range.moderate);
+  const highAvg = parseDiceFormulaAverage(range.high);
+
+  // Find which benchmark we're closest to
+  if (avgDamage <= lowAvg) return 0;
+  if (avgDamage >= highAvg) return 1;
+
+  if (avgDamage <= modAvg) {
+    // Between low and moderate
+    const t = (avgDamage - lowAvg) / (modAvg - lowAvg);
+    return t * 0.5;
+  } else {
+    // Between moderate and high
+    const t = (avgDamage - modAvg) / (highAvg - modAvg);
+    return 0.5 + t * 0.5;
+  }
+}
+
+/**
+ * Calculate scaled persistent damage formula for a benchmark at a new level
+ */
+export function scalePersistentDamage(benchmark: number, newLevel: number): string {
+  const range = getPersistentDamageRange(newLevel);
+
+  // Map scalar to benchmark: 0-0.33 = low, 0.33-0.67 = moderate, 0.67-1 = high
+  if (benchmark < 0.33) return range.low;
+  if (benchmark < 0.67) return range.moderate;
+  return range.high;
+}
+
+/**
+ * Get the benchmark label for persistent damage
+ */
+export function getPersistentBenchmarkLabel(scalar: number): 'low' | 'moderate' | 'high' {
+  if (scalar < 0.33) return 'low';
+  if (scalar < 0.67) return 'moderate';
+  return 'high';
+}
+
+/**
+ * Benchmark tier values per scalable-value type.
+ * Damage uses the 4-benchmark strike-damage table;
+ * DC and persistent use 3-benchmark tables.
+ */
+const DAMAGE_TIERS: readonly number[] = [0, 1 / 3, 2 / 3, 1];
+const DC_TIERS: readonly number[] = [0, 0.5, 1];
+const PERSISTENT_TIERS: readonly number[] = [0, 0.5, 1];
+
+function getTiersForType(type: ScalableValue['type']): readonly number[] {
+  if (type === 'damage') return DAMAGE_TIERS;
+  if (type === 'persistent') return PERSISTENT_TIERS;
+  return DC_TIERS;
+}
+
+/**
+ * Get the effective benchmark for a scalable value.
+ * Returns the override if set, otherwise the original parsed benchmark.
+ * Note: this does NOT account for customValue — use `getEffectiveValue` for display text.
+ */
+export function getEffectiveBenchmark(sv: ScalableValue): number {
+  return sv.override ?? sv.benchmark;
+}
+
+// ============================================================================
+// PROPORTIONAL SCALING HELPERS
+// Preserve the original dice shape and scale to a target average that trends
+// smoothly up or down with level, instead of snapping to discrete tier formulas.
+// ============================================================================
+
+interface TierAverages {
+  low: number;
+  mod: number;
+  high: number;
+  extreme?: number;
+}
+
+/**
+ * Tier averages for damage (4-tier strike-damage table). The `extreme` entry is populated.
+ */
+function getDamageTierAveragesForLevel(level: number): TierAverages {
+  // Lazy-import to avoid circular require at module load
+  // getStatRangesForLevel lives in the stat tables module.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const range = getStatRangesForLevel(level).strikeDamage;
+  return {
+    low: range.low.average,
+    mod: range.moderate.average,
+    high: range.high.average,
+    extreme: range.extreme.average
+  };
+}
+
+/**
+ * Tier averages for persistent damage (3-tier table). No `extreme`.
+ */
+function getPersistentTierAveragesForLevel(level: number): TierAverages {
+  const row = getPersistentDamageRange(level);
+  return {
+    low: parseDiceFormulaAverage(row.low),
+    mod: parseDiceFormulaAverage(row.moderate),
+    high: parseDiceFormulaAverage(row.high)
+  };
+}
+
+/**
+ * Compute a level-to-level scale factor for the given damage type, using the
+ * moderate tier as the reference point (the "spine" of the PF2e progression curve).
+ * Returns 1 when base and target are the same level.
+ */
+function computeLevelScaleFactor(type: 'damage' | 'persistent', baseLevel: number, targetLevel: number): number {
+  if (baseLevel === targetLevel) return 1;
+  const baseTiers = type === 'damage'
+    ? getDamageTierAveragesForLevel(baseLevel)
+    : getPersistentTierAveragesForLevel(baseLevel);
+  const targetTiers = type === 'damage'
+    ? getDamageTierAveragesForLevel(targetLevel)
+    : getPersistentTierAveragesForLevel(targetLevel);
+  if (baseTiers.mod <= 0) return 1;
+  return targetTiers.mod / baseTiers.mod;
+}
+
+/**
+ * Build a dice formula that approximates a given target average, preserving the
+ * preferred die face. Chooses the smallest count whose residual fits in a modest
+ * flat bonus, keeping formulas like `2d10+3` rather than `1d10+8`.
+ *
+ * Edge cases: very small targets may produce negative bonuses (e.g. `1d10-3`),
+ * which are valid PF2e formulas though visually unusual.
+ */
+function buildFormulaForAverage(targetAvg: number, preferDie: number): string {
+  const perDie = (preferDie + 1) / 2;
+  const maxBonusPerStep = Math.max(1, Math.floor(perDie) - 1);
+
+  let count = 1;
+  while (targetAvg - count * perDie > maxBonusPerStep) {
+    count++;
+    if (count > 50) break; // safety
+  }
+  const bonus = Math.round(targetAvg - count * perDie);
+  return formatDiceFormula(count, preferDie, bonus);
+}
+
+/**
+ * Scale a scalable value proportionally to the target level, preserving the
+ * original dice shape where possible.
+ *
+ * For damage and persistent damage:
+ *   1. Parse the original formula into {count, die, bonus} components.
+ *   2. Compute a level-to-level scale factor from tier-moderate averages.
+ *   3. Multiply the original's average by that factor to get a target average.
+ *   4. Rebuild a formula with the original die face + a count/bonus matching the target.
+ *
+ * For DC: `scaleDC` already interpolates proportionally.
+ *
+ * Falls back to the old tier-snap scalers when the original isn't a simple `NdM[+B]`
+ * shape (e.g. compound formulas) or when baseLevel is missing.
+ */
+export function scaleProportionally(sv: ScalableValue, level: number): string {
+  if (sv.type === 'dc') {
+    return String(scaleDC(sv.benchmark, level));
+  }
+
+  const components = parseDiceComponents(sv.originalValue);
+  if (!components || sv.baseLevel === undefined) {
+    if (sv.type === 'damage') return scaleDamage(sv.benchmark, level);
+    return scalePersistentDamage(sv.benchmark, level);
+  }
+
+  const originalAverage = components.count * ((components.die + 1) / 2) + components.bonus;
+  const factor = computeLevelScaleFactor(sv.type, sv.baseLevel, level);
+  const targetAverage = originalAverage * factor;
+
+  return buildFormulaForAverage(targetAverage, components.die);
+}
+
+/**
+ * Returns the closest tier label for a scalable value at a given level, plus
+ * whether the current effective value matches that tier exactly.
+ *
+ * Returns `null` when the value can't be reliably classified — e.g. `customValue`
+ * is set with an unparseable compound formula. When the value is proportionally
+ * scaled (no override), the closest tier is returned with `exact: false`.
+ */
+export function getTierInfo(
+  sv: ScalableValue,
+  level: number
+): { label: 'low' | 'moderate' | 'high' | 'extreme'; exact: boolean } | null {
+  // For customValue we classify by matching the averaged effective value against tier averages.
+  if (sv.customValue !== undefined && sv.customValue.length > 0) {
+    if (sv.type === 'dc') {
+      const dc = parseInt(sv.customValue, 10);
+      if (Number.isNaN(dc)) return null;
+      return classifyDcByValue(dc, level);
+    }
+    const components = parseDiceComponents(sv.customValue);
+    if (!components) return null;
+    const avg = components.count * ((components.die + 1) / 2) + components.bonus;
+    return classifyDamageByAverage(sv.type, avg, level);
+  }
+
+  // Otherwise use the benchmark scalar (override or original)
+  const b = getEffectiveBenchmark(sv);
+  return classifyByBenchmarkScalar(sv.type, b);
+}
+
+function classifyByBenchmarkScalar(
+  type: ScalableValue['type'],
+  b: number
+): { label: 'low' | 'moderate' | 'high' | 'extreme'; exact: boolean } {
+  const epsilon = 1e-3;
+  if (type === 'damage') {
+    // 4 tiers: [0, 1/3, 2/3, 1]
+    if (b < 1 / 6) return { label: 'low', exact: Math.abs(b) < epsilon };
+    if (b < 3 / 6) return { label: 'moderate', exact: Math.abs(b - 1 / 3) < epsilon };
+    if (b < 5 / 6) return { label: 'high', exact: Math.abs(b - 2 / 3) < epsilon };
+    return { label: 'extreme', exact: Math.abs(b - 1) < epsilon };
+  }
+  if (type === 'persistent') {
+    // 3 tiers: [0, 0.5, 1] → low/mod/high
+    if (b < 0.25) return { label: 'low', exact: Math.abs(b) < epsilon };
+    if (b < 0.75) return { label: 'moderate', exact: Math.abs(b - 0.5) < epsilon };
+    return { label: 'high', exact: Math.abs(b - 1) < epsilon };
+  }
+  // DC: 3 tiers [0, 0.5, 1] → moderate/high/extreme
+  if (b < 0.25) return { label: 'moderate', exact: Math.abs(b) < epsilon };
+  if (b < 0.75) return { label: 'high', exact: Math.abs(b - 0.5) < epsilon };
+  return { label: 'extreme', exact: Math.abs(b - 1) < epsilon };
+}
+
+function classifyDamageByAverage(
+  type: 'damage' | 'persistent',
+  avg: number,
+  level: number
+): { label: 'low' | 'moderate' | 'high' | 'extreme'; exact: boolean } {
+  const tiers = type === 'damage'
+    ? getDamageTierAveragesForLevel(level)
+    : getPersistentTierAveragesForLevel(level);
+  const entries = type === 'damage'
+    ? [
+        { label: 'low' as const, avg: tiers.low },
+        { label: 'moderate' as const, avg: tiers.mod },
+        { label: 'high' as const, avg: tiers.high },
+        { label: 'extreme' as const, avg: tiers.extreme! }
+      ]
+    : [
+        { label: 'low' as const, avg: tiers.low },
+        { label: 'moderate' as const, avg: tiers.mod },
+        { label: 'high' as const, avg: tiers.high }
+      ];
+  let closest = entries[0];
+  let closestDiff = Math.abs(avg - closest.avg);
+  for (const e of entries) {
+    const d = Math.abs(avg - e.avg);
+    if (d < closestDiff) {
+      closestDiff = d;
+      closest = e;
+    }
+  }
+  return { label: closest.label, exact: closestDiff < 0.5 };
+}
+
+function classifyDcByValue(
+  dc: number,
+  level: number
+): { label: 'moderate' | 'high' | 'extreme'; exact: boolean } {
+  const range = getAbilityDCRange(level);
+  const entries: Array<{ label: 'moderate' | 'high' | 'extreme'; avg: number }> = [
+    { label: 'moderate', avg: range.moderate },
+    { label: 'high', avg: range.high },
+    { label: 'extreme', avg: range.extreme }
+  ];
+  let closest = entries[0];
+  let closestDiff = Math.abs(dc - closest.avg);
+  for (const e of entries) {
+    const d = Math.abs(dc - e.avg);
+    if (d < closestDiff) {
+      closestDiff = d;
+      closest = e;
+    }
+  }
+  return { label: closest.label, exact: closestDiff < 0.5 };
+}
+
+/**
+ * True if the scalable value has any user-set override — either an absolute
+ * customValue or a tier override distinct from the originally-parsed benchmark.
+ */
+export function hasOverride(sv: ScalableValue): boolean {
+  if (sv.customValue !== undefined && sv.customValue.length > 0) return true;
+  if (sv.override !== undefined && Math.abs(sv.override - sv.benchmark) > 1e-6) return true;
+  return false;
+}
+
+/**
+ * Compute a benchmark scalar that reflects the CURRENT effective value — suitable
+ * for driving `BenchmarkButtons`' active-tier highlight as the GM edits.
+ *
+ *   - If `override` is set → use it directly (explicit tier selection).
+ *   - If `customValue` is set → reverse-map the custom value's average / DC back
+ *     to a benchmark scalar at the current level, so typing `1d10+13` lights up
+ *     `Hig` instead of staying stuck on the parse-time classification of `1d10`.
+ *   - Otherwise → the stored `benchmark`.
+ *
+ * Returns a scalar in roughly [0, 1]; BenchmarkButtons clamps and classifies.
+ */
+export function getDisplayBenchmark(sv: ScalableValue, level: number): number {
+  if (sv.override !== undefined) return sv.override;
+
+  if (sv.customValue !== undefined && sv.customValue.length > 0) {
+    if (sv.type === 'dc') {
+      const dc = parseInt(sv.customValue, 10);
+      if (Number.isNaN(dc)) return sv.benchmark;
+      return dcToBenchmark(dc, level);
+    }
+    const avg = parseDiceFormulaAverage(sv.customValue);
+    if (avg === 0) return sv.benchmark; // unparseable formula — fall back
+    if (sv.type === 'damage') return damageToBenchmark(avg, level);
+    return persistentDamageToBenchmark(avg, level);
+  }
+
+  return sv.benchmark;
+}
+
+const TIER_EPSILON = 1e-6;
+
+/**
+ * Step a scalable value's effective benchmark by one tier.
+ *
+ * `+1` returns the smallest tier strictly greater than the current effective benchmark,
+ * or the current benchmark if already at or above the highest tier.
+ * `-1` returns the largest tier strictly less than the current effective benchmark,
+ * or the current benchmark if already at or below the lowest tier.
+ *
+ * This "next-above / next-below" semantics avoids jumps when the current value is
+ * interpolated between tiers — e.g. 0.55 `+` → high (0.67), not extreme.
+ */
+export function stepBenchmarkTier(sv: ScalableValue, delta: -1 | 1): number {
+  const tiers = getTiersForType(sv.type);
+  const current = getEffectiveBenchmark(sv);
+
+  if (delta === 1) {
+    for (const tier of tiers) {
+      if (tier > current + TIER_EPSILON) return tier;
+    }
+    return current;
+  } else {
+    for (let i = tiers.length - 1; i >= 0; i--) {
+      if (tiers[i] < current - TIER_EPSILON) return tiers[i];
+    }
+    return current;
+  }
+}
+
+/**
+ * True if there is no tier strictly above the current effective benchmark.
+ */
+export function isAtMaxTier(sv: ScalableValue): boolean {
+  const tiers = getTiersForType(sv.type);
+  const current = getEffectiveBenchmark(sv);
+  return current >= tiers[tiers.length - 1] - TIER_EPSILON;
+}
+
+/**
+ * True if there is no tier strictly below the current effective benchmark.
+ */
+export function isAtMinTier(sv: ScalableValue): boolean {
+  const tiers = getTiersForType(sv.type);
+  const current = getEffectiveBenchmark(sv);
+  return current <= tiers[0] + TIER_EPSILON;
+}
+
+/**
+ * Result of parsing an ability description
+ */
+export interface ParsedAbility {
+  template: string;           // Description with {0}, {1}, etc. placeholders
+  scalableValues: ScalableValue[];
+}
+
+/**
+ * Parse an ability description and extract scalable values
+ * Returns a template with placeholders and the extracted values
+ */
+export function parseAbilityDescription(description: string, level: number): ParsedAbility {
+  const scalableValues: ScalableValue[] = [];
+  let template = description;
+  let placeholderIndex = 0;
+
+  // Track replacements to avoid double-replacing
+  const replacements: Array<{ original: string; placeholder: string; value: ScalableValue }> = [];
+
+  // Track which formulas we've already processed (to avoid double-matching persistent + regular)
+  const processedFormulas = new Set<string>();
+
+  // Find PF2e @Damage macros FIRST so we preserve the macro shape in the template
+  // (the plain-text damage patterns don't match inside @Damage[...] anyway, but doing
+  // this first also avoids any future ambiguity).
+  let atDamageMatch;
+  const atDamageRegex = new RegExp(AT_DAMAGE_PATTERN.source, 'gi');
+  while ((atDamageMatch = atDamageRegex.exec(description)) !== null) {
+    const fullMatch = atDamageMatch[0];
+    const formula = atDamageMatch[1];
+    const typeString = atDamageMatch[2]; // may be undefined for @Damage[2d6]
+
+    // Parse the type string: tokens separated by commas; "persistent" flags persistent damage,
+    // the first non-"persistent" token is taken as the damage type.
+    let isPersistent = false;
+    let damageType: string | undefined;
+    if (typeString) {
+      const tokens = typeString.split(',').map(t => t.trim().toLowerCase());
+      for (const token of tokens) {
+        if (token === 'persistent') {
+          isPersistent = true;
+        } else if (!damageType && DAMAGE_TYPES.includes(token)) {
+          damageType = token;
+        }
+      }
+    }
+
+    const avgDamage = parseDiceFormulaAverage(formula);
+    const benchmark = isPersistent
+      ? persistentDamageToBenchmark(avgDamage, level)
+      : damageToBenchmark(avgDamage, level);
+
+    const value: ScalableValue = {
+      type: isPersistent ? 'persistent' : 'damage',
+      benchmark,
+      originalValue: formula,
+      baseLevel: level,
+      damageType
+    };
+
+    const placeholder = `{${placeholderIndex}}`;
+    // Preserve the @Damage[...] macro shape in the template — substitute only the
+    // dice formula with the placeholder, matching how @Check is handled below.
+    const replacementPattern = fullMatch.replace(formula, placeholder);
+
+    replacements.push({
+      original: fullMatch,
+      placeholder: replacementPattern,
+      value
+    });
+
+    // Mark this formula so plain-text patterns below skip it (belt-and-braces).
+    processedFormulas.add(formula);
+
+    scalableValues.push(value);
+    placeholderIndex++;
+  }
+
+  // Find persistent damage FIRST (before regular damage, so we don't double-match)
+  let persistentMatch;
+  const persistentRegex = new RegExp(PERSISTENT_DAMAGE_PATTERN.source, 'gi');
+  while ((persistentMatch = persistentRegex.exec(description)) !== null) {
+    const formula = persistentMatch[1];
+    const damageType = persistentMatch[2]?.toLowerCase();
+
+    // Validate it's a real damage type
+    const validType = DAMAGE_TYPES.includes(damageType);
+    if (!validType) continue;
+
+    // Mark this formula as processed
+    processedFormulas.add(formula);
+
+    const avgDamage = parseDiceFormulaAverage(formula);
+    const benchmark = persistentDamageToBenchmark(avgDamage, level);
+
+    const value: ScalableValue = {
+      type: 'persistent',
+      benchmark,
+      originalValue: formula,
+      baseLevel: level,
+      damageType: damageType
+    };
+
+    const placeholder = `{${placeholderIndex}}`;
+    replacements.push({
+      original: formula,
+      placeholder,
+      value
+    });
+
+    scalableValues.push(value);
+    placeholderIndex++;
+  }
+
+  // Find regular damage formulas (skip any we already processed as persistent)
+  let damageMatch;
+  const damageRegex = new RegExp(DICE_FORMULA_PATTERN.source, 'gi');
+  while ((damageMatch = damageRegex.exec(description)) !== null) {
+    const formula = damageMatch[1];
+    const damageType = damageMatch[2]?.toLowerCase();
+
+    // Skip if we already processed this as persistent damage
+    if (processedFormulas.has(formula)) continue;
+
+    // Validate it's a real damage type or no type specified
+    const validType = !damageType || DAMAGE_TYPES.includes(damageType);
+    if (!validType) continue;
+
+    const avgDamage = parseDiceFormulaAverage(formula);
+    const benchmark = damageToBenchmark(avgDamage, level);
+
+    const value: ScalableValue = {
+      type: 'damage',
+      benchmark,
+      originalValue: formula,
+      baseLevel: level,
+      damageType: damageType
+    };
+
+    const placeholder = `{${placeholderIndex}}`;
+    replacements.push({
+      original: formula,
+      placeholder,
+      value
+    });
+
+    scalableValues.push(value);
+    placeholderIndex++;
+  }
+
+  // Find PF2e @Check format DCs (e.g., @Check[will|dc:29])
+  // Process these FIRST so we can skip them when processing plain DC patterns
+  const processedCheckPositions = new Set<number>();
+  let checkMatch;
+  const checkRegex = new RegExp(CHECK_PATTERN.source, 'gi');
+  while ((checkMatch = checkRegex.exec(description)) !== null) {
+    const checkType = checkMatch[1].toLowerCase();
+    const dcValue = parseInt(checkMatch[2], 10);
+    if (isNaN(dcValue)) continue;
+
+    // Flat checks should NOT be scaled - they are always the same DC
+    if (checkType === 'flat') {
+      // Don't add to scalableValues - keep it as-is
+      processedCheckPositions.add(checkMatch.index);
+      continue;
+    }
+
+    const benchmark = dcToBenchmark(dcValue, level);
+
+    const value: ScalableValue = {
+      type: 'dc',
+      benchmark,
+      originalValue: String(dcValue),
+      baseLevel: level,
+      checkType  // Store the check type (will, fortitude, reflex, etc.)
+    };
+
+    const placeholder = `{${placeholderIndex}}`;
+    // The full @Check[type|dc:X] pattern - we replace only the dc:X part
+    const fullMatch = checkMatch[0];
+    const replacementPattern = fullMatch.replace(`dc:${dcValue}`, `dc:${placeholder}`);
+    replacements.push({
+      original: fullMatch,
+      placeholder: replacementPattern,
+      value
+    });
+
+    processedCheckPositions.add(checkMatch.index);
+    scalableValues.push(value);
+    placeholderIndex++;
+  }
+
+  // Find all plain DC values (e.g., "DC 25")
+  let dcMatch;
+  const dcRegex = new RegExp(DC_PATTERN.source, 'gi');
+  while ((dcMatch = dcRegex.exec(description)) !== null) {
+    const dcValue = parseInt(dcMatch[1] || dcMatch[2], 10);
+    if (isNaN(dcValue)) continue;
+
+    // Skip if this position was already processed as an @Check
+    // This prevents double-processing of DCs that appear in @Check format
+    const isWithinCheck = Array.from(processedCheckPositions).some(
+      pos => dcMatch!.index >= pos && dcMatch!.index < pos + 50
+    );
+    if (isWithinCheck) continue;
+
+    const benchmark = dcToBenchmark(dcValue, level);
+
+    const value: ScalableValue = {
+      type: 'dc',
+      benchmark,
+      originalValue: String(dcValue),
+      baseLevel: level
+    };
+
+    const placeholder = `{${placeholderIndex}}`;
+    // Replace "DC 25" with "DC {0}" pattern
+    const dcString = dcMatch[1] ? `DC ${dcValue}` : `${dcValue} DC`;
+    replacements.push({
+      original: dcString,
+      placeholder: dcMatch[1] ? `DC ${placeholder}` : `${placeholder} DC`,
+      value
+    });
+
+    scalableValues.push(value);
+    placeholderIndex++;
+  }
+
+  // Apply replacements (sort by position to avoid issues)
+  for (const r of replacements) {
+    template = template.replace(r.original, r.placeholder);
+  }
+
+  return { template, scalableValues };
+}
+
+/**
+ * Compute the "scaled recommendation" for a scalable value at a given level —
+ * i.e. what the value should be if the user has not customised it. This is what
+ * the Reset button returns to, and what the UI surfaces as a hint.
+ *
+ * - At `baseLevel`: returns the literal `originalValue` (preserves exact import identity).
+ * - Away from `baseLevel`: uses `scaleProportionally` so the value trends smoothly up
+ *   or down with level, preserving the original die shape and matching an interpolated
+ *   target average. This replaces the previous tier-snap behaviour, which could
+ *   produce regressions like `1d10` (avg 5.5) at level 7 → `1d8` (avg 4.5) at level 8.
+ */
+export function getScaledRecommendation(sv: ScalableValue, level: number): string {
+  if (sv.baseLevel !== undefined && sv.baseLevel === level) {
+    return sv.originalValue;
+  }
+  return scaleProportionally(sv, level);
+}
+
+/**
+ * Compute the effective display value (dice formula or integer string) for a scalable value.
+ *
+ * This is the single source of truth for "what value should be shown / persisted right now?"
+ * Both the HTML description renderer and the editor stepper read through this so they can't
+ * drift apart.
+ *
+ * Precedence:
+ *   1. `customValue` — absolute override, used verbatim, does not auto-scale with level
+ *   2. `override`    — tier-based override (benchmark scalar), scales with level
+ *   3. scaled recommendation — baseLevel-aware fallback to originalValue or benchmark-scaled
+ */
+export function getEffectiveValue(sv: ScalableValue, level: number): string {
+  if (sv.customValue !== undefined && sv.customValue.length > 0) {
+    return sv.customValue;
+  }
+  if (sv.override !== undefined) {
+    if (sv.type === 'damage') return scaleDamage(sv.override, level);
+    if (sv.type === 'persistent') return scalePersistentDamage(sv.override, level);
+    return String(scaleDC(sv.override, level));
+  }
+  return getScaledRecommendation(sv, level);
+}
+
+/**
+ * Render an ability description with scaled values for a given level
+ */
+export function renderAbilityDescription(
+  template: string,
+  scalableValues: ScalableValue[],
+  level: number
+): string {
+  let result = template;
+
+  for (let i = 0; i < scalableValues.length; i++) {
+    const scaledValue = getEffectiveValue(scalableValues[i], level);
+    result = result.replace(`{${i}}`, scaledValue);
+  }
+
+  return result;
+}
+
+/**
+ * Render an ability description as HTML with each scalable value wrapped in a
+ * `<span class="scalable-inline" data-scalable-index="N">…</span>` tag so the
+ * editor UI can visually tag and cross-highlight values with the stepper inputs
+ * rendered alongside the description.
+ *
+ * `activeIndex`, if provided, marks the corresponding span with `scalable-inline--active`.
+ * Spans with an override-distinct benchmark are marked with `scalable-inline--overridden`.
+ */
+export function renderAbilityDescriptionHtml(
+  template: string,
+  scalableValues: ScalableValue[],
+  level: number,
+  activeIndex?: number
+): string {
+  let result = template;
+
+  for (let i = 0; i < scalableValues.length; i++) {
+    const sv = scalableValues[i];
+    const scaledValue = getEffectiveValue(sv, level);
+    const classes = [
+      'scalable-inline',
+      hasOverride(sv) ? 'scalable-inline--overridden' : '',
+      activeIndex === i ? 'scalable-inline--active' : ''
+    ].filter(Boolean).join(' ');
+    const span = `<span class="${classes}" data-scalable-index="${i}">${scaledValue}</span>`;
+    result = result.replace(`{${i}}`, span);
+  }
+
+  return result;
+}
+
+/**
+ * Process a special ability to add scaling support
+ * Call this when importing a creature to enable level scaling
+ */
+export function processAbilityForScaling(
+  ability: SpecialAbility,
+  level: number
+): SpecialAbility {
+  const { template, scalableValues } = parseAbilityDescription(ability.description, level);
+
+  // Only add scaling data if we found scalable values
+  if (scalableValues.length === 0) {
+    return ability;
+  }
+
+  return {
+    ...ability,
+    descriptionTemplate: template,
+    scalableValues
+  };
+}
+
+/**
+ * Get the rendered description for an ability at a given level
+ * If the ability has scaling data, renders with scaled values
+ * Otherwise returns the original description
+ */
+export function getAbilityDescription(ability: SpecialAbility, level: number): string {
+  const template = ability.customDescriptionTemplate ?? ability.descriptionTemplate;
+  if (template && ability.scalableValues && ability.scalableValues.length > 0) {
+    return renderAbilityDescription(template, ability.scalableValues, level);
+  }
+  // No placeholders, but the user may have provided a freeform override text.
+  if (ability.customDescriptionTemplate) return ability.customDescriptionTemplate;
+  return ability.description;
+}
+
+/**
+ * Process all abilities on a creature for scaling
+ */
+export function processAbilitiesForScaling(
+  abilities: SpecialAbility[],
+  level: number
+): SpecialAbility[] {
+  return abilities.map(ability => processAbilityForScaling(ability, level));
+}
+
+// ============================================================================
+// EXPORTS FOR DIRECT TABLE ACCESS
+// ============================================================================
+
+export { getAbilityDCRange, getSpellAttackRange, getPersistentDamageRange };
