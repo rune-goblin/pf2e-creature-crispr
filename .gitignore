@@ -15,3 +15,9 @@ packs/*
 _pf2e-source
 _foundry-data
 _foundry-modules
+
+# Playwright e2e harness (all generated locally)
+test/foundry-data/
+test-results/
+playwright-report/
+playwright/.cache/
