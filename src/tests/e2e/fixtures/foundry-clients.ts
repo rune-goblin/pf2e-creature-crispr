@@ -108,6 +108,10 @@ export const test = base.extend<object, WorkerFixtures>({
       const page = await gmContext.newPage();
       await joinAsFirstGm(page);
       await waitForCrisprReady(page);
+      // Foundry's permanent warning toast overlays the app's top bar and intercepts clicks on
+      // Create New / Save. Each `.notification` sets `pointer-events: all`, so neutering the
+      // container isn't enough — hide the stack outright. Notifications are informational in tests.
+      await page.addStyleTag({ content: '#notifications { display: none !important; }' });
       await use(page);
     },
     { scope: 'worker' },
