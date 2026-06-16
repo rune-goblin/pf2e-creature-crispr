@@ -80,7 +80,15 @@ export async function openBuilder(page: Page): Promise<void> {
     const id = appId.replace(/-builder$/, '');
     (window as any).game.modules.get(id).api.open();
   }, BUILDER_ID);
-  await page.locator(`#${BUILDER_ID} .creature-workspace`).waitFor({ state: 'visible' });
+  const win = page.locator(`#${BUILDER_ID}`);
+  await win.locator('.creature-workspace').waitFor({ state: 'visible' });
+  // editorStore is a module-level singleton, and reopening the window doesn't reset it — a prior
+  // spec (e.g. duplicate, which opens the copy in the editor) can leave it active. Cancel back to
+  // the list so every caller starts from a known state.
+  if (await win.locator('.editor-header').count()) {
+    await win.locator('.editor-header .btn-secondary', { hasText: 'Cancel' }).click();
+    await win.locator('.creature-list-view').waitFor({ state: 'visible' });
+  }
 }
 
 type WorkerFixtures = {

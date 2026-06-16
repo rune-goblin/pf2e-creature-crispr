@@ -1,5 +1,5 @@
 <script lang="ts">
-   import { type Snippet } from 'svelte';
+   import { type Snippet, untrack } from 'svelte';
    import PickerDialog from '../baseComponents/PickerDialog.svelte';
    import ActorPreview from './ActorPreview.svelte';
    import {
@@ -55,7 +55,10 @@
    });
 
    $effect(() => {
-      if (show) initDialog();
+      // Run init once when the dialog opens. untrack() so initDialog's synchronous reads (notably
+      // currentSource, via `prevSource = currentSource`) don't make this effect a dependency of
+      // currentSource — otherwise switching source tabs re-fires init and snaps back to defaultSource.
+      if (show) untrack(() => initDialog());
    });
 
    let prevSource: Source | null = null;

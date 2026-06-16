@@ -19,6 +19,22 @@ relative path. So the harness serves the **built bundle** from the test Foundry 
 scaffold's `dist` symlink → repo `dist`) and Playwright talks to :30005 directly. `npm run test:e2e`
 rebuilds `dist/` first, so specs always exercise current source. There is no Vite webServer.
 
+## The specs
+
+One operation per file — a failure names the operation that broke:
+
+| Spec | Drives | Asserts |
+|------|--------|---------|
+| `launch` | `api.open()` | the workspace + Creatures list render |
+| `create-save` | Create New → name/level/template → Save | an `npc` in the *Creature CRISPR* folder with the `creatureData` flag + plausible AC/HP |
+| `edit-rescale` | open a creature → bump level → Save | HP/AC re-derived for the new level |
+| `duplicate` | row → Duplicate | an independent `(Copy)` in the folder, opened in the editor |
+| `delete` | row → Delete → confirm | actor removed from the world and the list |
+| `import` | Import → World Actors → pick → Import | the world NPC moved into the folder + flagged |
+
+`openBuilder()` resets the editor to the list view first, because `editorStore` is a module-level
+singleton that a prior spec (e.g. `duplicate`) can leave open.
+
 ## Test data is isolated
 
 `npm run test:e2e:setup` builds `test/foundry-data/` (gitignored): a Foundry data path with its

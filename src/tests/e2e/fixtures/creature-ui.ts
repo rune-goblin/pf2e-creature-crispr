@@ -78,3 +78,31 @@ export async function deleteActors(page: Page, ids: string[]): Promise<void> {
     for (const id of list) await (window as any).game.actors.get(id)?.delete();
   }, ids);
 }
+
+/** Create a plain world NPC (not in the Creature CRISPR folder) to import from. Returns its id. */
+export async function createSourceNpc(page: Page, name: string, opts: { level?: number } = {}): Promise<string> {
+  return page.evaluate(
+    async ({ n, lvl }) => {
+      const actor = await (window as any).Actor.create({
+        name: n,
+        type: 'npc',
+        system: {
+          details: { level: { value: lvl } },
+          attributes: { ac: { value: 16 }, hp: { value: 30, max: 30 } },
+        },
+      });
+      return actor.id as string;
+    },
+    { n: name, lvl: opts.level ?? 2 },
+  );
+}
+
+/** Is this actor (by id) now in the Creature CRISPR folder with the module's data flag? */
+export async function isImportedCreature(page: Page, id: string): Promise<boolean> {
+  return page.evaluate(({ actorId, mod }) => {
+    const g = (window as any).game;
+    const a = g.actors.get(actorId);
+    const folder = g.folders.find((f: any) => f.type === 'Actor' && f.name === 'Creature CRISPR' && !f.folder);
+    return !!a && a.folder?.id === folder?.id && !!a.getFlag(mod, 'creatureData');
+  }, { actorId: id, mod: MODULE_ID });
+}
