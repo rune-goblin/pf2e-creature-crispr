@@ -190,7 +190,7 @@
                <input
                   id="basic-info-name"
                   type="text"
-                  class="rm-input"
+                  class="cc-input"
                   value={creature.name}
                   oninput={(e) => onUpdateCreature?.({ name: e.currentTarget.value })}
                   placeholder="Creature Name"
@@ -240,7 +240,7 @@
                title="Benchmark profile for this creature — PF2e GMG road maps for individual NPCs. Overwrites abilities, AC, HP, saves, and strike attack/damage."
             >
                <label for="basic-info-template">Template</label>
-               <select id="basic-info-template" class="rm-select template-select" value={currentTemplate} onchange={handleTemplateChange}>
+               <select id="basic-info-template" class="cc-select template-select" value={currentTemplate} onchange={handleTemplateChange}>
                   {#each TEMPLATE_OPTIONS as preset (preset)}
                      <option value={preset}>{CREATURE_PRESETS[preset].name}</option>
                   {/each}
@@ -322,7 +322,7 @@
       display: inline-flex;
       align-items: center;
       gap: var(--space-6);
-      font-family: var(--font-sans-rm);
+      font-family: var(--font-sans);
       font-size: var(--font-md);
       font-weight: var(--font-weight-semibold);
       color: var(--text-primary);
@@ -404,7 +404,9 @@
 
       .portrait-image {
          width: 16rem;
-         aspect-ratio: 4 / 5;
+         /* Explicit height, not aspect-ratio (4:5 of 16rem): as a non-stretched flex item the
+            aspect-ratio's transferred height collapses to min-content in Chromium, squashing the box. */
+         height: 20rem;
          background: var(--surface-lowest);
          border: 1px solid var(--border-medium);
          border-radius: var(--radius-lg);
@@ -493,7 +495,7 @@
             font-weight: var(--font-weight-medium);
          }
 
-         :global(.rm-input), :global(.rm-select) {
+         :global(.cc-input), :global(.cc-select) {
             width: 100%;
          }
       }

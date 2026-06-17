@@ -1,81 +1,71 @@
-import type { CreatureBenchmarks, CreatureStats } from '../models';
+import type { NPCPF2e } from 'foundry-pf2e';
 import { getDefaultBenchmarks } from '../models';
-import { analyzeStatsForBenchmarks, calculateCreatureStats } from '../config/creatureStatTables';
+import { calculateCreatureStats } from '../config/creatureStatTables';
+import type { CreatureActorData } from './types';
 import { ensureCreatureFolder } from './folderManager';
 import { logger } from './logger';
-import { parseDiceFormulaAverage } from './abilityScaling';
-import { extractStatsFromActor } from './actorStatsExtractor';
-import { extractSpellcastingStats, extractSpellcastingProgression } from './spells';
+import { readActorStatsAndBenchmarks } from './actorStatsExtractor';
 import { addBenchmarkFlagsToMeleeItems, addBenchmarkFlagsToAbilityItems } from './strikes';
 import { CREATURE_FLAG, CREATURE_DATA_KEY } from './constants';
 
-/** Import an existing world actor: move it into the folder and back-solve its benchmarks. */
-export async function importCreatureFromActor(actorId: string): Promise<string> {
-  const actor: any = game.actors?.get(actorId);
+/**
+ * Import an existing world actor: back-solve its benchmarks and mark it CRISPR-managed.
+ * Membership is the `creatureData` flag, so the actor stays wherever it lives — pass
+ * `moveToFolder` only for the explicit "Move to CRISPR folder" action.
+ */
+export async function importCreatureFromActor(
+  actorId: string,
+  { moveToFolder = false }: { moveToFolder?: boolean } = {}
+): Promise<string> {
+  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) throw new Error(`Actor not found: ${actorId}`);
 
-  const folderId = await ensureCreatureFolder();
   const level = actor.system?.details?.level?.value ?? 1;
 
-  const { spellDC, spellAttack } = extractSpellcastingStats(actor);
-  const { progression: spellProgression, tradition: spellTradition, font: spellFont } =
-    extractSpellcastingProgression(actor);
+  const { baseStats, benchmarks } = readActorStatsAndBenchmarks(actor, level);
 
-  const actorStats: Partial<CreatureStats> = {
-    ...extractStatsFromActor(actor),
-    spellDC,
-    spellAttack
-  };
-
-  const analyzedBenchmarks = analyzeStatsForBenchmarks(level, actorStats);
-  const benchmarks: CreatureBenchmarks = {
-    ...getDefaultBenchmarks(),
-    ...analyzedBenchmarks,
-    abilities: { ...getDefaultBenchmarks().abilities, ...(analyzedBenchmarks.abilities || {}) },
-    saves: { ...getDefaultBenchmarks().saves, ...(analyzedBenchmarks.saves || {}) },
-    ...(spellProgression !== 'none' ? { spellProgression } : {}),
-    ...(spellTradition ? { spellTradition } : {}),
-    ...(spellFont ? { spellFont } : {})
-  };
-
-  await actor.update({ folder: folderId });
+  if (moveToFolder) {
+    const folderId = await ensureCreatureFolder();
+    await actor.update({ folder: folderId });
+  }
   await addBenchmarkFlagsToMeleeItems(actor, level);
   await addBenchmarkFlagsToAbilityItems(actor, level);
 
   await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {
     benchmarks,
     baseLevel: level,
-    baseStats: actorStats as CreatureStats,
+    baseStats,
     importedFrom: actor.name,
     createdAt: Date.now(),
     updatedAt: Date.now()
   });
 
-  logger.info(`Imported actor into folder: ${actor.name}`);
+  logger.info(`Added actor to CRISPR: ${actor.name}`);
   return actor.id;
 }
 
 /** Import a compendium NPC via Foundry's importFromCompendium (preserves embedded items). */
 export async function importCreatureFromCompendium(uuid: string): Promise<string> {
-  const indexData: any = fromUuidSync(uuid);
+  // fromUuidSync returns a broad document|index union; we read only the two locator fields.
+  const indexData = fromUuidSync(uuid) as { pack?: string; _id?: string } | null;
   if (!indexData?.pack || !indexData?._id) {
     throw new Error(`Invalid compendium UUID: ${uuid}`);
   }
 
-  const packCollection: any = game.packs.get(indexData.pack, { strict: true });
-  const worldCollection: any = game.collections.get(packCollection.documentName, { strict: true });
+  const packCollection = game.packs.get(indexData.pack, { strict: true });
+  const worldCollection = game.collections.get(packCollection.documentName, { strict: true });
 
   const folderId = await ensureCreatureFolder();
 
   // Force keepId: false — in v14 the default flipped to true, which silently routes to the
   // "replace existing" path when a compendium _id collides with a world doc (common for legacy
   // bestiary entries duplicated across packs), so no new creature would appear.
-  const actor: any = await worldCollection.importFromCompendium(
+  const actor = (await worldCollection.importFromCompendium(
     packCollection,
     indexData._id,
     { folder: folderId },
     { renderSheet: false, keepId: false }
-  );
+  )) as NPCPF2e | null;
 
   if (!actor) throw new Error('Failed to import actor from compendium');
   if (actor.type !== 'npc') {
@@ -85,55 +75,7 @@ export async function importCreatureFromCompendium(uuid: string): Promise<string
 
   const level = actor.system?.details?.level?.value ?? 1;
 
-  const skills: Record<string, number> = {};
-  const actorSkills = actor.system?.skills || {};
-  for (const [skillName, skillData] of Object.entries(actorSkills)) {
-    const value = (skillData as any)?.base ?? (skillData as any)?.value ?? 0;
-    if (value !== 0) skills[skillName] = value;
-  }
-
-  const { spellDC, spellAttack } = extractSpellcastingStats(actor);
-  const { progression: spellProgression, tradition: spellTradition, font: spellFont } =
-    extractSpellcastingProgression(actor);
-
-  const meleeItems = actor.items.contents.filter((i: any) => i.type === 'melee');
-  let strikeAttackBonus = 0;
-  let strikeDamage = '1d4';
-  let strikeDamageAverage = 2.5;
-
-  if (meleeItems.length > 0) {
-    const firstMelee = meleeItems[0];
-    strikeAttackBonus = firstMelee.system?.bonus?.value ?? 0;
-    const damageRolls = firstMelee.system?.damageRolls || {};
-    for (const rollEntry of Object.values(damageRolls) as any[]) {
-      if (rollEntry.category !== 'persistent' && rollEntry.damage) {
-        strikeDamage = rollEntry.damage;
-        strikeDamageAverage = parseDiceFormulaAverage(strikeDamage);
-        break;
-      }
-    }
-  }
-
-  const baseStats: CreatureStats = {
-    ...extractStatsFromActor(actor),
-    strikeAttackBonus,
-    strikeDamage,
-    strikeDamageAverage,
-    skills,
-    spellDC,
-    spellAttack
-  };
-
-  const analyzedBenchmarks = analyzeStatsForBenchmarks(level, baseStats);
-  const benchmarks: CreatureBenchmarks = {
-    ...getDefaultBenchmarks(),
-    ...analyzedBenchmarks,
-    abilities: { ...getDefaultBenchmarks().abilities, ...(analyzedBenchmarks.abilities || {}) },
-    saves: { ...getDefaultBenchmarks().saves, ...(analyzedBenchmarks.saves || {}) },
-    ...(spellProgression !== 'none' ? { spellProgression } : {}),
-    ...(spellTradition ? { spellTradition } : {}),
-    ...(spellFont ? { spellFont } : {})
-  };
+  const { baseStats, benchmarks } = readActorStatsAndBenchmarks(actor, level);
 
   await addBenchmarkFlagsToMeleeItems(actor, level);
   await addBenchmarkFlagsToAbilityItems(actor, level);
@@ -153,10 +95,10 @@ export async function importCreatureFromCompendium(uuid: string): Promise<string
 
 /** Export a creature's benchmark/stat snapshot to a JSON file. */
 export async function exportCreatureToFile(actorId: string): Promise<void> {
-  const actor: any = game.actors?.get(actorId);
+  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) throw new Error(`Actor not found: ${actorId}`);
 
-  const creatureData = actor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY);
+  const creatureData = actor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY) as CreatureActorData | undefined;
   const level = actor.system?.details?.level?.value ?? 1;
   const benchmarks = creatureData?.benchmarks || getDefaultBenchmarks();
   const stats = calculateCreatureStats(level, benchmarks);
@@ -164,7 +106,7 @@ export async function exportCreatureToFile(actorId: string): Promise<void> {
   const exportData = {
     name: actor.name,
     level,
-    creatureType: actor.system?.details?.creatureType || 'creature',
+    creatureType: (actor.system?.details as { creatureType?: string }).creatureType || 'creature',
     size: actor.system?.traits?.size?.value || 'medium',
     traits: actor.system?.traits?.value || [],
     benchmarks,
@@ -194,8 +136,8 @@ export async function exportCreatureToFile(actorId: string): Promise<void> {
       await writable.write(jsonString);
       await writable.close();
       return;
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
+    } catch (err) {
+      if ((err as { name?: string }).name === 'AbortError') return;
     }
   }
 

@@ -1,9 +1,10 @@
-import type { CreatureBenchmarks } from '../models';
+import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
+import type { CreatureBenchmarks, DamageModifier, Immunity } from '../models';
 import { getDefaultBenchmarks } from '../models';
 import { calculateCreatureStats, calculateStrikeStats } from '../config/creatureStatTables';
 import { logger } from './logger';
 import { requireActor } from './folderManager';
-import { buildActorSystemFromStats } from './crud';
+import { buildActorSystemFromStats, buildIwrSystem } from './crud';
 import { syncSpellcastingEntriesForLevel } from './spells';
 import { syncAbilityItemsForLevel } from './strikes';
 import { CREATURE_FLAG, CREATURE_DATA_KEY, ITEM_BENCHMARK_KEY } from './constants';
@@ -20,17 +21,23 @@ export async function updateCreature(
     traits?: string[];
     portraitImage?: string;
     tokenImage?: string;
+    immunities?: Immunity[];
+    resistances?: DamageModifier[];
+    weaknesses?: DamageModifier[];
   }
 ): Promise<void> {
-  const actor = requireActor(actorId);
-  const a = actor as any;
+  // requireActor yields a world actor (ActorPF2e<null>); normalize to NPCPF2e for the
+  // creature-domain sync helpers — the module only ever edits NPCs.
+  const actor = requireActor(actorId) as unknown as NPCPF2e;
 
   const currentData = actor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY) as CreatureActorData | undefined;
   const benchmarks = updates.benchmarks || currentData?.benchmarks || getDefaultBenchmarks();
-  const level = updates.level ?? a.system?.details?.level?.value ?? 1;
+  const level = updates.level ?? actor.system?.details?.level?.value ?? 1;
   const stats = calculateCreatureStats(level, benchmarks);
 
-  const actorUpdate: any = {
+  // Deeply-nested PF2e update payload assembled dynamically and validated by Foundry at
+  // runtime; `any` here is construction-side, not an actor read.
+  const actorUpdate: Record<string, any> = {
     system: {
       ...buildActorSystemFromStats(stats),
       details: { level: { value: level } }
@@ -46,10 +53,13 @@ export async function updateCreature(
   }
   if (updates.portraitImage) actorUpdate.img = updates.portraitImage;
   if (updates.tokenImage) actorUpdate.prototypeToken = { texture: { src: updates.tokenImage } };
+  if (updates.immunities || updates.resistances || updates.weaknesses) {
+    Object.assign(actorUpdate.system.attributes, buildIwrSystem(updates));
+  }
 
   await actor.update(actorUpdate);
 
-  const levelChanged = updates.level !== undefined && updates.level !== a.system?.details?.level?.value;
+  const levelChanged = updates.level !== undefined && updates.level !== actor.system?.details?.level?.value;
   if (levelChanged || updates.benchmarks) {
     await syncMeleeItemsForLevel(actor, level);
     await syncSpellcastingEntriesForLevel(actor, level, benchmarks);
@@ -70,14 +80,14 @@ export async function updateCreature(
  * Re-derive attack bonus and damage for managed melee items at a new level from their
  * stored benchmark flags. Preserves all native PF2e item data and the damageRolls shape.
  */
-async function syncMeleeItemsForLevel(actor: any, level: number): Promise<void> {
-  const meleeItems = actor.items.contents.filter((i: any) => i.type === 'melee');
+async function syncMeleeItemsForLevel(actor: NPCPF2e, level: number): Promise<void> {
+  const meleeItems = actor.items.contents.filter((i): i is MeleePF2e<NPCPF2e> => i.type === 'melee');
   if (meleeItems.length === 0) return;
 
-  const updates: any[] = [];
+  const updates: EmbeddedDocumentUpdateData[] = [];
 
   for (const item of meleeItems) {
-    const benchmarks: ItemBenchmarkData = item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) || {};
+    const benchmarks: ItemBenchmarkData = (item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) as ItemBenchmarkData) || {};
 
     // Skip items we don't manage (no benchmark flags).
     if (benchmarks.attackBenchmark === undefined && benchmarks.damageBenchmark === undefined) {
@@ -93,11 +103,10 @@ async function syncMeleeItemsForLevel(actor: any, level: number): Promise<void> 
       benchmarks.customPersistentFormula
     );
 
-    const existingRolls = item.system?.damageRolls || {};
-    const updatedRolls: Record<string, any> = {};
+    const existingRolls = item.system?.damageRolls ?? {};
+    const updatedRolls: Record<string, unknown> = {};
 
-    for (const [key, roll] of Object.entries(existingRolls)) {
-      const rollData = roll as any;
+    for (const [key, rollData] of Object.entries(existingRolls)) {
       if (rollData.category === 'persistent') {
         updatedRolls[key] = computed.persistentDamage
           ? { ...rollData, damage: computed.persistentDamage }

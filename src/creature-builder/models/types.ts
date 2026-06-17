@@ -192,11 +192,21 @@ export interface SpecialAbility {
 }
 
 /**
- * Resistance or weakness to a damage type
+ * Resistance or weakness to a damage type.
+ * `exceptions`/`doubleVs` hold IWR type slugs (see config/iwrTypes). `doubleVs` is
+ * resistance-only (damage matching it is resisted at double value).
  */
 export interface DamageModifier {
-  type: string;   // e.g., "fire", "cold", "slashing"
+  type: string;   // e.g., "fire", "cold", "slashing", "physical", "all-damage"
   value: number;  // Amount of resistance/weakness
+  exceptions?: string[];  // qualities/materials that bypass it, e.g. ["silver","adamantine"]
+  doubleVs?: string[];    // resistance-only: damage resisted at double, e.g. ["non-magical"]
+}
+
+/** Immunity to a damage type, condition, or effect. Immunities carry no value. */
+export interface Immunity {
+  type: string;
+  exceptions?: string[];
 }
 
 /**
@@ -231,7 +241,7 @@ export interface Creature {
   speeds: CreatureSpeeds;
 
   // Defenses
-  immunities: string[];  // e.g., "fire", "mental", "death effects"
+  immunities: Immunity[];
   resistances: DamageModifier[];
   weaknesses: DamageModifier[];
 

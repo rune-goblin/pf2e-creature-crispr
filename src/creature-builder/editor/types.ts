@@ -4,10 +4,11 @@ import type {
   CreatureStats,
   CreatureStrike,
   DamageModifier,
+  Immunity,
   SpecialAbility
 } from '../models';
 
-export type { CreatureStats, CreatureStrike, DamageModifier };
+export type { CreatureStats, CreatureStrike, DamageModifier, Immunity };
 
 export type EditorMode = 'create' | 'edit' | 'import';
 
@@ -45,6 +46,7 @@ export interface EditableCreature {
   baseStats?: CreatureStats; // exact stats at baseLevel — used verbatim, not recomputed
   strikes: CreatureStrike[];
   specialAbilities: SpecialAbility[];
+  immunities: Immunity[];
   resistances: DamageModifier[];
   weaknesses: DamageModifier[];
   portraitImage?: string;

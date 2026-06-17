@@ -7,8 +7,9 @@
   align-items: center;
   justify-content: center;
   gap: 0.375rem;
-  width: 100%;
-  margin: 0.25rem 0;
+  /* 8px inline matches the directory-header's .action-buttons/search padding-inline,
+     so the button aligns with the Create Actor/Folder buttons beneath. */
+  margin: 0.25rem 8px;
   padding: 0.3rem;
   cursor: pointer;
 }

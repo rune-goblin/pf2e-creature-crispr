@@ -15,6 +15,26 @@ import { calculateStrikeStats } from '../config/creatureStatTables';
 import { CREATURE_FLAG, ITEM_BENCHMARK_KEY } from './constants';
 import type { ItemBenchmarkData } from './types';
 
+interface StrikeDamageRoll {
+  damage: string;
+  damageType: string;
+  category: string | null;
+}
+
+/** PF2e melee item-create payload; Foundry fills the remaining NPC-template defaults at create time. */
+export interface StrikeItemData {
+  name: string;
+  type: 'melee';
+  system: {
+    action: string;
+    bonus: { value: number };
+    damageRolls: Record<string, StrikeDamageRoll>;
+    traits: { value: string[] };
+    range?: { increment: number };
+  };
+  flags: Record<string, Record<string, ItemBenchmarkData>>;
+}
+
 /**
  * Compose a single PF2e melee `itemData` object from a creature strike + level.
  *
@@ -27,7 +47,7 @@ import type { ItemBenchmarkData } from './types';
  *   - `system.range` if `strike.isRanged`
  *   - `flags[CREATURE_FLAG][ITEM_BENCHMARK_KEY]` containing benchmark data
  */
-export function composeStrikeItemData(strike: CreatureStrike, level: number): any {
+export function composeStrikeItemData(strike: CreatureStrike, level: number): StrikeItemData {
   // Calculate computed values from benchmarks
   const computed = calculateStrikeStats(
     level,
@@ -39,7 +59,7 @@ export function composeStrikeItemData(strike: CreatureStrike, level: number): an
   );
 
   // Build damage rolls object matching PF2e structure
-  const damageRolls: Record<string, any> = {
+  const damageRolls: Record<string, StrikeDamageRoll> = {
     '0': {
       damage: computed.damage,
       damageType: strike.damageType || 'slashing',
@@ -75,7 +95,7 @@ export function composeStrikeItemData(strike: CreatureStrike, level: number): an
   }
 
   // Build melee item - only specify fields we need to set
-  const itemData: any = {
+  const itemData: StrikeItemData = {
     name: strike.name,
     type: 'melee',
     system: {

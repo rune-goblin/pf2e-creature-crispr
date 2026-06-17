@@ -10,7 +10,16 @@
     source?: 'world' | 'bestiary' | 'troops' | 'armies';
   } = $props();
 
-  let resolved = $state<any>(null);
+  // Resolves to either a full actor or a compendium index entry (which lacks `system`);
+  // this view captures just the fields the preview renders, from either shape.
+  type ActorPreviewData = {
+    name?: string | null;
+    img?: string | null;
+    system?: { details?: { level?: { value?: number } }; attributes?: { hp?: { value?: number; max?: number }; ac?: { value?: number } } };
+    prototypeToken?: { texture?: { src?: string | null } };
+  };
+
+  let resolved = $state<ActorPreviewData | null>(null);
   let loading = $state(false);
 
   $effect(() => {
@@ -26,12 +35,12 @@
 
     if (currentSource === 'bestiary') {
       loading = true;
-      let entity: any = fromUuidSync(currentId);
+      let entity = fromUuidSync(currentId) as ActorPreviewData | null;
       // The index entry from fromUuidSync lacks system data; fetch the
       // full document to get hp/ac/img.
       if (!entity?.system) {
         try {
-          entity = await fromUuid(currentId);
+          entity = (await fromUuid(currentId)) as ActorPreviewData | null;
         } catch {
           entity = null;
         }

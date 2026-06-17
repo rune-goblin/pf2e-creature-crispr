@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { ActorPF2e, ItemPF2e } from 'foundry-pf2e';
   import { editorStore } from '@/creature-builder/editor';
   import {
     createCreatureActor,
@@ -24,7 +25,6 @@
   import OffenseSection from './sections/OffenseSection.svelte';
   import SpellcastingSection from './sections/SpellcastingSection.svelte';
   import SpecialAbilitiesSection from './sections/SpecialAbilitiesSection.svelte';
-  import StatblockCard from './sections/StatblockCard.svelte';
 
   const creature = $derived(editorStore.creature);
   const mode = $derived(editorStore.mode);
@@ -53,7 +53,10 @@
           portraitImage: c.portraitImage,
           tokenImage: c.tokenImage,
           strikes: c.strikes,
-          specialAbilities: c.specialAbilities
+          specialAbilities: c.specialAbilities,
+          immunities: c.immunities,
+          resistances: c.resistances,
+          weaknesses: c.weaknesses
         });
       } else if (c.actorId) {
         await updateCreatureService(c.actorId, {
@@ -64,7 +67,10 @@
           creatureType: c.creatureType,
           traits: c.traits,
           portraitImage: c.portraitImage,
-          tokenImage: c.tokenImage
+          tokenImage: c.tokenImage,
+          immunities: c.immunities,
+          resistances: c.resistances,
+          weaknesses: c.weaknesses
         });
         await updateMeleeItems(c.actorId, c.strikes, c.level);
         await updateAbilityItems(c.actorId, c.specialAbilities, c.level);
@@ -95,9 +101,9 @@
 
   // Relies on Foundry's toObject() preserving embedded-item order: the ith source
   // item (within a filter) maps to the ith clone item.
-  function buildItemIdMap(sourceActor: any, cloneActor: any, filter: (i: any) => boolean): Record<string, string> {
-    const sourceItems = (sourceActor.items?.contents || []).filter(filter);
-    const cloneItems = (cloneActor.items?.contents || []).filter(filter);
+  function buildItemIdMap(sourceActor: ActorPF2e, cloneActor: ActorPF2e, filter: (i: ItemPF2e) => boolean): Record<string, string> {
+    const sourceItems = (sourceActor.items?.contents ?? []).filter(filter);
+    const cloneItems = (cloneActor.items?.contents ?? []).filter(filter);
     const map: Record<string, string> = {};
     const len = Math.min(sourceItems.length, cloneItems.length);
     for (let i = 0; i < len; i++) map[sourceItems[i].id] = cloneItems[i].id;
@@ -120,14 +126,14 @@
       const sourceActorId = c.actorId;
       const newActorId = await cloneCreatureActor(sourceActorId, trimmedName);
 
-      const sourceActor: any = game.actors?.get(sourceActorId);
-      const cloneActor: any = game.actors?.get(newActorId);
+      const sourceActor = game.actors?.get(sourceActorId);
+      const cloneActor = game.actors?.get(newActorId);
       if (!sourceActor || !cloneActor) throw new Error('Clone succeeded but new actor could not be resolved');
 
       const strikeMap = buildItemIdMap(sourceActor, cloneActor, (i) => i.type === 'melee');
       const abilityMap = buildItemIdMap(sourceActor, cloneActor, (i) => {
         if (i.type === 'action') return true;
-        if (i.type === 'feat' && i.system?.category === 'creature') return true;
+        if (i.type === 'feat' && (i.system as { category?: string }).category === 'creature') return true;
         return false;
       });
 
@@ -142,7 +148,10 @@
         creatureType: c.creatureType,
         traits: c.traits,
         portraitImage: c.portraitImage,
-        tokenImage: c.tokenImage
+        tokenImage: c.tokenImage,
+        immunities: c.immunities,
+        resistances: c.resistances,
+        weaknesses: c.weaknesses
       });
       await updateMeleeItems(newActorId, remappedStrikes, c.level);
       await updateAbilityItems(newActorId, remappedAbilities, c.level);
@@ -183,7 +192,7 @@
       return;
     }
     if (c?.sourceActorUuid) {
-      const actor: any = await fromUuid(c.sourceActorUuid);
+      const actor = (await fromUuid(c.sourceActorUuid)) as ActorPF2e | null;
       actor?.sheet?.render(true);
       return;
     }
@@ -199,9 +208,12 @@
         creatureType: saveable.creatureType,
         traits: saveable.traits,
         portraitImage: saveable.portraitImage,
-        tokenImage: saveable.tokenImage
+        tokenImage: saveable.tokenImage,
+        immunities: saveable.immunities,
+        resistances: saveable.resistances,
+        weaknesses: saveable.weaknesses
       });
-      const actor: any = game.actors?.get(actorId);
+      const actor = game.actors?.get(actorId);
       actor?.sheet?.render(true);
       editorStore.updateCreature({ actorId, sourceActorUuid: actor?.uuid });
       ui.notifications?.info(`Created creature: ${saveable.name}`);
@@ -297,12 +309,15 @@
             onToggle={() => editorStore.toggleSection('defenses')}
             onBenchmarkSelect={(d) => handleBenchmarkSelect(d.path, d.value)}
             onBenchmarkEdit={(d) => handleBenchmarkEdit(d.path, d.value, d.statType)}
-            onAddResistance={() => editorStore.addResistance()}
+            onAddResistance={(type) => editorStore.addResistance(type)}
             onRemoveResistance={(i) => editorStore.removeResistance(i)}
             onUpdateResistance={(d) => editorStore.updateResistance(d.index, d.updates)}
-            onAddWeakness={() => editorStore.addWeakness()}
+            onAddWeakness={(type) => editorStore.addWeakness(type)}
             onRemoveWeakness={(i) => editorStore.removeWeakness(i)}
             onUpdateWeakness={(d) => editorStore.updateWeakness(d.index, d.updates)}
+            onAddImmunity={(type) => editorStore.addImmunity(type)}
+            onRemoveImmunity={(i) => editorStore.removeImmunity(i)}
+            onUpdateImmunity={(d) => editorStore.updateImmunity(d.index, d.updates)}
           />
         </div>
 
@@ -351,11 +366,8 @@
           onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}
           onUpdateAbilityScalableCustomValue={(d) => editorStore.updateAbilityScalableCustomValue(d.abilityIndex, d.valueIndex, d.customValue)}
           onUpdateAbilityCustomDescriptionTemplate={(d) => editorStore.updateAbilityCustomDescriptionTemplate(d.abilityIndex, d.customTemplate)}
+          onAddAbility={(a) => editorStore.addSpecialAbility(a)}
         />
-
-        {#if computedStats}
-          <StatblockCard {creature} {computedStats} />
-        {/if}
       </div>
     </div>
   </div>
@@ -392,7 +404,8 @@
   .creature-editor {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
     background: var(--empty);
   }
 
@@ -496,12 +509,16 @@
   }
 
   .editor-body {
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     padding: var(--space-16);
     display: flex;
     flex-direction: column;
     gap: var(--space-16);
+    /* Establishes the responsive context for .section-row (responds to the window
+       width, not the viewport — the window is resizable). */
+    container-type: inline-size;
   }
 
   .sticky-section {
@@ -523,7 +540,17 @@
 
   .section-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    /* minmax(0,…) lets columns shrink below their content so wide section
+       contents don't blow the grid out and force horizontal scroll. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: var(--space-8);
+  }
+
+  /* Stack the side-by-side sections once the editor gets narrow (responds to the
+     resizable window, not the viewport — see container-type on .editor-body). */
+  @container (max-width: 40rem) {
+    .section-row {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

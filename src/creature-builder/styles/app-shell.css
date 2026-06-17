@@ -1,0 +1,61 @@
+/* App shell — the structural overrides that make the ApplicationV2 window host our
+   Svelte UI: a resolved flex/height chain so inner overflow-y:auto panels scroll, and
+   themed scrollbars. Scoped with the app id (#pf2e-creature-crispr-builder) so the
+   (1,1,0) specificity beats Foundry/PF2e's own .window-content rules without !important. */
+
+/* Foundry's content wrapper becomes a flex column that clips at the frame edge; the
+   actual scroller is an inner panel (e.g. .editor-body / .creatures-table-container). */
+#pf2e-creature-crispr-builder .window-content {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  background: var(--empty);
+  color: var(--text-primary);
+}
+
+/* The mount element from CreatureCrisprApp._renderHTML(). It must participate in the
+   flex column (flex + min-height:0) or the chain breaks and nothing below it can size
+   itself to scroll. */
+#pf2e-creature-crispr-builder .creature-crispr-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+/* ========================================
+   Scrollbars — themed, scoped to the app
+   ======================================== */
+#pf2e-creature-crispr-builder {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+
+#pf2e-creature-crispr-builder ::-webkit-scrollbar {
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+#pf2e-creature-crispr-builder ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#pf2e-creature-crispr-builder ::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: var(--radius-full);
+  /* Transparent border + padding-box clip insets the thumb so it reads as a pill. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+#pf2e-creature-crispr-builder ::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+#pf2e-creature-crispr-builder ::-webkit-scrollbar-corner {
+  background: transparent;
+}

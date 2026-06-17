@@ -11,6 +11,7 @@ export * from './bestiaryBrowser';
 export * from './folderManager';
 export * from './pickFile';
 export * from './abilityScaling';
+export * from './abilityItemBuilder';
 
 export type {
   CreatureStats,

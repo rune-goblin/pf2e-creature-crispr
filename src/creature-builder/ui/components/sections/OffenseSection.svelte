@@ -160,13 +160,13 @@
                   <div class="attack-header">
                      <input
                         type="text"
-                        class="rm-input attack-name"
+                        class="cc-input attack-name"
                         value={strike.name}
                         oninput={(e) => onUpdateStrike?.({ index, updates: { name: e.currentTarget.value } })}
                         placeholder="Attack Name"
                      />
                      <select
-                        class="rm-select damage-type-select"
+                        class="cc-select damage-type-select"
                         value={strike.damageType}
                         onchange={(e) => onUpdateStrike?.({ index, updates: { damageType: e.currentTarget.value } })}
                      >
@@ -215,7 +215,7 @@
                         {#if editingStrikeIndex === index}
                            <div class="dice-editor-inline">
                               <input type="number" class="dice-input" bind:value={diceCount} min="1" max="10" />
-                              <select class="rm-select dice-select" bind:value={diceSize}>
+                              <select class="cc-select dice-select" bind:value={diceSize}>
                                  {#each DICE_SIZES as s}<option value={s}>d{s}</option>{/each}
                               </select>
                               <input type="number" class="dice-input bonus" bind:value={diceBonus} />
@@ -269,7 +269,7 @@
                            <div class="persistent-inline">
                               <input
                                  type="text"
-                                 class="rm-input persistent-formula-compact"
+                                 class="cc-input persistent-formula-compact"
                                  value={computedStrike.persistentDamage || ''}
                                  placeholder="1d6"
                                  onchange={(e) => {
@@ -278,7 +278,7 @@
                                  }}
                               />
                               <select
-                                 class="rm-select persistent-type-compact"
+                                 class="cc-select persistent-type-compact"
                                  value={strike.persistentDamageType || 'fire'}
                                  onchange={(e) => onUpdateStrikePersistentType?.({ index, type: e.currentTarget.value })}
                               >

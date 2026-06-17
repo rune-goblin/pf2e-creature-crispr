@@ -94,7 +94,7 @@
     {@const data = getBenchmarkData(bm)}
     <button
       type="button"
-      class="rm-benchmark-btn"
+      class="cc-benchmark-btn"
       class:active={activeBenchmark === bm}
       onclick={() => onselect?.({ value: data.value })}
       title={data.label}
@@ -114,7 +114,7 @@
     }
   }
 
-  .rm-benchmark-btn {
+  .cc-benchmark-btn {
     box-sizing: border-box;
     display: inline-block;
     padding: var(--space-4) 0;

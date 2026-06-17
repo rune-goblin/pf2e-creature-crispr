@@ -5,6 +5,7 @@
  * melee strike items and special-ability items (actions / creature feats).
  */
 
+import type { NPCPF2e, MeleePF2e, ItemSourcePF2e } from 'foundry-pf2e';
 import type { CreatureStrike, SpecialAbility } from '../models';
 import { calculateStrikeStats, getStatRangesForLevel, statToScalar4 } from '../config/creatureStatTables';
 import { logger } from './logger';
@@ -28,25 +29,25 @@ import type { ItemBenchmarkData, AbilityBenchmarkData, CreatureActorData } from 
  * Analyze melee items on an actor and add benchmark flags to them.
  * Call this after importing a creature to set up scaling data.
  */
-export async function addBenchmarkFlagsToMeleeItems(actor: any, level: number): Promise<void> {
-  const meleeItems = actor.items.contents.filter((i: any) => i.type === 'melee');
+export async function addBenchmarkFlagsToMeleeItems(actor: NPCPF2e, level: number): Promise<void> {
+  const meleeItems = actor.items.contents.filter((i): i is MeleePF2e<NPCPF2e> => i.type === 'melee');
 
   if (meleeItems.length === 0) {
     return;
   }
 
-  const updates: any[] = [];
+  const updates: EmbeddedDocumentUpdateData[] = [];
 
   for (const item of meleeItems) {
     const attackBonus = item.system?.bonus?.value ?? 0;
-    const damageRolls = item.system?.damageRolls || {};
+    const damageRolls = item.system?.damageRolls ?? {};
 
     // Extract damage info
     let damageFormula = '';
     let persistentDamageFormula = '';
     let persistentDamageType = '';
 
-    const rollEntries = Object.values(damageRolls) as any[];
+    const rollEntries = Object.values(damageRolls);
     for (const rollEntry of rollEntries) {
       const formula = rollEntry.damage || '';
       const isPersistent = rollEntry.category === 'persistent';
@@ -100,20 +101,19 @@ export async function updateMeleeItems(
   strikes: CreatureStrike[],
   level: number
 ): Promise<void> {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) {
     throw new Error(`Actor not found: ${actorId}`);
   }
 
-  const existingItems = actor.items.contents.filter((i: any) => i.type === 'melee');
-  const existingIds = new Set(existingItems.map((i: any) => i.id));
+  const existingItems = actor.items.contents.filter((i): i is MeleePF2e<NPCPF2e> => i.type === 'melee');
+  const existingIds = new Set(existingItems.map((i) => i.id));
   const strikeIds = new Set(strikes.filter(s => s.id).map(s => s.id));
 
   // Items to delete (existing items not in strikes)
   const toDelete = existingItems
-    .filter((i: any) => !strikeIds.has(i.id))
-    .map((i: any) => i.id);
+    .filter((i) => !strikeIds.has(i.id))
+    .map((i) => i.id);
 
   // Strikes to create (no id = new strike)
   const toCreate = strikes.filter(s => !s.id);
@@ -130,7 +130,8 @@ export async function updateMeleeItems(
   if (toCreate.length > 0) {
     const itemsToCreate = toCreate.map(strike => composeStrikeItemData(strike, level));
 
-    await actor.createEmbeddedDocuments('Item', itemsToCreate);
+    // Partial PF2e item source → Foundry fills template defaults and validates at create time.
+    await actor.createEmbeddedDocuments('Item', itemsToCreate as unknown as ItemSourcePF2e[]);
   }
 
   // Update existing items
@@ -146,14 +147,13 @@ export async function updateMeleeItems(
       );
 
       // Find existing item to preserve its damage roll structure
-      const existingItem = existingItems.find((i: any) => i.id === strike.id);
-      const existingRolls = existingItem?.system?.damageRolls || {};
+      const existingItem = existingItems.find((i) => i.id === strike.id);
+      const existingRolls = existingItem?.system?.damageRolls ?? {};
       const rollEntries = Object.entries(existingRolls);
-      const updatedRolls: Record<string, any> = {};
+      const updatedRolls: Record<string, unknown> = {};
       let primaryUpdated = false;
 
-      for (const [key, roll] of rollEntries) {
-        const rollData = roll as any;
+      for (const [key, rollData] of rollEntries) {
         if (rollData.category === 'persistent') {
           if (computed.persistentDamage) {
             updatedRolls[key] = { ...rollData, damage: computed.persistentDamage };
@@ -182,7 +182,7 @@ export async function updateMeleeItems(
       if (strike.persistentDamageType) benchmarkData.persistentDamageType = strike.persistentDamageType;
 
       return {
-        _id: strike.id,
+        _id: strike.id!, // toUpdate filters to strikes whose id exists on the actor
         name: strike.name,
         'system.bonus.value': computed.attackBonus,
         'system.damageRolls': updatedRolls,
@@ -211,8 +211,7 @@ export async function updateAbilityItems(
   specialAbilities: SpecialAbility[],
   level: number
 ): Promise<void> {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) {
     throw new Error(`Actor not found: ${actorId}`);
   }
@@ -224,7 +223,8 @@ export async function updateAbilityItems(
   const newAbilities = specialAbilities.filter(a => !a.id || !actor.items.get(a.id));
   if (newAbilities.length > 0) {
     const itemsToCreate = newAbilities.map(a => composeAbilityItemData(a, level));
-    await actor.createEmbeddedDocuments('Item', itemsToCreate);
+    // Partial PF2e item source → Foundry fills template defaults and validates at create time.
+    await actor.createEmbeddedDocuments('Item', itemsToCreate as unknown as ItemSourcePF2e[]);
   }
 
   // Pull baseLevel from the creature's flag so legacy re-parsing stamps the correct
@@ -233,7 +233,7 @@ export async function updateAbilityItems(
   const creatureData = actor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY) as CreatureActorData | undefined;
   const parseLevel = creatureData?.baseLevel ?? level;
 
-  const updates: any[] = [];
+  const updates: EmbeddedDocumentUpdateData[] = [];
 
   for (const ability of specialAbilities) {
     if (!ability.id) continue;
@@ -303,13 +303,13 @@ export async function updateAbilityItems(
  * Analyze ability items on an actor and add benchmark flags to them.
  * Call this after importing a creature to set up scaling data.
  */
-export async function addBenchmarkFlagsToAbilityItems(actor: any, level: number): Promise<void> {
-  const items = actor.items?.contents || [];
+export async function addBenchmarkFlagsToAbilityItems(actor: NPCPF2e, level: number): Promise<void> {
+  const items = actor.items?.contents ?? [];
 
   // Filter for action items and creature feats
-  const abilityItems = items.filter((i: any) => {
+  const abilityItems = items.filter((i) => {
     if (i.type === 'action') return true;
-    if (i.type === 'feat' && i.system?.category === 'creature') return true;
+    if (i.type === 'feat' && (i.system as { category?: string }).category === 'creature') return true;
     return false;
   });
 
@@ -317,7 +317,7 @@ export async function addBenchmarkFlagsToAbilityItems(actor: any, level: number)
     return;
   }
 
-  const updates: any[] = [];
+  const updates: EmbeddedDocumentUpdateData[] = [];
 
   for (const item of abilityItems) {
     const description = item.system?.description?.value || '';
@@ -351,27 +351,27 @@ export async function addBenchmarkFlagsToAbilityItems(actor: any, level: number)
  * Update ability items on an actor for a new level using their stored benchmark flags.
  * Re-renders descriptions with scaled damage/DC values.
  */
-export async function syncAbilityItemsForLevel(actor: any, level: number): Promise<void> {
-  const items = actor.items?.contents || [];
+export async function syncAbilityItemsForLevel(actor: NPCPF2e, level: number): Promise<void> {
+  const items = actor.items?.contents ?? [];
 
   // Filter for action items and creature feats with benchmark data
-  const abilityItems = items.filter((i: any) => {
-    if (i.type !== 'action' && !(i.type === 'feat' && i.system?.category === 'creature')) {
+  const abilityItems = items.filter((i) => {
+    if (i.type !== 'action' && !(i.type === 'feat' && (i.system as { category?: string }).category === 'creature')) {
       return false;
     }
     // Only sync items that have benchmark data
-    const benchmarkData = i.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY);
-    return benchmarkData?.descriptionTemplate && benchmarkData?.scalableValues?.length > 0;
+    const benchmarkData = i.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY) as AbilityBenchmarkData | undefined;
+    return !!benchmarkData?.descriptionTemplate && (benchmarkData?.scalableValues?.length ?? 0) > 0;
   });
 
   if (abilityItems.length === 0) {
     return;
   }
 
-  const updates: any[] = [];
+  const updates: EmbeddedDocumentUpdateData[] = [];
 
   for (const item of abilityItems) {
-    const benchmarkData: AbilityBenchmarkData = item.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY);
+    const benchmarkData = item.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY) as AbilityBenchmarkData;
 
     if (!benchmarkData?.descriptionTemplate || !benchmarkData?.scalableValues) {
       continue;

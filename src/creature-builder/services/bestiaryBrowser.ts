@@ -14,6 +14,17 @@ export interface BestiaryFilterOptions {
   includeLegacy?: boolean; // include pre-remaster content (default: false)
 }
 
+/** The compendium index fields requested below; index entries are loosely typed. */
+interface BestiaryIndexEntry {
+  _id?: string;
+  type?: string;
+  name?: string;
+  system?: {
+    details?: { level?: { value?: number }; publication?: { remaster?: boolean } };
+    traits?: { value?: string[] };
+  };
+}
+
 let cachedEntries: BestiaryEntry[] | null = null;
 let cacheLoading: Promise<BestiaryEntry[]> | null = null;
 
@@ -46,7 +57,7 @@ async function loadAllNPCEntries(): Promise<BestiaryEntry[]> {
         fields: ['type', 'system.details.level.value', 'system.traits.value', 'system.details.publication.remaster']
       });
       for (const entry of index) {
-        const e = entry as any;
+        const e = entry as BestiaryIndexEntry;
         if (e.type && e.type !== 'npc') continue;
         entries.push({
           uuid: `Compendium.${pack.metadata.id}.Actor.${e._id}`,

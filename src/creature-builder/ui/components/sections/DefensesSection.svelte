@@ -1,9 +1,15 @@
 <script lang="ts">
-  import type { EditableCreature, CreatureStats, DamageModifier } from '@/creature-builder/editor';
+  import type { EditableCreature, CreatureStats, DamageModifier, Immunity } from '@/creature-builder/editor';
   import { getStatRangesForLevel, getHPRange, getResistanceWeaknessRange } from '@/creature-builder/config/creatureStatTables';
-  import { DAMAGE_TYPES } from '@/creature-builder/editor/creatureEditorUtils';
+  import {
+    RESISTANCE_TYPE_GROUPS,
+    WEAKNESS_TYPE_GROUPS,
+    IMMUNITY_TYPE_GROUPS,
+    EXCEPTION_TYPE_GROUPS
+  } from '@/creature-builder/config/iwrTypes';
   import BenchmarkSelector from '../widgets/BenchmarkSelector.svelte';
   import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
+  import IwrChipCloud from '../widgets/IwrChipCloud.svelte';
 
   let {
     creature,
@@ -17,7 +23,10 @@
     onUpdateResistance,
     onAddWeakness,
     onRemoveWeakness,
-    onUpdateWeakness
+    onUpdateWeakness,
+    onAddImmunity,
+    onRemoveImmunity,
+    onUpdateImmunity
   }: {
     creature: EditableCreature;
     computedStats: CreatureStats | null;
@@ -25,12 +34,15 @@
     onToggle?: () => void;
     onBenchmarkSelect?: (d: { path: string; value: number }) => void;
     onBenchmarkEdit?: (d: { path: string; value: number; statType: string }) => void;
-    onAddResistance?: () => void;
+    onAddResistance?: (type: string) => void;
     onRemoveResistance?: (index: number) => void;
     onUpdateResistance?: (d: { index: number; updates: Partial<DamageModifier> }) => void;
-    onAddWeakness?: () => void;
+    onAddWeakness?: (type: string) => void;
     onRemoveWeakness?: (index: number) => void;
     onUpdateWeakness?: (d: { index: number; updates: Partial<DamageModifier> }) => void;
+    onAddImmunity?: (type: string) => void;
+    onRemoveImmunity?: (index: number) => void;
+    onUpdateImmunity?: (d: { index: number; updates: Partial<Immunity> }) => void;
   } = $props();
 
   const hpRangeSubtext = $derived.by(() => {
@@ -95,80 +107,60 @@
         />
       </div>
 
+      <!-- Immunities — valueless tags. Resistances/weaknesses are quantified, so they
+           carry an inline value (and resistances a 'double vs' line), but share the cloud. -->
+      <div class="damage-modifiers-section">
+        <div class="damage-modifiers-header">
+          <span class="modifier-title">Immunities{#if creature.immunities.length}<span class="modifier-count">{creature.immunities.length}</span>{/if}</span>
+        </div>
+        <IwrChipCloud
+          items={creature.immunities}
+          typeGroups={IMMUNITY_TYPE_GROUPS}
+          exceptionGroups={EXCEPTION_TYPE_GROUPS}
+          addLabel="add immunity"
+          onAdd={(type) => onAddImmunity?.(type)}
+          onRemove={(index) => onRemoveImmunity?.(index)}
+          onUpdate={(index, updates) => onUpdateImmunity?.({ index, updates })}
+        />
+      </div>
+
       <!-- Resistances -->
       <div class="damage-modifiers-section">
         <div class="damage-modifiers-header">
-          <span>Resistances</span>
-          <button class="add-modifier-btn" aria-label="Add resistance" title="Add resistance" onclick={() => onAddResistance?.()}>
-            <i class="fas fa-plus"></i>
-          </button>
+          <span class="modifier-title">Resistances{#if creature.resistances.length}<span class="modifier-count">{creature.resistances.length}</span>{/if}</span>
+          <span class="modifier-typical">typical {resistanceWeaknessRange.min}–{resistanceWeaknessRange.max}</span>
         </div>
-        {#if creature.resistances.length > 0}
-          <div class="damage-modifiers-list">
-            {#each creature.resistances as resistance, index (index)}
-              <div class="damage-modifier-row">
-                <select
-                  class="rm-select modifier-type-select"
-                  value={resistance.type}
-                  onchange={(e) => onUpdateResistance?.({ index, updates: { type: e.currentTarget.value } })}
-                >
-                  {#each DAMAGE_TYPES as dt (dt)}
-                    <option value={dt}>{dt}</option>
-                  {/each}
-                </select>
-                <input
-                  type="number"
-                  class="rm-input modifier-value-input"
-                  value={resistance.value}
-                  min="1"
-                  onchange={(e) => onUpdateResistance?.({ index, updates: { value: parseInt(e.currentTarget.value) || 1 } })}
-                />
-                <span class="modifier-range">({resistanceWeaknessRange.min}-{resistanceWeaknessRange.max})</span>
-                <button class="remove-modifier-btn" aria-label="Remove resistance" title="Remove resistance" onclick={() => onRemoveResistance?.(index)}>
-                  <i class="fas fa-times"></i>
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
+        <IwrChipCloud
+          items={creature.resistances}
+          typeGroups={RESISTANCE_TYPE_GROUPS}
+          exceptionGroups={EXCEPTION_TYPE_GROUPS}
+          addLabel="add resistance"
+          valued
+          showDoubleVs
+          valueRange={resistanceWeaknessRange}
+          onAdd={(type) => onAddResistance?.(type)}
+          onRemove={(index) => onRemoveResistance?.(index)}
+          onUpdate={(index, updates) => onUpdateResistance?.({ index, updates })}
+        />
       </div>
 
       <!-- Weaknesses -->
       <div class="damage-modifiers-section">
         <div class="damage-modifiers-header">
-          <span>Weaknesses</span>
-          <button class="add-modifier-btn" aria-label="Add weakness" title="Add weakness" onclick={() => onAddWeakness?.()}>
-            <i class="fas fa-plus"></i>
-          </button>
+          <span class="modifier-title">Weaknesses{#if creature.weaknesses.length}<span class="modifier-count">{creature.weaknesses.length}</span>{/if}</span>
+          <span class="modifier-typical">typical {resistanceWeaknessRange.min}–{resistanceWeaknessRange.max}</span>
         </div>
-        {#if creature.weaknesses.length > 0}
-          <div class="damage-modifiers-list">
-            {#each creature.weaknesses as weakness, index (index)}
-              <div class="damage-modifier-row">
-                <select
-                  class="rm-select modifier-type-select"
-                  value={weakness.type}
-                  onchange={(e) => onUpdateWeakness?.({ index, updates: { type: e.currentTarget.value } })}
-                >
-                  {#each DAMAGE_TYPES as dt (dt)}
-                    <option value={dt}>{dt}</option>
-                  {/each}
-                </select>
-                <input
-                  type="number"
-                  class="rm-input modifier-value-input"
-                  value={weakness.value}
-                  min="1"
-                  onchange={(e) => onUpdateWeakness?.({ index, updates: { value: parseInt(e.currentTarget.value) || 1 } })}
-                />
-                <span class="modifier-range">({resistanceWeaknessRange.min}-{resistanceWeaknessRange.max})</span>
-                <button class="remove-modifier-btn" aria-label="Remove weakness" title="Remove weakness" onclick={() => onRemoveWeakness?.(index)}>
-                  <i class="fas fa-times"></i>
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
+        <IwrChipCloud
+          items={creature.weaknesses}
+          typeGroups={WEAKNESS_TYPE_GROUPS}
+          exceptionGroups={EXCEPTION_TYPE_GROUPS}
+          addLabel="add weakness"
+          valued
+          valueRange={resistanceWeaknessRange}
+          onAdd={(type) => onAddWeakness?.(type)}
+          onRemove={(index) => onRemoveWeakness?.(index)}
+          onUpdate={(index, updates) => onUpdateWeakness?.({ index, updates })}
+        />
       </div>
     </div>
   {/if}
@@ -224,83 +216,26 @@
 
   .damage-modifiers-header {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
     margin-bottom: var(--space-8);
-
-    span {
-      font-size: var(--font-sm);
-      font-weight: var(--font-weight-semibold);
-      color: var(--text-secondary);
-    }
   }
 
-  .add-modifier-btn {
-    all: unset;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    background: var(--surface-low);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    color: var(--text-muted);
-    font-size: var(--font-xs);
-    cursor: pointer;
-
-    &:hover {
-      background: var(--surface-high);
-      color: var(--text-primary);
-    }
-  }
-
-  .damage-modifiers-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-6);
-  }
-
-  .damage-modifier-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-8);
-  }
-
-  .modifier-type-select {
-    min-height: auto;
-    padding: var(--space-4) var(--space-24) var(--space-4) var(--space-8);
+  .modifier-title {
     font-size: var(--font-sm);
-    width: 8rem;
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-secondary);
   }
 
-  .modifier-value-input {
-    width: 4rem;
-    padding: var(--space-4) var(--space-8);
-    font-size: var(--font-sm);
-    text-align: center;
-  }
-
-  .modifier-range {
+  .modifier-count {
+    margin-left: var(--space-6);
     font-size: var(--font-xs);
+    font-weight: var(--font-weight-medium);
     color: var(--text-muted);
   }
 
-  .remove-modifier-btn {
-    all: unset;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
-    color: var(--text-muted);
+  .modifier-typical {
     font-size: var(--font-xs);
-    cursor: pointer;
-
-    &:hover {
-      color: var(--text-danger);
-    }
+    color: var(--text-muted);
   }
 </style>

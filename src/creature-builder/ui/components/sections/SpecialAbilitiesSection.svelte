@@ -10,7 +10,9 @@
       getDisplayBenchmark,
       hasOverride,
       parseDiceComponents,
-      formatDiceFormula
+      formatDiceFormula,
+      composeAbilityItemForExport,
+      specialAbilityFromDrop
    } from '@/creature-builder/services';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
@@ -25,7 +27,8 @@
       onToggle,
       onUpdateAbilityScalableOverride,
       onUpdateAbilityScalableCustomValue,
-      onUpdateAbilityCustomDescriptionTemplate
+      onUpdateAbilityCustomDescriptionTemplate,
+      onAddAbility
    }: {
       creature: EditableCreature;
       expanded: boolean;
@@ -33,9 +36,56 @@
       onUpdateAbilityScalableOverride?: (detail: { abilityIndex: number; valueIndex: number; override: number | undefined }) => void;
       onUpdateAbilityScalableCustomValue?: (detail: { abilityIndex: number; valueIndex: number; customValue: string | undefined }) => void;
       onUpdateAbilityCustomDescriptionTemplate?: (detail: { abilityIndex: number; customTemplate: string | undefined }) => void;
+      onAddAbility?: (ability: SpecialAbility) => void;
    } = $props();
 
    const expandedAbilities = new SvelteSet<number>();
+
+   let isDragOver = $state(false);
+
+   // Drag a CRISPR ability onto a PF2e actor sheet: serialize it to an action-item source (with
+   // the user's current scalable edits baked in) as a standard Foundry Item drop payload.
+   function handleAbilityDragStart(event: DragEvent, ability: SpecialAbility): void {
+      if (!event.dataTransfer) return;
+      const data = composeAbilityItemForExport(ability, creature.level);
+      event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'Item', data, crisprAbilityDrag: true }));
+      event.dataTransfer.effectAllowed = 'copy';
+   }
+
+   function handleSectionDragOver(event: DragEvent): void {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      isDragOver = true;
+   }
+
+   function handleSectionDragLeave(event: DragEvent): void {
+      // Ignore leaves that merely cross into a child element.
+      const related = event.relatedTarget;
+      if (related instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(related)) return;
+      isDragOver = false;
+   }
+
+   async function handleSectionDrop(event: DragEvent): Promise<void> {
+      event.preventDefault();
+      isDragOver = false;
+      const raw = event.dataTransfer?.getData('text/plain');
+      if (!raw) return;
+      let data: { type?: string; crisprAbilityDrag?: boolean };
+      try {
+         data = JSON.parse(raw);
+      } catch {
+         return;
+      }
+      // A CRISPR ability dragged out and dropped back in — don't duplicate it.
+      if (data.crisprAbilityDrag) return;
+      const ability = await specialAbilityFromDrop(data, creature.level);
+      if (!ability) {
+         ui.notifications?.warn('Drop an action or passive ability here.');
+         return;
+      }
+      onAddAbility?.(ability);
+      ui.notifications?.info(`Added "${ability.name}" to special abilities`);
+   }
 
    function getScalableValue(sv: ScalableValue, level: number): string {
       const raw = getEffectiveValue(sv, level);
@@ -180,9 +230,19 @@
 <section class="editor-section">
    <CollapsibleSection label="Special Abilities ({creature.specialAbilities.length})" {expanded} ontoggle={() => onToggle?.()} />
    {#if expanded}
-      <div class="section-body">
+      <div
+         class="section-body"
+         class:drag-over={isDragOver}
+         role="group"
+         aria-label="Drop an action or passive ability here to add it"
+         ondragover={handleSectionDragOver}
+         ondragleave={handleSectionDragLeave}
+         ondrop={handleSectionDrop}
+      >
          {#if creature.specialAbilities.length === 0}
-            <p class="no-abilities-message">No special abilities. Import a creature to see its abilities.</p>
+            <p class="no-abilities-message">
+               No special abilities yet. Drag an action or passive from an actor sheet here, or import a creature.
+            </p>
          {:else}
             <div class="abilities-toolbar">
                <button class="toolbar-btn" onclick={expandAllAbilities} title="Expand all" aria-label="Expand all">
@@ -196,6 +256,17 @@
                {#each creature.specialAbilities as ability, abilityIndex (abilityIndex)}
                   {@const isExpandable = hasExpandableContent(ability)}
                   {@const isAbilityExpanded = isExpandable && expandedAbilities.has(abilityIndex)}
+                  <div class="ability-row">
+                     <span
+                        class="drag-handle"
+                        draggable="true"
+                        role="img"
+                        aria-label="Drag {ability.name} onto an actor sheet"
+                        title="Drag onto an actor sheet to copy this ability"
+                        ondragstart={(e) => handleAbilityDragStart(e, ability)}
+                     >
+                        <i class="fas fa-grip-vertical"></i>
+                     </span>
                   {#if isExpandable}
                      <div class="ability-card" class:expanded={isAbilityExpanded}>
                         <button class="ability-header" onclick={() => toggleAbility(abilityIndex)}>
@@ -424,6 +495,7 @@
                         </div>
                      </div>
                   {/if}
+                  </div>
                {/each}
             </div>
          {/if}
@@ -445,6 +517,14 @@
       display: flex;
       flex-direction: column;
       gap: var(--space-12);
+      transition: background var(--transition-fast), outline-color var(--transition-fast);
+      outline: 2px dashed transparent;
+      outline-offset: -4px;
+
+      &.drag-over {
+         outline-color: var(--color-primary);
+         background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+      }
    }
 
    /* Special Abilities Section */
@@ -482,6 +562,44 @@
       display: flex;
       flex-direction: column;
       gap: var(--space-6);
+   }
+
+   .ability-row {
+      display: flex;
+      align-items: stretch;
+      gap: var(--space-4);
+   }
+
+   .ability-row > .ability-card,
+   .ability-row > .ability-item {
+      flex: 1 1 auto;
+      min-width: 0;
+   }
+
+   .drag-handle {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.25rem;
+      color: var(--text-muted);
+      cursor: grab;
+      border-radius: var(--radius-sm);
+      transition: color var(--transition-fast), background var(--transition-fast);
+
+      &:hover {
+         color: var(--text-primary);
+         background: var(--hover-low);
+      }
+
+      &:active {
+         cursor: grabbing;
+      }
+
+      i {
+         font-size: var(--font-xs);
+         pointer-events: none;
+      }
    }
 
    /* Simple ability item (no expandable content) */

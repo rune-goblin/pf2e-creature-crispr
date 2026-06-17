@@ -234,19 +234,30 @@ const PERSISTENT_DAMAGE_PATTERN = /(\d+d\d+(?:[+-]\d+)?)\s+persistent\s+(\w+)(?:
 // Matches DC values like "DC 25", "DC 22 Fortitude", "basic Reflex DC 20"
 const DC_PATTERN = /(?:DC\s*(\d+)|(\d+)\s*DC)\s*(?:basic\s+)?(?:Fortitude|Reflex|Will)?/gi;
 
-// Matches PF2e @Check format like "@Check[will|dc:29]", "@Check[fortitude|dc:31|basic]", "@Check[flat|dc:15]"
-// Group 1: check type (will, fortitude, reflex, flat, etc.)
-// Group 2: DC value
-const CHECK_PATTERN = /@Check\[(\w+)\|dc:(\d+)(?:\|[^\]]+)?\]/gi;
+// A plain "DC N" starting within this many chars of an @Check macro is the same DC already
+// captured by the @Check pass — skip it to avoid a duplicate scalable value.
+const CHECK_DEDUP_WINDOW = 50;
 
-// Matches PF2e @Damage format for single-instance damage:
-//   @Damage[2d6]                    — untyped damage
-//   @Damage[2d6[fire]]              — typed damage
-//   @Damage[1d10[persistent,void]]  — persistent typed damage
-// Group 1: dice formula (e.g., "1d10", "2d6+4")
-// Group 2: comma-separated type tokens inside the inner brackets (e.g., "persistent,void", "fire", or undefined)
-// Multi-instance forms like @Damage[2d6[fire],1d4[cold]] intentionally don't match.
-const AT_DAMAGE_PATTERN = /@Damage\[(\d+d\d+(?:[+-]\d+)?)(?:\[([^\]]+)\])?\]/gi;
+// Matches a whole @Check[...] macro; the inner segments are parsed by hand (the DC may be in any
+// position and the check type may be a save, skill, or hyphenated/spaced lore — parsed inline in parseAbilityDescription).
+const AT_CHECK_MACRO = /@Check\[([^\]]+)\]/gi;
+
+// Matches a whole @Damage[...] macro, tolerating one level of bracket nesting (the [type] / [splash]
+// / [precision] sub-brackets). The PF2e @Damage grammar is recursive — parenthesised sums, nested
+// precision/splash, comma-separated multi-instance, |options flags, @actor.level expressions — so we
+// capture the whole macro and tokenise it in extractDamageInstance rather than match a fixed shape.
+const AT_DAMAGE_MACRO = /@Damage\[(?:[^\[\]]|\[[^\]]*\])*\]/gi;
+
+// A macro containing any of these is dynamic/level-derived (e.g. @Damage[floor(1 + @actor.level/2)d6])
+// and ALREADY rescales itself in Foundry — we must leave it untouched, not freeze it to a fixed value.
+const DAMAGE_EXPR_MARKERS = /@|resolve\(|floor\(|ceil\(|round\(|max\(|min\(|abs\(/i;
+
+// Extracts the leading dice/flat formula of a single damage instance, but only when it's a *clean*
+// value — a bare NdM[±B] or flat integer that ends at a `)`, `[`, `,`, `|`, or end. Compound sums
+// like "(2d6 + 4 + (2d6[precision]))" deliberately fail (more expression follows), so we skip them
+// instead of corrupting the macro. Surrounding parens and [type]/[splash]/[precision] brackets are
+// matched outside the capture group so they're preserved when only group 1 is swapped for a placeholder.
+const INSTANCE_FORMULA_PATTERN = /^\(?\s*(\d+d\d+(?:\s*[+-]\s*\d+)?|\d+)\s*(?=$|\)|\[|,|\|)/;
 
 // ============================================================================
 // PUBLIC FUNCTIONS
@@ -469,9 +480,6 @@ interface TierAverages {
  * Tier averages for damage (4-tier strike-damage table). The `extreme` entry is populated.
  */
 function getDamageTierAveragesForLevel(level: number): TierAverages {
-  // Lazy-import to avoid circular require at module load
-  // getStatRangesForLevel lives in the stat tables module.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const range = getStatRangesForLevel(level).strikeDamage;
   return {
     low: range.low.average,
@@ -549,6 +557,15 @@ function buildFormulaForAverage(targetAvg: number, preferDie: number): string {
 export function scaleProportionally(sv: ScalableValue, level: number): string {
   if (sv.type === 'dc') {
     return String(scaleDC(sv.benchmark, level));
+  }
+
+  // Flat numeric damage (e.g. @Damage[7[piercing]], @Damage[5[persistent,acid]]) has no dice to
+  // reshape — scale the integer by the level-to-level factor and keep it flat.
+  if (/^\s*\d+\s*$/.test(sv.originalValue) && sv.baseLevel !== undefined) {
+    const original = parseInt(sv.originalValue, 10);
+    const kind = sv.type === 'persistent' ? 'persistent' : 'damage';
+    const factor = computeLevelScaleFactor(kind, sv.baseLevel, level);
+    return String(Math.max(1, Math.round(original * factor)));
   }
 
   const components = parseDiceComponents(sv.originalValue);
@@ -768,6 +785,54 @@ export interface ParsedAbility {
   scalableValues: ScalableValue[];
 }
 
+/** Split on `delim`, but only at the top bracket/paren nesting level. */
+function splitTopLevel(s: string, delim: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const c of s) {
+    if (c === '[' || c === '(') depth++;
+    else if (c === ']' || c === ')') depth--;
+    if (c === delim && depth === 0) {
+      out.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/** Average of a dice formula or a flat integer ("7" → 7, "2d6+4" → 11). */
+function formulaAverage(formula: string): number {
+  return /^\s*\d+\s*$/.test(formula) ? parseInt(formula, 10) : parseDiceFormulaAverage(formula);
+}
+
+interface DamageInstance {
+  formula: string;        // the exact substring to swap for a placeholder (e.g. "2d10+10", "7")
+  damageType?: string;
+  persistent: boolean;
+}
+
+/**
+ * Tokenise a single damage instance (already comma-split) into its scalable leading formula plus
+ * type/persistent flags. Returns null when the instance isn't a clean dice/flat value — compound
+ * sums and precision/splash arithmetic — so the caller leaves it untouched rather than mangle it.
+ */
+function extractDamageInstance(instance: string): DamageInstance | null {
+  const m = instance.match(INSTANCE_FORMULA_PATTERN);
+  if (!m) return null;
+  const tokens = [...instance.matchAll(/\[([^\]]+)\]/g)].flatMap(b =>
+    b[1].split(',').map(t => t.trim().toLowerCase())
+  );
+  return {
+    formula: m[1],
+    persistent: tokens.includes('persistent'),
+    damageType: tokens.find(t => DAMAGE_TYPES.includes(t))
+  };
+}
+
 /**
  * Parse an ability description and extract scalable values
  * Returns a template with placeholders and the extracted values
@@ -777,66 +842,56 @@ export function parseAbilityDescription(description: string, level: number): Par
   let template = description;
   let placeholderIndex = 0;
 
-  // Track replacements to avoid double-replacing
-  const replacements: Array<{ original: string; placeholder: string; value: ScalableValue }> = [];
+  // Each entry replaces description[start, end) with `text`; applied right-to-left at the end so
+  // earlier offsets stay valid. Position-based (not content-based) so a fragment that repeats
+  // elsewhere in the prose can't be substituted at the wrong occurrence.
+  const replacements: Array<{ start: number; end: number; text: string }> = [];
 
   // Track which formulas we've already processed (to avoid double-matching persistent + regular)
   const processedFormulas = new Set<string>();
 
-  // Find PF2e @Damage macros FIRST so we preserve the macro shape in the template
-  // (the plain-text damage patterns don't match inside @Damage[...] anyway, but doing
-  // this first also avoids any future ambiguity).
+  // Find PF2e @Damage macros FIRST so we preserve the macro shape in the template. Each macro may
+  // hold several comma-separated damage instances (e.g. "5d6[fire],5d6[void]"); we extract a
+  // scalable value per instance and substitute only its formula, leaving parens, [type]/[splash]/
+  // [precision] brackets and trailing |options flags verbatim. Macros with @actor/expression markers
+  // are skipped — they already rescale themselves in Foundry.
   let atDamageMatch;
-  const atDamageRegex = new RegExp(AT_DAMAGE_PATTERN.source, 'gi');
+  const atDamageRegex = new RegExp(AT_DAMAGE_MACRO.source, 'gi');
   while ((atDamageMatch = atDamageRegex.exec(description)) !== null) {
-    const fullMatch = atDamageMatch[0];
-    const formula = atDamageMatch[1];
-    const typeString = atDamageMatch[2]; // may be undefined for @Damage[2d6]
+    const macro = atDamageMatch[0];
+    const macroStart = atDamageMatch.index;
+    const inner = macro.slice('@Damage['.length, -1);
+    if (DAMAGE_EXPR_MARKERS.test(inner)) continue; // @actor.level / floor() etc. self-scale in Foundry
 
-    // Parse the type string: tokens separated by commas; "persistent" flags persistent damage,
-    // the first non-"persistent" token is taken as the damage type.
-    let isPersistent = false;
-    let damageType: string | undefined;
-    if (typeString) {
-      const tokens = typeString.split(',').map(t => t.trim().toLowerCase());
-      for (const token of tokens) {
-        if (token === 'persistent') {
-          isPersistent = true;
-        } else if (!damageType && DAMAGE_TYPES.includes(token)) {
-          damageType = token;
-        }
-      }
+    const instances = splitTopLevel(splitTopLevel(inner, '|')[0], ',');
+
+    let templatedMacro = macro;
+    let matched = false;
+    for (const instance of instances) {
+      const extracted = extractDamageInstance(instance);
+      if (!extracted) continue; // compound/expression instance — leave it as-is
+
+      const avgDamage = formulaAverage(extracted.formula);
+      const value: ScalableValue = {
+        type: extracted.persistent ? 'persistent' : 'damage',
+        benchmark: extracted.persistent
+          ? persistentDamageToBenchmark(avgDamage, level)
+          : damageToBenchmark(avgDamage, level),
+        originalValue: extracted.formula,
+        baseLevel: level,
+        damageType: extracted.damageType
+      };
+
+      templatedMacro = templatedMacro.replace(extracted.formula, `{${placeholderIndex}}`);
+      processedFormulas.add(extracted.formula);
+      scalableValues.push(value);
+      placeholderIndex++;
+      matched = true;
     }
 
-    const avgDamage = parseDiceFormulaAverage(formula);
-    const benchmark = isPersistent
-      ? persistentDamageToBenchmark(avgDamage, level)
-      : damageToBenchmark(avgDamage, level);
-
-    const value: ScalableValue = {
-      type: isPersistent ? 'persistent' : 'damage',
-      benchmark,
-      originalValue: formula,
-      baseLevel: level,
-      damageType
-    };
-
-    const placeholder = `{${placeholderIndex}}`;
-    // Preserve the @Damage[...] macro shape in the template — substitute only the
-    // dice formula with the placeholder, matching how @Check is handled below.
-    const replacementPattern = fullMatch.replace(formula, placeholder);
-
-    replacements.push({
-      original: fullMatch,
-      placeholder: replacementPattern,
-      value
-    });
-
-    // Mark this formula so plain-text patterns below skip it (belt-and-braces).
-    processedFormulas.add(formula);
-
-    scalableValues.push(value);
-    placeholderIndex++;
+    if (matched) {
+      replacements.push({ start: macroStart, end: macroStart + macro.length, text: templatedMacro });
+    }
   }
 
   // Find persistent damage FIRST (before regular damage, so we don't double-match)
@@ -864,12 +919,7 @@ export function parseAbilityDescription(description: string, level: number): Par
       damageType: damageType
     };
 
-    const placeholder = `{${placeholderIndex}}`;
-    replacements.push({
-      original: formula,
-      placeholder,
-      value
-    });
+    replacements.push({ start: persistentMatch.index, end: persistentMatch.index + formula.length, text: `{${placeholderIndex}}` });
 
     scalableValues.push(value);
     placeholderIndex++;
@@ -900,55 +950,41 @@ export function parseAbilityDescription(description: string, level: number): Par
       damageType: damageType
     };
 
-    const placeholder = `{${placeholderIndex}}`;
-    replacements.push({
-      original: formula,
-      placeholder,
-      value
-    });
+    replacements.push({ start: damageMatch.index, end: damageMatch.index + formula.length, text: `{${placeholderIndex}}` });
 
     scalableValues.push(value);
     placeholderIndex++;
   }
 
-  // Find PF2e @Check format DCs (e.g., @Check[will|dc:29])
-  // Process these FIRST so we can skip them when processing plain DC patterns
+  // Find PF2e @Check macros. Process these FIRST so we can skip them when scanning plain DC patterns.
+  // The DC may sit in any |segment (@Check[reflex|basic|dc:25|options:area-effect]) and the check
+  // type may be a save, skill, or hyphenated/spaced lore. Only a literal dc:N is scalable; flat
+  // checks, defense:/against: targets and dc:resolve(...) auto-derive their DC and are left alone.
   const processedCheckPositions = new Set<number>();
   let checkMatch;
-  const checkRegex = new RegExp(CHECK_PATTERN.source, 'gi');
+  const checkRegex = new RegExp(AT_CHECK_MACRO.source, 'gi');
   while ((checkMatch = checkRegex.exec(description)) !== null) {
-    const checkType = checkMatch[1].toLowerCase();
-    const dcValue = parseInt(checkMatch[2], 10);
-    if (isNaN(dcValue)) continue;
+    processedCheckPositions.add(checkMatch.index);
+    const segments = checkMatch[1].split('|').map(s => s.trim());
+    const checkType = segments[0].toLowerCase();
+    if (checkType === 'flat') continue;
 
-    // Flat checks should NOT be scaled - they are always the same DC
-    if (checkType === 'flat') {
-      // Don't add to scalableValues - keep it as-is
-      processedCheckPositions.add(checkMatch.index);
-      continue;
-    }
-
-    const benchmark = dcToBenchmark(dcValue, level);
+    const dcSegment = segments.find(s => /^dc:\d+$/.test(s));
+    if (!dcSegment) continue; // defense:/against:/resolve() — auto-derived, nothing to scale
+    const dcValue = parseInt(dcSegment.slice(3), 10);
+    if (dcValue <= 0) continue; // dc:0 is a sentinel for an externally-supplied DC
 
     const value: ScalableValue = {
       type: 'dc',
-      benchmark,
+      benchmark: dcToBenchmark(dcValue, level),
       originalValue: String(dcValue),
       baseLevel: level,
-      checkType  // Store the check type (will, fortitude, reflex, etc.)
+      checkType
     };
 
-    const placeholder = `{${placeholderIndex}}`;
-    // The full @Check[type|dc:X] pattern - we replace only the dc:X part
-    const fullMatch = checkMatch[0];
-    const replacementPattern = fullMatch.replace(`dc:${dcValue}`, `dc:${placeholder}`);
-    replacements.push({
-      original: fullMatch,
-      placeholder: replacementPattern,
-      value
-    });
+    const replacementText = checkMatch[0].replace(`dc:${dcValue}`, `dc:{${placeholderIndex}}`);
+    replacements.push({ start: checkMatch.index, end: checkMatch.index + checkMatch[0].length, text: replacementText });
 
-    processedCheckPositions.add(checkMatch.index);
     scalableValues.push(value);
     placeholderIndex++;
   }
@@ -963,7 +999,7 @@ export function parseAbilityDescription(description: string, level: number): Par
     // Skip if this position was already processed as an @Check
     // This prevents double-processing of DCs that appear in @Check format
     const isWithinCheck = Array.from(processedCheckPositions).some(
-      pos => dcMatch!.index >= pos && dcMatch!.index < pos + 50
+      pos => dcMatch!.index >= pos && dcMatch!.index < pos + CHECK_DEDUP_WINDOW
     );
     if (isWithinCheck) continue;
 
@@ -976,22 +1012,27 @@ export function parseAbilityDescription(description: string, level: number): Par
       baseLevel: level
     };
 
-    const placeholder = `{${placeholderIndex}}`;
-    // Replace "DC 25" with "DC {0}" pattern
-    const dcString = dcMatch[1] ? `DC ${dcValue}` : `${dcValue} DC`;
+    // Replace only the "DC N" / "N DC" clause, leaving any trailing save name. The clause sits at
+    // the match start; its length runs to the end of the digits (DC-first) or of "DC" (digits-first).
+    const rawDigits = dcMatch[1] || dcMatch[2];
+    const clauseLen = dcMatch[1]
+      ? dcMatch[0].indexOf(rawDigits) + rawDigits.length
+      : dcMatch[0].search(/dc/i) + 2;
+    const clauseText = description.slice(dcMatch.index, dcMatch.index + clauseLen);
     replacements.push({
-      original: dcString,
-      placeholder: dcMatch[1] ? `DC ${placeholder}` : `${placeholder} DC`,
-      value
+      start: dcMatch.index,
+      end: dcMatch.index + clauseLen,
+      text: clauseText.replace(rawDigits, `{${placeholderIndex}}`)
     });
 
     scalableValues.push(value);
     placeholderIndex++;
   }
 
-  // Apply replacements (sort by position to avoid issues)
+  // Apply right-to-left so each splice leaves earlier offsets valid.
+  replacements.sort((a, b) => b.start - a.start);
   for (const r of replacements) {
-    template = template.replace(r.original, r.placeholder);
+    template = template.slice(0, r.start) + r.text + template.slice(r.end);
   }
 
   return { template, scalableValues };

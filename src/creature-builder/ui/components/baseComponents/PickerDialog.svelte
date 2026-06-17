@@ -152,7 +152,7 @@
           >
             <input
               type="text"
-              class="search-input rm-input"
+              class="search-input cc-input"
               placeholder={searchPlaceholder}
               bind:value={searchTerm}
               bind:this={searchInputRef}

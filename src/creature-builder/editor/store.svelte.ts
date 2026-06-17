@@ -1,10 +1,12 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import type { NPCPF2e } from 'foundry-pf2e';
 import type {
   CreatureBenchmarks,
   CreatureSpeeds,
   CreatureStats,
   CreatureStrike,
   DamageModifier,
+  Immunity,
   SpecialAbility
 } from '../models';
 import { getDefaultBenchmarks, createDefaultStrike, CREATURE_PRESETS, BENCHMARK_VALUES_4 } from '../models';
@@ -15,35 +17,24 @@ import {
   getSpecialAbilitiesFromActor,
   getResistancesFromActor,
   getWeaknessesFromActor,
-  extractStatsFromActor
+  getImmunitiesFromActor,
+  readActorStatsAndBenchmarks,
+  deriveBenchmarksFromActor
 } from '../services';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import { ALL_SECTIONS } from './types';
 
 const DEFAULT_EXPANDED: EditorSection[] = ['abilities', 'defenses', 'skills', 'offense', 'spellcasting'];
 
-/**
- * Reverse-engineer benchmark scalars from an actor's current stats — for actors created
- * outside the editor (no stored benchmark flag), so they edit against their real stats
- * instead of defaults and a save doesn't reset them.
- */
-function deriveBenchmarksFromActor(actor: any, level: number): CreatureBenchmarks {
-  const analyzed = analyzeStatsForBenchmarks(level, extractStatsFromActor(actor));
-  const defaults = getDefaultBenchmarks();
-  return {
-    ...defaults,
-    ...analyzed,
-    abilities: { ...defaults.abilities, ...(analyzed.abilities || {}) },
-    saves: { ...defaults.saves, ...(analyzed.saves || {}) }
-  };
-}
+/** `system.attributes.speed` isn't on the prepared NPC type; read it through a narrow view of just the movement fields. */
+type ActorSpeedView = { speed?: { value?: number; otherSpeeds?: Array<{ type?: string; value?: number }> } };
 
-function getSpeedsFromActor(actor: any): CreatureSpeeds {
-  const speed = actor?.system?.attributes?.speed;
+function getSpeedsFromActor(actor: NPCPF2e | null | undefined): CreatureSpeeds {
+  const speed = (actor?.system?.attributes as ActorSpeedView | undefined)?.speed;
   const speeds: CreatureSpeeds = { land: speed?.value ?? 25 };
   for (const other of speed?.otherSpeeds ?? []) {
     if (other.type && other.value != null) {
-      (speeds as any)[other.type] = other.value;
+      (speeds as unknown as Record<string, number>)[other.type] = other.value;
     }
   }
   return speeds;
@@ -102,6 +93,7 @@ class CreatureEditorStore {
       speeds: { land: 25 },
       strikes: [createDefaultStrike('Melee Strike')],
       specialAbilities: [],
+      immunities: [],
       resistances: [],
       weaknesses: []
     };
@@ -114,7 +106,7 @@ class CreatureEditorStore {
   }
 
   startEditActor(actorId: string): void {
-    const actor: any = game.actors?.get(actorId);
+    const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
     if (!actor) {
       console.error('[CreatureEditor] Actor not found:', actorId);
       return;
@@ -125,15 +117,16 @@ class CreatureEditorStore {
     // Flagged creatures keep their stored benchmarks/baseStats verbatim. Actors without the
     // flag back-solve from live stats, so editing them never resets their real numbers.
     const creatureData = getCreatureData(actorId);
-    const benchmarks = creatureData?.benchmarks || deriveBenchmarksFromActor(actor, level);
+    const fromActor = creatureData ? undefined : readActorStatsAndBenchmarks(actor, level);
+    const benchmarks = creatureData?.benchmarks ?? fromActor?.benchmarks ?? deriveBenchmarksFromActor(actor, level);
     const baseLevel = creatureData ? creatureData.baseLevel : level;
-    const baseStats = creatureData ? creatureData.baseStats : (extractStatsFromActor(actor) as CreatureStats);
+    const baseStats = creatureData ? creatureData.baseStats : fromActor!.baseStats;
 
     this.creature = {
       actorId,
       name: actor.name || 'Unknown',
       level,
-      creatureType: actor.system?.details?.creatureType || 'creature',
+      creatureType: (actor.system?.details as { creatureType?: string }).creatureType || 'creature',
       size: actor.system?.traits?.size?.value || 'medium',
       traits: actor.system?.traits?.value || [],
       benchmarks,
@@ -141,11 +134,12 @@ class CreatureEditorStore {
       baseStats,
       strikes: getStrikesFromActor(actorId),
       specialAbilities: getSpecialAbilitiesFromActor(actorId),
+      immunities: getImmunitiesFromActor(actorId),
       resistances: getResistancesFromActor(actorId),
       weaknesses: getWeaknessesFromActor(actorId),
       speeds: getSpeedsFromActor(actor),
       portraitImage: actor.img,
-      tokenImage: actor.prototypeToken?.texture?.src,
+      tokenImage: actor.prototypeToken?.texture?.src ?? undefined,
       importedFrom: creatureData?.importedFrom
     };
     // snapshot already deep-clones, so no extra structuredClone is needed.
@@ -187,9 +181,10 @@ class CreatureEditorStore {
       benchmarks,
       strikes: getStrikesFromActor(actorId),
       specialAbilities: getSpecialAbilitiesFromActor(actorId),
+      immunities: getImmunitiesFromActor(actorId),
       resistances: getResistancesFromActor(actorId),
       weaknesses: getWeaknessesFromActor(actorId),
-      speeds: getSpeedsFromActor(game.actors?.get(actorId)),
+      speeds: getSpeedsFromActor(game.actors?.get(actorId) as NPCPF2e | undefined),
       importedFrom: actorData.name
     };
     this.originalCreature = null;
@@ -477,8 +472,9 @@ class CreatureEditorStore {
 
   // ── Resistances / weaknesses ──────────────────────────────────────────────
 
-  addResistance(type: string = 'fire', value: number = 5): void {
+  addResistance(type: string, value: number = 5): void {
     this.mutateCreature((c) => {
+      if (c.resistances.some((r) => r.type === type)) return;
       c.resistances.push({ type, value });
     });
   }
@@ -496,8 +492,9 @@ class CreatureEditorStore {
     });
   }
 
-  addWeakness(type: string = 'fire', value: number = 5): void {
+  addWeakness(type: string, value: number = 5): void {
     this.mutateCreature((c) => {
+      if (c.weaknesses.some((w) => w.type === type)) return;
       c.weaknesses.push({ type, value });
     });
   }
@@ -512,6 +509,28 @@ class CreatureEditorStore {
     if (!this.creature || index < 0 || index >= this.creature.weaknesses.length) return;
     this.mutateCreature((c) => {
       c.weaknesses[index] = { ...c.weaknesses[index], ...updates };
+    });
+  }
+
+  // ── Immunities ─────────────────────────────────────────────────────────────
+
+  addImmunity(type: string): void {
+    this.mutateCreature((c) => {
+      if (c.immunities.some((i) => i.type === type)) return;
+      c.immunities.push({ type });
+    });
+  }
+
+  removeImmunity(index: number): void {
+    this.mutateCreature((c) => {
+      c.immunities.splice(index, 1);
+    });
+  }
+
+  updateImmunity(index: number, updates: Partial<Immunity>): void {
+    if (!this.creature || index < 0 || index >= this.creature.immunities.length) return;
+    this.mutateCreature((c) => {
+      c.immunities[index] = { ...c.immunities[index], ...updates };
     });
   }
 }

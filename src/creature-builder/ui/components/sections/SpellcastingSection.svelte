@@ -161,7 +161,7 @@
                   <label for="spell-type">Casting Type</label>
                   <select
                      id="spell-type"
-                     class="rm-select"
+                     class="cc-select"
                      value={creature.benchmarks.spellProgression || ''}
                      onchange={(e) => {
                         const value = e.currentTarget.value || undefined;
@@ -182,7 +182,7 @@
                   <label for="spell-tradition">Tradition</label>
                   <select
                      id="spell-tradition"
-                     class="rm-select"
+                     class="cc-select"
                      value={creature.benchmarks.spellTradition || ''}
                      onchange={(e) => {
                         const value = e.currentTarget.value || undefined;
@@ -203,7 +203,7 @@
                   <label for="spell-font">Divine Font</label>
                   <select
                      id="spell-font"
-                     class="rm-select"
+                     class="cc-select"
                      value={creature.benchmarks.spellFont || ''}
                      tabindex={creature.benchmarks.spellProgression === 'fullPrepared' && creature.benchmarks.spellTradition === 'divine' ? 0 : -1}
                      onchange={(e) => onUpdateBenchmark?.({ path: 'spellFont', value: e.currentTarget.value || undefined })}
@@ -372,7 +372,7 @@
          text-transform: uppercase;
       }
 
-      .rm-select {
+      .cc-select {
          width: 100%;
       }
 

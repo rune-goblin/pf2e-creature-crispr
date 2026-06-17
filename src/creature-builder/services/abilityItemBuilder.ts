@@ -15,9 +15,23 @@
  */
 
 import type { SpecialAbility } from '../models';
-import { parseAbilityDescription } from './abilityScaling';
+import { parseAbilityDescription, renderAbilityDescription } from './abilityScaling';
 import { CREATURE_FLAG, ABILITY_BENCHMARK_KEY } from './constants';
 import type { AbilityBenchmarkData } from './types';
+
+/** PF2e action item-create payload; Foundry fills the remaining defaults at create time. */
+export interface AbilityItemData {
+  name: string;
+  type: 'action';
+  img: string;
+  system: {
+    description: { value: string };
+    actionType: { value: SpecialAbility['actionType'] };
+    actions: { value: number | null };
+    traits: { value: string[] };
+  };
+  flags?: Record<string, Record<string, AbilityBenchmarkData>>;
+}
 
 const ACTION_ICONS: Record<SpecialAbility['actionType'], (actions?: 1 | 2 | 3) => string> = {
   action: (actions) =>
@@ -29,8 +43,8 @@ const ACTION_ICONS: Record<SpecialAbility['actionType'], (actions?: 1 | 2 | 3) =
   passive: () => 'systems/pf2e/icons/actions/Passive.webp'
 };
 
-export function composeAbilityItemData(ability: SpecialAbility, level: number): any {
-  const itemData: any = {
+export function composeAbilityItemData(ability: SpecialAbility, level: number): AbilityItemData {
+  const itemData: AbilityItemData = {
     name: ability.name,
     type: 'action',
     img: ACTION_ICONS[ability.actionType](ability.actions),
@@ -57,6 +71,45 @@ export function composeAbilityItemData(ability: SpecialAbility, level: number): 
         [ABILITY_BENCHMARK_KEY]: benchmarkData
       }
     };
+  }
+
+  return itemData;
+}
+
+/**
+ * Serialize an in-editor SpecialAbility to a PF2e action item for export (drag onto an actor
+ * sheet). Unlike {@link composeAbilityItemData}, this renders the description from the ability's
+ * *current* template + scalable values — honouring the user's tier/override edits — and re-stamps
+ * the benchmark flag so dragging the item back into CRISPR restores those values exactly.
+ */
+export function composeAbilityItemForExport(ability: SpecialAbility, level: number): AbilityItemData {
+  const template = ability.customDescriptionTemplate ?? ability.descriptionTemplate;
+  const hasScalables = !!(template && ability.scalableValues && ability.scalableValues.length > 0);
+
+  const description = hasScalables
+    ? renderAbilityDescription(template!, ability.scalableValues!, level)
+    : (ability.customDescriptionTemplate ?? ability.description);
+
+  const itemData: AbilityItemData = {
+    name: ability.name,
+    type: 'action',
+    img: ACTION_ICONS[ability.actionType](ability.actions),
+    system: {
+      description: { value: description },
+      actionType: { value: ability.actionType },
+      actions: { value: ability.actionType === 'action' ? (ability.actions ?? 1) : null },
+      traits: { value: ability.traits || [] }
+    }
+  };
+
+  if (hasScalables) {
+    const benchmarkData: AbilityBenchmarkData = {
+      descriptionTemplate: ability.descriptionTemplate ?? template!,
+      scalableValues: ability.scalableValues!,
+      originalDescription: ability.description
+    };
+    if (ability.customDescriptionTemplate) benchmarkData.customDescriptionTemplate = ability.customDescriptionTemplate;
+    itemData.flags = { [CREATURE_FLAG]: { [ABILITY_BENCHMARK_KEY]: benchmarkData } };
   }
 
   return itemData;

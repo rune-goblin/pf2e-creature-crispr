@@ -4,18 +4,22 @@
  * Extract and sync helpers for PF2e spellcasting entries on creature actors.
  */
 
+import type { NPCPF2e, SpellcastingEntryPF2e } from 'foundry-pf2e';
 import type { CreatureBenchmarks, SpellProgressionType, SpellTradition, SpellFont } from '../models';
 import { deduceSpellProgression, detectFont } from '../config/spellSlotTables';
 import { calculateCreatureStats } from '../config/creatureStatTables';
 import { logger } from './logger';
+
+/** Per-rank spell-slot record; computed `slot${rank}` keys aren't on the prepared entry type. */
+type SpellSlots = Record<string, { max?: number; prepared?: Array<{ id?: string }> }>;
 
 /**
  * Extract the highest spell DC and spell attack from an actor's spellcasting entries.
  * NPCs can have multiple spellcasting entries (e.g., arcane prepared, divine innate).
  * We use the highest values found for benchmarking.
  */
-export function extractSpellcastingStats(actor: any): { spellDC?: number; spellAttack?: number } {
-  const spellcastingEntries = actor.items?.contents?.filter((i: any) => i.type === 'spellcastingEntry') || [];
+export function extractSpellcastingStats(actor: NPCPF2e): { spellDC?: number; spellAttack?: number } {
+  const spellcastingEntries = actor.items?.contents?.filter((i): i is SpellcastingEntryPF2e<NPCPF2e> => i.type === 'spellcastingEntry') ?? [];
 
   if (spellcastingEntries.length === 0) {
     return {};
@@ -48,26 +52,26 @@ export function extractSpellcastingStats(actor: any): { spellDC?: number; spellA
  * Analyzes non-innate entries to deduce the closest standard progression pattern.
  * Detects divine font by checking for excess Heal/Harm slots at the highest rank.
  */
-export function extractSpellcastingProgression(actor: any): {
+export function extractSpellcastingProgression(actor: NPCPF2e): {
   progression: SpellProgressionType;
   tradition?: SpellTradition;
   font?: SpellFont;
 } {
-  const spellcastingEntries = actor.items?.contents?.filter((i: any) => i.type === 'spellcastingEntry') || [];
+  const spellcastingEntries = actor.items?.contents?.filter((i): i is SpellcastingEntryPF2e<NPCPF2e> => i.type === 'spellcastingEntry') ?? [];
 
   if (spellcastingEntries.length === 0) {
     return { progression: 'none' };
   }
 
   // Separate innate and focus from standard entries
-  const nonInnateEntries = spellcastingEntries.filter((e: any) => {
+  const nonInnateEntries = spellcastingEntries.filter((e) => {
     const preparedType = e.system?.prepared?.value;
     return preparedType !== 'innate' && preparedType !== 'focus';
   });
 
   if (nonInnateEntries.length === 0) {
     // Only innate/focus spellcasting
-    return { progression: 'innate', tradition: spellcastingEntries[0]?.system?.tradition?.value };
+    return { progression: 'innate', tradition: spellcastingEntries[0]?.system?.tradition?.value as SpellTradition | undefined };
   }
 
   // Use the first non-innate entry for analysis
@@ -77,7 +81,7 @@ export function extractSpellcastingProgression(actor: any): {
 
   // Build slot-count profile from the entry's slots
   const slotsByRank: Record<number, number> = {};
-  const slots = primaryEntry.system?.slots || {};
+  const slots = (primaryEntry.system?.slots ?? {}) as SpellSlots;
   for (let rank = 1; rank <= 10; rank++) {
     const slotKey = `slot${rank}`;
     const max = slots[slotKey]?.max ?? 0;
@@ -95,9 +99,9 @@ export function extractSpellcastingProgression(actor: any): {
   let font: SpellFont | undefined;
   if (progression === 'fullPrepared') {
     // Build prepared spell list at the highest rank for font detection
-    const allSpells = actor.items?.contents?.filter((i: any) =>
-      i.type === 'spell' && i.system?.location?.value === primaryEntry.id
-    ) || [];
+    const allSpells = actor.items?.contents?.filter((i) =>
+      i.type === 'spell' && (i.system as { location?: { value?: string } }).location?.value === primaryEntry.id
+    ) ?? [];
 
     // Get prepared entries at each rank to map spell IDs to names
     const preparedSpells: Array<{ name: string; rank: number }> = [];
@@ -105,7 +109,7 @@ export function extractSpellcastingProgression(actor: any): {
       const slotKey = `slot${rank}`;
       const prepared = slots[slotKey]?.prepared || [];
       for (const entry of prepared) {
-        const spell = allSpells.find((s: any) => s.id === entry.id);
+        const spell = allSpells.find((s) => s.id === entry.id);
         if (spell) {
           preparedSpells.push({ name: spell.name, rank });
         }
@@ -122,8 +126,8 @@ export function extractSpellcastingProgression(actor: any): {
  * Update spellcasting entries on an actor for a new level using stored benchmarks.
  * Scales spell DC, spell attack, and spell slots based on the creature's benchmarks.
  */
-export async function syncSpellcastingEntriesForLevel(actor: any, level: number, benchmarks: CreatureBenchmarks): Promise<void> {
-  const spellcastingEntries = actor.items?.contents?.filter((i: any) => i.type === 'spellcastingEntry') || [];
+export async function syncSpellcastingEntriesForLevel(actor: NPCPF2e, level: number, benchmarks: CreatureBenchmarks): Promise<void> {
+  const spellcastingEntries = actor.items?.contents?.filter((i): i is SpellcastingEntryPF2e<NPCPF2e> => i.type === 'spellcastingEntry') ?? [];
 
   if (spellcastingEntries.length === 0) {
     return;
@@ -140,10 +144,10 @@ export async function syncSpellcastingEntriesForLevel(actor: any, level: number,
   // Compute spell slot layout if we have a progression
   const slotLayout = stats.spellSlots;
 
-  const updates: any[] = [];
+  const updates: EmbeddedDocumentUpdateData[] = [];
 
   for (const entry of spellcastingEntries) {
-    const update: any = { _id: entry.id };
+    const update: EmbeddedDocumentUpdateData = { _id: entry.id };
     const isInnate = entry.system?.prepared?.value === 'innate';
 
     // Update spell DC if we have a benchmark

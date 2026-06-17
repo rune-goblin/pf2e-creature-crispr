@@ -1,5 +1,7 @@
 import './styles.css';
 import './creature-builder/styles/variables.css';
+import './creature-builder/styles/form-controls.css';
+import './creature-builder/styles/app-shell.css';
 import { MODULE_ID } from './constants';
 import { CreatureCrisprApp } from './creature-builder/ui/CreatureCrisprApp';
 

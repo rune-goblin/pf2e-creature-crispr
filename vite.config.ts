@@ -30,6 +30,20 @@ export default defineConfig({
         target: `http://localhost:30001/modules/${id}/dist`,
         rewrite: () => '/index.ts',
       },
+      // The manifest's `styles` <link> points at the built CSS, which `vite build` produces but
+      // the dev server doesn't — in HMR the styles are injected via the JS bundle. Answer the
+      // <link> with an empty 200 so it doesn't 404; the real styles still load through JS.
+      [`/modules/${id}/dist/${id}.css`]: {
+        target: FOUNDRY,
+        // Returning a string (not false — that's a 404) with the response already ended makes
+        // Vite's bypass exit cleanly via its res.writableEnded check instead of proxying.
+        bypass: (req, res) => {
+          if (!res) return req.url ?? '';
+          res.setHeader('Content-Type', 'text/css');
+          res.end('/* dev: styles injected via JS by Vite */');
+          return req.url ?? '';
+        },
+      },
       // Our static files live on disk under the module, not in Vite's src/ root — Foundry serves them.
       [`^/modules/${id}/(lang|packs|assets)/`]: FOUNDRY,
       // Everything outside our module (Foundry core, the active system, other modules).

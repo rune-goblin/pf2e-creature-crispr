@@ -1,0 +1,217 @@
+/* Form controls + Foundry/PF2e override protection.
+   Ported from pf2e-reignmaker's form-controls.css, re-namespaced to this module
+   (cc-* classes) and, critically, WITHOUT !important.
+
+   How the cascade is won without !important:
+   - The PF2e *system* stylesheet is unlayered, so it beats Foundry core (which is
+     layered) — and it styles bare elements (`button`, `select { max-width: 60% }`, …)
+     that bleed into our app. Cascade layers can't beat unlayered rules, so we win on
+     SPECIFICITY instead.
+   - Armor reset: scoped with :where(.creature-crispr-root) so it stays at element-only
+     specificity (0,0,1). That ties the system's bare-element rules and wins by load
+     order (modules load after systems), while staying BELOW every component's scoped
+     style (0,2,0+) so it never fights our own UI. Anchoring on the mount root — not the
+     app root — keeps Foundry's own window-header buttons untouched.
+   - Controls: scoped with the app's id (#pf2e-creature-crispr-builder), giving real
+     (1,1,0) specificity that beats any class/element selector the system can throw at
+     our subtree. An opt-in look applied via cc-* classes.
+   Dialogs render in-tree (under .creature-crispr-root), so both tiers reach them. */
+
+/* ========================================
+   Armor — neutralize bleed from bare element rules
+   ======================================== */
+:where(.creature-crispr-root) button {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 0;
+  margin: 0;
+  padding: 0;
+  box-shadow: none;
+  text-shadow: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  /* The PF2e system styles bare `button { display: flex }`; left unchecked it turns every
+     un-restyled button into a flex box, which collapses aspect-ratio-sized image buttons
+     (portrait/token) to their min-content height. Reset to the UA default — buttons that
+     want flex declare it in their own scoped style (higher specificity, so they still win). */
+  display: inline-block;
+}
+
+:where(.creature-crispr-root) input,
+:where(.creature-crispr-root) select,
+:where(.creature-crispr-root) textarea {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  max-width: none; /* kills the system's `select { max-width: 60% }` */
+  box-sizing: border-box;
+}
+
+/* ========================================
+   Select / dropdown — cc-select
+   ======================================== */
+#pf2e-creature-crispr-builder .cc-select {
+  /* No vertical padding — min-height + line-height center the text. */
+  padding: 0 var(--space-16);
+  min-height: 2.375rem; /* ~38px, matches button height */
+  background-color: var(--surface-lowest);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-md);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-relaxed);
+  vertical-align: middle;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  overflow: visible;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  /* Custom dropdown arrow */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-12) center;
+  padding-right: var(--space-32);
+}
+
+#pf2e-creature-crispr-builder .cc-select:hover:not(:disabled) {
+  background-color: var(--surface-low);
+  border-color: var(--border-medium);
+}
+
+#pf2e-creature-crispr-builder .cc-select:focus {
+  outline: none;
+  border-color: var(--color-amber);
+  box-shadow: 0 0 0 1px var(--color-amber);
+}
+
+#pf2e-creature-crispr-builder .cc-select:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+#pf2e-creature-crispr-builder .cc-select:active:not(:disabled) {
+  background-color: var(--surface);
+}
+
+#pf2e-creature-crispr-builder .cc-select:disabled {
+  background-color: var(--surface-lowest);
+  border-color: var(--border-faint);
+  color: var(--text-disabled);
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+/* Option legibility — browsers honor a limited subset of these. */
+#pf2e-creature-crispr-builder .cc-select option {
+  background-color: var(--surface-lowest);
+  color: var(--text-primary);
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--font-md);
+  font-family: var(--font-sans);
+  line-height: var(--line-height-relaxed);
+}
+
+#pf2e-creature-crispr-builder .cc-select option:disabled {
+  color: var(--text-disabled);
+  opacity: var(--opacity-disabled);
+}
+
+/* ========================================
+   Text input — cc-input
+   ======================================== */
+#pf2e-creature-crispr-builder .cc-input {
+  padding: var(--space-8);
+  background-color: var(--surface-lowest);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-md);
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+}
+
+#pf2e-creature-crispr-builder .cc-input:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background-color: var(--surface-low);
+}
+
+#pf2e-creature-crispr-builder .cc-input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px hsla(240, 5%, 38%, 0.2);
+}
+
+#pf2e-creature-crispr-builder .cc-input:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+#pf2e-creature-crispr-builder .cc-input::placeholder {
+  color: var(--text-muted);
+  opacity: var(--opacity-muted);
+}
+
+#pf2e-creature-crispr-builder .cc-input[type="number"]::-webkit-inner-spin-button,
+#pf2e-creature-crispr-builder .cc-input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1;
+}
+
+/* ========================================
+   Textarea — cc-textarea
+   ======================================== */
+#pf2e-creature-crispr-builder .cc-textarea {
+  padding: var(--space-8);
+  background-color: var(--surface-lowest);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-md);
+  line-height: var(--line-height-normal);
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+#pf2e-creature-crispr-builder .cc-textarea:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background-color: var(--surface-low);
+}
+
+#pf2e-creature-crispr-builder .cc-textarea:focus {
+  outline: none;
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px hsla(240, 5%, 38%, 0.2);
+}
+
+#pf2e-creature-crispr-builder .cc-textarea::placeholder {
+  color: var(--text-muted);
+  opacity: var(--opacity-muted);
+}
+
+/* ========================================
+   Checkbox / radio — cc-checkbox / cc-radio
+   ======================================== */
+#pf2e-creature-crispr-builder .cc-checkbox,
+#pf2e-creature-crispr-builder .cc-radio {
+  cursor: pointer;
+  width: var(--space-16);
+  height: var(--space-16);
+  accent-color: var(--color-gray-400);
+}
+
+#pf2e-creature-crispr-builder .cc-checkbox:disabled,
+#pf2e-creature-crispr-builder .cc-radio:disabled {
+  cursor: not-allowed;
+  opacity: var(--opacity-disabled);
+}

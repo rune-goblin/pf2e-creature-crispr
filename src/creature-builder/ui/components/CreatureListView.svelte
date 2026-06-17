@@ -8,17 +8,37 @@
     openCreatureActorSheet,
     importCreatureFromActor,
     importCreatureFromCompendium,
+    removeCreatureFromCrispr,
+    moveCreatureToCrisprFolder,
+    revealCreatureInSidebar,
+    isCreatureMember,
     type CreatureEntry
   } from '@/creature-builder/services';
   import Dialog from './baseComponents/Dialog.svelte';
   import ImportCreatureDialog from './dialogs/ImportCreatureDialog.svelte';
+  import RowActionsMenu from './widgets/RowActionsMenu.svelte';
 
   let creatures = $state<CreatureEntry[]>([]);
 
   let showImportDialog = $state(false);
   let showDeleteDialog = $state(false);
   let deletingCreature = $state<CreatureEntry | null>(null);
+  let showRemoveDialog = $state(false);
+  let removingCreature = $state<CreatureEntry | null>(null);
   let isDragOver = $state(false);
+  let flashActorId = $state<string | null>(null);
+
+  function flashRow(actorId: string): void {
+    flashActorId = actorId;
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`tr[data-actor-id="${actorId}"]`)
+        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+    window.setTimeout(() => {
+      if (flashActorId === actorId) flashActorId = null;
+    }, 1400);
+  }
 
   function refreshCreatures(): void {
     creatures = getAllCreatures();
@@ -84,6 +104,44 @@
     showDeleteDialog = false;
   }
 
+  function handleReveal(creature: CreatureEntry): void {
+    void revealCreatureInSidebar(creature.actorId);
+  }
+
+  async function handleMoveToFolder(creature: CreatureEntry): Promise<void> {
+    try {
+      await moveCreatureToCrisprFolder(creature.actorId);
+      ui.notifications?.info(`Moved "${creature.name}" to the Creature CRISPR folder`);
+    } catch (error) {
+      console.error('[Creature CRISPR] Failed to move creature to folder:', error);
+      ui.notifications?.error('Failed to move creature to folder');
+    }
+  }
+
+  function confirmRemove(creature: CreatureEntry): void {
+    removingCreature = creature;
+    showRemoveDialog = true;
+  }
+
+  async function handleRemove(): Promise<void> {
+    if (!removingCreature) return;
+    try {
+      await removeCreatureFromCrispr(removingCreature.actorId);
+      ui.notifications?.info(`Removed "${removingCreature.name}" from Creature CRISPR`);
+      refreshCreatures();
+    } catch (error) {
+      console.error('[Creature CRISPR] Failed to remove creature from CRISPR:', error);
+      ui.notifications?.error('Failed to remove creature from CRISPR');
+    }
+    removingCreature = null;
+    showRemoveDialog = false;
+  }
+
+  function cancelRemove(): void {
+    removingCreature = null;
+    showRemoveDialog = false;
+  }
+
   function handleDragOver(event: DragEvent): void {
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
@@ -106,13 +164,37 @@
       return;
     }
     if (data.type !== 'Actor' || !data.uuid) return;
+
+    // Reject non-NPC drops up front; the resolved entry carries `type`, so we can
+    // warn without an import-then-delete round trip that would log a console error.
+    const dropped = fromUuidSync(data.uuid) as { type?: string; id?: string } | null;
+    if (dropped && dropped.type !== 'npc') {
+      ui.notifications?.warn('Creature CRISPR only works with NPC actor types.');
+      return;
+    }
+
     try {
-      await importCreatureFromCompendium(data.uuid);
-      ui.notifications?.info('Creature imported');
+      // Compendium entries are copied in (each drop is a new copy); world actors are linked
+      // in place via the data flag, leaving their folder untouched.
+      if (data.uuid.startsWith('Compendium.')) {
+        await importCreatureFromCompendium(data.uuid);
+        ui.notifications?.info('Creature added to Creature CRISPR');
+        refreshCreatures();
+        return;
+      }
+      const actorId = (dropped?.id ?? foundry.utils.parseUuid(data.uuid)?.documentId)!;
+      const existing = game.actors?.get(actorId);
+      if (existing && isCreatureMember(existing)) {
+        ui.notifications?.info(`"${existing.name}" is already in Creature CRISPR`);
+        flashRow(actorId);
+        return;
+      }
+      await importCreatureFromActor(actorId);
+      ui.notifications?.info('Creature added to Creature CRISPR');
       refreshCreatures();
     } catch (error) {
-      console.error('[Creature CRISPR] Failed to import dropped creature:', error);
-      ui.notifications?.error('Failed to import creature');
+      console.error('[Creature CRISPR] Failed to add dropped creature:', error);
+      ui.notifications?.error('Failed to add creature');
     }
   }
 
@@ -201,7 +283,7 @@
         </thead>
         <tbody>
           {#each creatures as creature (creature.actorId)}
-            <tr>
+            <tr data-actor-id={creature.actorId} class:flash={creature.actorId === flashActorId}>
               <td class="name-cell">
                 <button class="name-link" onclick={() => handleOpenSheet(creature)} title="Open actor sheet">
                   {creature.name}
@@ -213,18 +295,18 @@
               <td class="center stat-cell">{creature.ac}</td>
               <td class="center stat-cell">{creature.hp}</td>
               <td class="actions-cell">
-                <button class="action-btn" onclick={() => handleEdit(creature)} aria-label="Edit creature" title="Edit creature">
-                  <i class="fas fa-edit"></i>
-                </button>
-                <button class="action-btn" onclick={() => handleDuplicate(creature)} aria-label="Duplicate creature" title="Duplicate creature">
-                  <i class="fas fa-copy"></i>
-                </button>
-                <button class="action-btn" onclick={() => handleOpenSheet(creature)} aria-label="Open actor sheet" title="Open actor sheet">
-                  <i class="fas fa-user"></i>
-                </button>
-                <button class="action-btn danger" onclick={() => confirmDelete(creature)} aria-label="Delete creature" title="Delete creature">
-                  <i class="fas fa-trash"></i>
-                </button>
+                <RowActionsMenu
+                  triggerTitle="Creature actions"
+                  actions={[
+                    { label: 'Edit creature', icon: 'fa-edit', onSelect: () => handleEdit(creature) },
+                    { label: 'Duplicate', icon: 'fa-copy', onSelect: () => handleDuplicate(creature) },
+                    { label: 'Open actor sheet', icon: 'fa-user', onSelect: () => handleOpenSheet(creature) },
+                    { label: 'Reveal in sidebar', icon: 'fa-folder-tree', onSelect: () => handleReveal(creature) },
+                    { label: 'Move to CRISPR folder', icon: 'fa-arrow-up-from-bracket', onSelect: () => handleMoveToFolder(creature) },
+                    { label: 'Remove from CRISPR', icon: 'fa-minus-circle', onSelect: () => confirmRemove(creature) },
+                    { label: 'Delete actor', icon: 'fa-trash', onSelect: () => confirmDelete(creature), danger: true, dividerBefore: true }
+                  ]}
+                />
               </td>
             </tr>
           {/each}
@@ -251,11 +333,27 @@
   {/if}
 </Dialog>
 
+<Dialog
+  bind:show={showRemoveDialog}
+  title="Remove from Creature CRISPR"
+  confirmLabel="Remove"
+  cancelLabel="Cancel"
+  width="420px"
+  onConfirm={handleRemove}
+  onCancel={cancelRemove}
+>
+  {#if removingCreature}
+    <p>Remove <strong>{removingCreature.name}</strong> from Creature CRISPR?</p>
+    <p class="hint-text">The actor stays in your world — this only takes it off the CRISPR list and discards its saved benchmarks.</p>
+  {/if}
+</Dialog>
+
 <style lang="scss">
   .creature-list-view {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
     padding: var(--space-16);
     overflow: hidden;
   }
@@ -370,7 +468,8 @@
   }
 
   .creatures-table-container {
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
     border: 2px dashed transparent;
     border-radius: var(--radius-md);
@@ -414,6 +513,19 @@
       &:hover {
         background: var(--hover);
       }
+
+      &.flash {
+        animation: crispr-row-flash 1.4s ease-out;
+      }
+    }
+  }
+
+  @keyframes crispr-row-flash {
+    0% {
+      background: color-mix(in srgb, var(--color-primary) 45%, transparent);
+    }
+    100% {
+      background: transparent;
     }
   }
 
@@ -459,34 +571,18 @@
   }
 
   .actions-cell {
-    display: flex;
-    gap: var(--space-4);
-  }
-
-  .action-btn {
-    padding: var(--space-6) var(--space-8);
-    background: var(--hover);
-    border: none;
-    border-radius: var(--radius-md);
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: all 0.2s;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.2);
-    }
-
-    &.danger {
-      color: var(--color-danger);
-
-      &:hover {
-        background: rgba(255, 107, 107, 0.2);
-      }
-    }
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
   }
 
   .warning-text {
     color: var(--color-warning);
+    font-size: var(--font-sm);
+  }
+
+  .hint-text {
+    color: var(--text-muted);
     font-size: var(--font-sm);
   }
 </style>

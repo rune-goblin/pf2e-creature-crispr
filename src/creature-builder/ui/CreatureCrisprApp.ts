@@ -26,6 +26,7 @@ export class CreatureCrisprApp extends ApplicationV2 {
   protected override async _renderHTML(): Promise<HTMLElement> {
     if (!this.#component) {
       this.#root = document.createElement('div');
+      this.#root.classList.add('creature-crispr-root');
       this.#component = mount(CreatureWorkspace, { target: this.#root, props: { app: this } });
     }
     return this.#root!;

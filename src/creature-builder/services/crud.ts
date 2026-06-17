@@ -1,4 +1,5 @@
-import type { CreatureBenchmarks, CreatureStrike, SpecialAbility, CreatureStats } from '../models';
+import type { ActorPF2e } from 'foundry-pf2e';
+import type { CreatureBenchmarks, CreatureStrike, SpecialAbility, CreatureStats, DamageModifier, Immunity } from '../models';
 import { getDefaultBenchmarks } from '../models';
 import { calculateCreatureStats } from '../config/creatureStatTables';
 import { createNPCInFolder, ensureCreatureFolder, requireActor } from './folderManager';
@@ -44,25 +45,83 @@ export function buildActorSystemFromStats(stats: CreatureStats): Record<string, 
   };
 }
 
-function toCreatureEntry(actor: any): CreatureEntry {
-  const s = actor.system ?? {};
+export interface CreatureIwr {
+  immunities?: Immunity[];
+  resistances?: DamageModifier[];
+  weaknesses?: DamageModifier[];
+}
+
+interface IwrSourceEntry {
+  type: string;
+  value?: number;
+  exceptions?: string[];
+  doubleVs?: string[];
+}
+
+/**
+ * Serialize IWR into PF2e's `system.attributes.{immunities,weaknesses,resistances}` source shape:
+ * immunities carry no value; empty exception/doubleVs arrays are dropped (the system stores them sparse).
+ */
+export function buildIwrSystem(iwr: CreatureIwr): {
+  immunities: IwrSourceEntry[];
+  weaknesses: IwrSourceEntry[];
+  resistances: IwrSourceEntry[];
+} {
+  const slugs = (arr?: string[]): string[] | undefined => (arr && arr.length ? [...arr] : undefined);
+  return {
+    immunities: (iwr.immunities ?? []).map((i) => {
+      const out: IwrSourceEntry = { type: i.type };
+      const exceptions = slugs(i.exceptions);
+      if (exceptions) out.exceptions = exceptions;
+      return out;
+    }),
+    weaknesses: (iwr.weaknesses ?? []).map((w) => {
+      const out: IwrSourceEntry = { type: w.type, value: w.value };
+      const exceptions = slugs(w.exceptions);
+      if (exceptions) out.exceptions = exceptions;
+      return out;
+    }),
+    resistances: (iwr.resistances ?? []).map((r) => {
+      const out: IwrSourceEntry = { type: r.type, value: r.value };
+      const exceptions = slugs(r.exceptions);
+      const doubleVs = slugs(r.doubleVs);
+      if (exceptions) out.exceptions = exceptions;
+      if (doubleVs) out.doubleVs = doubleVs;
+      return out;
+    })
+  };
+}
+
+function toCreatureEntry(actor: ActorPF2e): CreatureEntry {
+  const s = actor.system;
   return {
     actorId: actor.id,
     name: actor.name || 'Unknown',
     level: s.details?.level?.value ?? 0,
-    creatureType: s.details?.creatureType || 'creature',
+    creatureType: (s.details as { creatureType?: string }).creatureType || 'creature',
     size: s.traits?.size?.value || 'medium',
     ac: s.attributes?.ac?.value ?? 10,
     hp: s.attributes?.hp?.max ?? 10
   };
 }
 
+/**
+ * An actor belongs to the CRISPR workspace if it carries our data flag OR sits in the folder.
+ * The flag is the canonical signal (set on import/create) so reorganizing folders never drops a
+ * creature from the list; the folder union keeps actors dragged straight into it visible too.
+ * Pass `crisprFolderId` to avoid re-finding the folder when filtering many actors.
+ */
+export function isCreatureMember(actor: ActorPF2e, crisprFolderId?: string | null): boolean {
+  if (actor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY)) return true;
+  const folderId = crisprFolderId === undefined ? (findCreaturesFolder()?.id ?? null) : crisprFolderId;
+  return folderId != null && actor.folder?.id === folderId;
+}
+
 export function getAllCreatures(): CreatureEntry[] {
-  if (!game.actors || !game.folders) return [];
-  const folder = findCreaturesFolder();
-  if (!folder) return [];
+  if (!game.actors) return [];
+  const folderId = findCreaturesFolder()?.id ?? null;
   return game.actors
-    .filter((a) => a.folder?.id === folder.id)
+    .filter((a) => a.type === 'npc' && isCreatureMember(a, folderId))
     .map((a) => toCreatureEntry(a))
     .sort((x, y) => x.name.localeCompare(y.name));
 }
@@ -94,15 +153,39 @@ export async function deleteCreature(actorId: string): Promise<void> {
   logger.info(`Deleted creature actor: ${actorId}`);
 }
 
+/**
+ * Drop an actor from CRISPR without deleting it: clear our data flag and, if it lives in the
+ * CRISPR folder, move it back to the root so the union query in {@link isCreatureMember} lets go.
+ */
+export async function removeCreatureFromCrispr(actorId: string): Promise<void> {
+  const actor = requireActor(actorId);
+  const folderId = findCreaturesFolder()?.id ?? null;
+  const update: Record<string, unknown> = {
+    [`flags.${CREATURE_FLAG}.-=${CREATURE_DATA_KEY}`]: null
+  };
+  if (folderId && actor.folder?.id === folderId) update.folder = null;
+  await actor.update(update);
+  logger.info(`Removed creature from CRISPR: ${actor.name}`);
+}
+
+/** Relocate an actor into the canonical "Creature CRISPR" folder (the explicit tidy-up action). */
+export async function moveCreatureToCrisprFolder(actorId: string): Promise<void> {
+  const actor = requireActor(actorId);
+  const folderId = await ensureCreatureFolder();
+  if (actor.folder?.id === folderId) return;
+  await actor.update({ folder: folderId });
+  logger.info(`Moved creature to CRISPR folder: ${actor.name}`);
+}
+
 // Snapshot a source actor via toObject() (carries flags + embedded items), strip its id so
 // Foundry assigns a fresh one, and create the copy under the given folder with bumped timestamps.
-async function cloneActorInto(source: any, name: string, folderId: string | null): Promise<any> {
+async function cloneActorInto(source: ActorPF2e, name: string, folderId: string | null): Promise<ActorPF2e> {
   const snapshot = source.toObject() as Record<string, unknown>;
   delete snapshot._id;
   snapshot.name = name;
   snapshot.folder = folderId;
 
-  const newActor = await Actor.create(snapshot as any);
+  const newActor = (await Actor.create(snapshot as any)) as ActorPF2e | undefined;
   if (!newActor) throw new Error('Failed to create actor copy');
 
   const flag = newActor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY) as CreatureActorData | undefined;
@@ -148,19 +231,24 @@ export async function createCreatureActor(
     tokenImage?: string;
     strikes?: CreatureStrike[];
     specialAbilities?: SpecialAbility[];
+    immunities?: Immunity[];
+    resistances?: DamageModifier[];
+    weaknesses?: DamageModifier[];
   } = {}
 ): Promise<string> {
   const stats = calculateCreatureStats(level, benchmarks);
   const portraitImg = options.portraitImage || DEFAULT_NPC_IMAGE;
   const tokenImg = options.tokenImage || options.portraitImage || DEFAULT_NPC_IMAGE;
   const pf2eSize = PF2E_SIZE[options.size || 'medium'] || 'med';
+  const system = buildActorSystemFromStats(stats);
+  Object.assign(system.attributes as object, buildIwrSystem(options));
 
   // Only override what we compute; Foundry's NPC template provides every other default.
   const actorData = {
     img: portraitImg,
     prototypeToken: { texture: { src: tokenImg }, displayName: 30, actorLink: true },
     system: {
-      ...buildActorSystemFromStats(stats),
+      ...system,
       details: {
         level: { value: level },
         languages: { value: ['common'] },

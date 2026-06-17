@@ -5,7 +5,8 @@
    import {
       isBestiaryBrowserAvailable,
       initializeBestiaryTab,
-      searchBestiary
+      searchBestiary,
+      isCreatureMember
    } from '@/creature-builder/services';
    import { logger } from '@/creature-builder/services/logger';
    import type { Source } from './actorPickerSources';
@@ -111,33 +112,20 @@
    }
 
    function getWorldActors(): Array<{ id: string; name: string; level: number }> {
-      const all = (game as any)?.actors?.contents || [];
-      const creaturesFolder = excludeCreaturesFolder ? findCreaturesFolder() : null;
+      const all = game.actors?.contents ?? [];
 
       return all
-         .filter((a: any) => {
+         .filter((a) => {
             if (a.type !== 'npc') return false;
-            if (creaturesFolder && a.folder?.id === creaturesFolder.id) return false;
+            if (excludeCreaturesFolder && isCreatureMember(a)) return false;
             return true;
          })
-         .map((a: any) => ({
+         .map((a) => ({
             id: a.id,
             name: a.name || 'Unknown',
             level: a.system?.details?.level?.value ?? 0
          }))
-         .sort((a: any, b: any) => a.name.localeCompare(b.name));
-   }
-
-   function findCreaturesFolder(): any {
-      const folders = (game as any)?.folders;
-      if (!folders) return null;
-      const rm = folders.find(
-         (f: any) => f.type === 'Actor' && f.name === 'ReignMaker' && !f.folder
-      );
-      if (!rm) return null;
-      return folders.find(
-         (f: any) => f.type === 'Actor' && f.name === 'Creatures' && f.folder?.id === rm.id
-      );
+         .sort((a, b) => a.name.localeCompare(b.name));
    }
 
    function handleSearchInput(detail: { value: string }): void {

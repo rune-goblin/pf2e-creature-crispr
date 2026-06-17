@@ -5,12 +5,13 @@
  * creature editor and import flows.
  */
 
-import type { CreatureStrike, SpecialAbility, DamageModifier } from '../models';
+import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
+import type { CreatureStrike, SpecialAbility, DamageModifier, Immunity } from '../models';
 import { createDefaultStrike } from '../models';
 import { getStatRangesForLevel, statToScalar4 } from '../config/creatureStatTables';
 import { logger } from './logger';
 import { parseAbilityDescription, damageToBenchmark, parseDiceFormulaAverage } from './abilityScaling';
-import { findCreaturesFolder } from './crud';
+import { findCreaturesFolder, isCreatureMember } from './crud';
 import {
   CREATURE_FLAG,
   CREATURE_DATA_KEY,
@@ -19,38 +20,55 @@ import {
 } from './constants';
 import type { ItemBenchmarkData, AbilityBenchmarkData, CreatureActorData } from './types';
 
-/**
- * Get available NPC actors from the world (not in Creatures folder)
- */
+/** World NPCs that aren't already CRISPR members — the import-an-existing-actor candidates. */
 export function getAvailableNPCActors(): Array<{ id: string; name: string; level: number }> {
-  const game = (globalThis as any).game;
-  const actors = game?.actors?.contents || [];
-  const creaturesFolder = findCreaturesFolder();
+  const actors = game.actors?.contents ?? [];
+  const folderId = findCreaturesFolder()?.id ?? null;
 
   return actors
-    .filter((a: any) => {
-      if (a.type !== 'npc') return false;
-      // Exclude actors already in Creatures folder
-      if (creaturesFolder && a.folder?.id === creaturesFolder.id) return false;
-      return true;
-    })
-    .map((a: any) => ({
+    .filter((a) => a.type === 'npc' && !isCreatureMember(a, folderId))
+    .map((a) => ({
       id: a.id,
       name: a.name || 'Unknown',
       level: a.system?.details?.level?.value ?? 0
     }))
-    .sort((a: any, b: any) => a.name.localeCompare(b.name));
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
  * Open a creature's actor sheet
  */
 export function openCreatureActorSheet(actorId: string): void {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  const actor = game.actors?.get(actorId);
   if (actor) {
     actor.sheet?.render(true);
   }
+}
+
+/** Open the Actors sidebar, expand the actor's folder ancestry, and flash its entry. */
+export async function revealCreatureInSidebar(actorId: string): Promise<void> {
+  const actor = game.actors?.get(actorId);
+  const directory = ui.actors;
+  if (!actor || !directory) return;
+
+  directory.activate();
+
+  // Foundry hides entries under collapsed folders; force the chain open before rendering.
+  const folders = game.folders as unknown as { _expanded?: Record<string, boolean> } | undefined;
+  if (folders?._expanded) {
+    for (let folder = actor.folder; folder; folder = folder.folder) {
+      if (folder.uuid) folders._expanded[folder.uuid] = true;
+    }
+  }
+  await directory.render();
+
+  const entry = directory.element?.querySelector<HTMLElement>(`.directory-item[data-entry-id="${actorId}"]`);
+  if (!entry) return;
+  entry.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  entry.animate(
+    [{ backgroundColor: 'rgba(107, 33, 168, 0.45)' }, { backgroundColor: 'transparent' }],
+    { duration: 1400, easing: 'ease-out' }
+  );
 }
 
 /**
@@ -61,17 +79,16 @@ export function openCreatureActorSheet(actorId: string): void {
  * @returns true if the sheet was opened, false if not found
  */
 export function openStrikeItemSheet(actorId: string, strikeName: string): boolean {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  const actor = game.actors?.get(actorId);
   if (!actor) {
     logger.warn(`Actor ${actorId} not found`);
     return false;
   }
 
   // Find the melee item with the matching name
-  const items = actor.items?.contents || [];
-  const meleeItem = items.find((i: any) =>
-    (i.type === 'melee' || i.type === 'strike') && i.name === strikeName
+  const items = actor.items?.contents ?? [];
+  const meleeItem = items.find((i) =>
+    (i.type === 'melee' || (i.type as string) === 'strike') && i.name === strikeName
   );
 
   if (meleeItem) {
@@ -88,18 +105,24 @@ export function openStrikeItemSheet(actorId: string, strikeName: string): boolea
  * Returns basic info about each strike that can be used to open the item sheet.
  */
 export function getActorMeleeItems(actorId: string): Array<{ id: string; name: string; type: string }> {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  const actor = game.actors?.get(actorId);
   if (!actor) return [];
 
-  const items = actor.items?.contents || [];
+  const items = actor.items?.contents ?? [];
   return items
-    .filter((i: any) => i.type === 'melee' || i.type === 'strike')
-    .map((i: any) => ({
+    .filter((i) => i.type === 'melee' || (i.type as string) === 'strike')
+    .map((i) => ({
       id: i.id,
       name: i.name,
       type: i.type
     }));
+}
+
+/** Exceptions/doubleVs are arrays of type slugs; PF2e also allows custom predicate objects, which we drop (slug-only editor). */
+function readSlugList(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const slugs = raw.filter((e): e is string => typeof e === 'string');
+  return slugs.length ? slugs : undefined;
 }
 
 /**
@@ -107,15 +130,18 @@ export function getActorMeleeItems(actorId: string): Array<{ id: string; name: s
  * PF2e stores these in actor.system.attributes.resistances
  */
 export function getResistancesFromActor(actorId: string): DamageModifier[] {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  const actor = game.actors?.get(actorId);
   if (!actor) return [];
 
-  const resistances = actor.system?.attributes?.resistances || [];
-  return resistances.map((r: any) => ({
-    type: r.type || 'untyped',
-    value: r.value ?? 0
-  }));
+  const resistances = actor.system?.attributes?.resistances ?? [];
+  return resistances.map((r) => {
+    const mod: DamageModifier = { type: r.type || 'untyped', value: r.value ?? 0 };
+    const exceptions = readSlugList(r.exceptions);
+    const doubleVs = readSlugList(r.doubleVs);
+    if (exceptions) mod.exceptions = exceptions;
+    if (doubleVs) mod.doubleVs = doubleVs;
+    return mod;
+  });
 }
 
 /**
@@ -123,15 +149,33 @@ export function getResistancesFromActor(actorId: string): DamageModifier[] {
  * PF2e stores these in actor.system.attributes.weaknesses
  */
 export function getWeaknessesFromActor(actorId: string): DamageModifier[] {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  const actor = game.actors?.get(actorId);
   if (!actor) return [];
 
-  const weaknesses = actor.system?.attributes?.weaknesses || [];
-  return weaknesses.map((w: any) => ({
-    type: w.type || 'untyped',
-    value: w.value ?? 0
-  }));
+  const weaknesses = actor.system?.attributes?.weaknesses ?? [];
+  return weaknesses.map((w) => {
+    const mod: DamageModifier = { type: w.type || 'untyped', value: w.value ?? 0 };
+    const exceptions = readSlugList(w.exceptions);
+    if (exceptions) mod.exceptions = exceptions;
+    return mod;
+  });
+}
+
+/**
+ * Get immunities from an actor's system attributes.
+ * PF2e stores these in actor.system.attributes.immunities (type + optional exceptions, no value).
+ */
+export function getImmunitiesFromActor(actorId: string): Immunity[] {
+  const actor = game.actors?.get(actorId);
+  if (!actor) return [];
+
+  const immunities = actor.system?.attributes?.immunities ?? [];
+  return immunities.map((i) => {
+    const imm: Immunity = { type: i.type || 'untyped' };
+    const exceptions = readSlugList(i.exceptions);
+    if (exceptions) imm.exceptions = exceptions;
+    return imm;
+  });
 }
 
 /**
@@ -139,12 +183,12 @@ export function getWeaknessesFromActor(actorId: string): DamageModifier[] {
  * This reads directly from the actor's embedded items and their flags.
  */
 export function getStrikesFromActor(actorId: string): CreatureStrike[] {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  // Module only operates on NPCs; narrow so melee items carry their PF2e item type.
+  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) return [];
 
-  const items = actor.items?.contents || [];
-  const meleeItems = items.filter((i: any) => i.type === 'melee');
+  const items = actor.items?.contents ?? [];
+  const meleeItems = items.filter((i): i is MeleePF2e<NPCPF2e> => i.type === 'melee');
 
   if (meleeItems.length === 0) {
     return [createDefaultStrike('Melee Strike')];
@@ -153,16 +197,16 @@ export function getStrikesFromActor(actorId: string): CreatureStrike[] {
   const level = actor.system?.details?.level?.value ?? 1;
   const ranges = getStatRangesForLevel(level);
 
-  return meleeItems.map((item: any) => {
-    const benchmarks: ItemBenchmarkData = item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) || {};
-    const damageRolls = item.system?.damageRolls || {};
+  return meleeItems.map((item) => {
+    const benchmarks: ItemBenchmarkData = (item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) as ItemBenchmarkData) || {};
+    const damageRolls = item.system?.damageRolls ?? {};
 
     // Extract damage info from the item
     let damageType = 'slashing';
     let damage = '1d4';
     let persistentDamageType = '';
 
-    const rollEntries = Object.values(damageRolls) as any[];
+    const rollEntries = Object.values(damageRolls);
     for (const rollEntry of rollEntries) {
       if (rollEntry.category === 'persistent') {
         persistentDamageType = rollEntry.damageType || 'untyped';
@@ -189,8 +233,10 @@ export function getStrikesFromActor(actorId: string): CreatureStrike[] {
       attackBonus,
       damage,
       damageType,
-      isRanged: item.system?.traits?.value?.includes('ranged') || false,
-      range: item.system?.range?.value,
+      isRanged: (item.system?.traits?.value as string[] | undefined)?.includes('ranged') || false,
+      // Melee range is `{ increment, max }`, not `{ value }`; this read predates the typing
+      // pass and yields undefined at runtime — preserved verbatim to avoid a behavior change.
+      range: (item.system?.range as { value?: number } | undefined)?.value,
       traits: item.system?.traits?.value || []
     };
 
@@ -236,9 +282,67 @@ function mapActionType(pf2eType: string, actionCost?: number): 'action' | 'react
  * Get special abilities from an actor's items (actions, creature feats)
  * Includes benchmark data from flags if present, otherwise parses descriptions
  */
+/** Tolerant superset of the action/feat `system` fields read below — these item types are heterogeneous and read uniformly. */
+interface AbilityItemSystemView {
+  description?: { value?: string };
+  actionType?: { value?: string };
+  actions?: { value?: number };
+  category?: string;
+  traits?: { value?: string[] };
+}
+
+/** The fields of a PF2e action/creature-feat item we read — satisfied by embedded items and by
+ *  the temporary documents `Item.fromDropData` builds from a dropped payload alike. */
+interface AbilityItemView {
+  id: string | null;
+  name: string | null;
+  type: string;
+  system: AbilityItemSystemView;
+  getFlag(scope: string, key: string): unknown;
+}
+
+/** Convert one PF2e action/creature-feat item into our SpecialAbility model, preferring stored
+ *  benchmark data and falling back to parsing the description at `parseLevel`. */
+export function actionItemToSpecialAbility(item: AbilityItemView, parseLevel: number): SpecialAbility {
+  const sys = item.system;
+  const benchmarkData: AbilityBenchmarkData = (item.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY) as AbilityBenchmarkData) || {};
+  const rawDescription = sys.description?.value || '';
+  const actionType = mapActionType(sys.actionType?.value || sys.category || '', sys.actions?.value);
+  const actionCount = sys.actions?.value as 1 | 2 | 3 | undefined;
+
+  const ability: SpecialAbility = {
+    id: item.id ?? foundry.utils.randomID(),
+    name: item.name || 'Unnamed Ability',
+    description: rawDescription,
+    actionType,
+    actions: actionType === 'action' ? actionCount : undefined,
+    traits: sys.traits?.value || []
+  };
+
+  if (benchmarkData.descriptionTemplate && benchmarkData.scalableValues) {
+    ability.descriptionTemplate = benchmarkData.descriptionTemplate;
+    ability.scalableValues = benchmarkData.scalableValues;
+  } else if (rawDescription) {
+    const parsed = parseAbilityDescription(rawDescription, parseLevel);
+    if (parsed.scalableValues.length > 0) {
+      ability.descriptionTemplate = parsed.template;
+      ability.scalableValues = parsed.scalableValues;
+    }
+  }
+
+  if (benchmarkData.customDescriptionTemplate) {
+    ability.customDescriptionTemplate = benchmarkData.customDescriptionTemplate;
+  }
+
+  return ability;
+}
+
+/**
+ * Get special abilities from an actor's items (actions, creature feats).
+ * Includes benchmark data from flags if present, otherwise parses descriptions.
+ */
 export function getSpecialAbilitiesFromActor(actorId: string): SpecialAbility[] {
-  const game = (globalThis as any).game;
-  const actor = game?.actors?.get(actorId);
+  const actor = game.actors?.get(actorId);
   if (!actor) return [];
 
   const currentLevel = actor.system?.details?.level?.value ?? 1;
@@ -247,58 +351,49 @@ export function getSpecialAbilitiesFromActor(actorId: string): SpecialAbility[] 
   // actor level, which may have drifted since import.
   const creatureData = actor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY) as CreatureActorData | undefined;
   const parseLevel = creatureData?.baseLevel ?? currentLevel;
-  const items = actor.items?.contents || [];
+  const items = actor.items?.contents ?? [];
 
-  // Filter for action items and creature feats
-  const abilityItems = items.filter((i: any) => {
+  const abilityItems = items.filter((i) => {
     if (i.type === 'action') return true;
-    // Feats with category 'creature' are creature abilities
-    if (i.type === 'feat' && i.system?.category === 'creature') return true;
+    if (i.type === 'feat' && (i.system as AbilityItemSystemView).category === 'creature') return true;
     return false;
   });
 
-  return abilityItems.map((item: any) => {
-    // Get stored benchmark data if present
-    const benchmarkData: AbilityBenchmarkData = item.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY) || {};
+  return abilityItems.map((item) => actionItemToSpecialAbility(item as unknown as AbilityItemView, parseLevel));
+}
 
-    // Get description - either from system.description.value or other common locations
-    const rawDescription = item.system?.description?.value || '';
+interface ItemDropData {
+  type?: string;
+  uuid?: string;
+  data?: unknown;
+  crisprAbilityDrag?: boolean;
+}
 
-    // Determine action type and action count
-    const actionType = mapActionType(
-      item.system?.actionType?.value || item.system?.category,
-      item.system?.actions?.value
-    );
-    const actionCount = item.system?.actions?.value as 1 | 2 | 3 | undefined;
+/**
+ * Resolve a dropped Foundry Item payload into a SpecialAbility, or null if it isn't an action /
+ * creature-ability item. Accepts both `{uuid}` (an item dragged off a sheet) and `{data}`
+ * (synthetic source). When the item lives on an actor, its description is back-solved at that
+ * actor's level rather than the target's, matching the import flow.
+ */
+export async function specialAbilityFromDrop(data: ItemDropData, level: number): Promise<SpecialAbility | null> {
+  if (!data || data.type !== 'Item') return null;
 
-    const ability: SpecialAbility = {
-      id: item.id,
-      name: item.name || 'Unnamed Ability',
-      description: rawDescription,
-      actionType,
-      actions: actionType === 'action' ? actionCount : undefined,
-      traits: item.system?.traits?.value || []
-    };
+  type DroppedItem = AbilityItemView & { actor?: { system?: { details?: { level?: { value?: number } } } } };
+  let item: DroppedItem | null = null;
+  try {
+    item = (await Item.fromDropData(data as object)) as unknown as DroppedItem;
+  } catch {
+    return null;
+  }
+  if (!item) return null;
 
-    // If we have stored benchmark data, use it
-    if (benchmarkData.descriptionTemplate && benchmarkData.scalableValues) {
-      ability.descriptionTemplate = benchmarkData.descriptionTemplate;
-      ability.scalableValues = benchmarkData.scalableValues;
-    } else if (rawDescription) {
-      // Parse the description to find scalable values — use baseLevel so the
-      // parsed ScalableValues remember the true import level.
-      const parsed = parseAbilityDescription(rawDescription, parseLevel);
-      if (parsed.scalableValues.length > 0) {
-        ability.descriptionTemplate = parsed.template;
-        ability.scalableValues = parsed.scalableValues;
-      }
-    }
+  const isAction = item.type === 'action';
+  const isCreatureFeat = item.type === 'feat' && item.system?.category === 'creature';
+  if (!isAction && !isCreatureFeat) return null;
 
-    // User-edited template override round-trips independently of the parsed template.
-    if (benchmarkData.customDescriptionTemplate) {
-      ability.customDescriptionTemplate = benchmarkData.customDescriptionTemplate;
-    }
-
-    return ability;
-  });
+  const parseLevel = item.actor?.system?.details?.level?.value ?? level;
+  const ability = actionItemToSpecialAbility(item, parseLevel);
+  // A dropped ability is new to this creature — never reuse the source item's id.
+  ability.id = foundry.utils.randomID();
+  return ability;
 }
