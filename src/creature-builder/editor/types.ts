@@ -6,7 +6,7 @@ import type {
   DamageModifier,
   Immunity,
   SpecialAbility
-} from '../models';
+} from '../logic/models';
 
 export type { CreatureStats, CreatureStrike, DamageModifier, Immunity };
 

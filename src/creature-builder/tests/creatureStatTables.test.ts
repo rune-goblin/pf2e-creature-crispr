@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { calculateCreatureStats, analyzeStatsForBenchmarks } from '@/creature-builder/config/creatureStatTables';
-import { getDefaultBenchmarks } from '@/creature-builder/models';
+import { calculateCreatureStats, analyzeStatsForBenchmarks } from '@/creature-builder/logic/creatureStatTables';
+import { getDefaultBenchmarks } from '@/creature-builder/logic/models';
 
 describe('calculateCreatureStats', () => {
   it('produces positive AC/HP and numeric saves at level 1', () => {

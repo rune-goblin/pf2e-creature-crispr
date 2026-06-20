@@ -1,6 +1,6 @@
 <script lang="ts">
   import BenchmarkButtons from './BenchmarkButtons.svelte';
-  import type { BenchmarkLabel, BenchmarkLabel4, BenchmarkLabel3 } from '@/creature-builder/models';
+  import type { BenchmarkLabel, BenchmarkLabel4, BenchmarkLabel3 } from '@/creature-builder/logic/models';
 
   let {
     label,

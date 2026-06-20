@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAbilityDescription, renderAbilityDescription } from '@/creature-builder/services/abilityScaling';
+import { parseAbilityDescription, renderAbilityDescription } from '@/creature-builder/logic/abilityScaling';
 
 const wrap = (s: string) => `<p>${s}</p>`;
 const parse = (s: string, level = 15) => parseAbilityDescription(wrap(s), level);

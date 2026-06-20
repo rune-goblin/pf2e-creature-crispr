@@ -1,6 +1,6 @@
 import type { NPCPF2e } from 'foundry-pf2e';
-import { getDefaultBenchmarks } from '../models';
-import { calculateCreatureStats } from '../config/creatureStatTables';
+import { getDefaultBenchmarks } from '../logic/models';
+import { calculateCreatureStats } from '../logic/creatureStatTables';
 import type { CreatureActorData } from './types';
 import { ensureCreatureFolder } from './folderManager';
 import { logger } from './logger';

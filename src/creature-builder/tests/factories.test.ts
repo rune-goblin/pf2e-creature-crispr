@@ -1,11 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { getDefaultBenchmarks, createDefaultStrike, createCreature } from '@/creature-builder/models';
+import { describe, it, expect } from 'vitest';
+import { getDefaultBenchmarks, createDefaultStrike, createCreature } from '@/creature-builder/logic/models';
 
 describe('creature factories', () => {
-  afterEach(() => {
-    delete (globalThis as { foundry?: unknown }).foundry;
-  });
-
   it('getDefaultBenchmarks returns a full benchmark set', () => {
     const b = getDefaultBenchmarks();
     expect(b.abilities.str).toBeTypeOf('number');
@@ -22,7 +18,6 @@ describe('creature factories', () => {
   });
 
   it('createCreature clamps level and seeds one default strike', () => {
-    (globalThis as { foundry?: unknown }).foundry = { utils: { randomID: () => 'testid123' } };
     const c = createCreature('Goblin', 99);
     expect(c.name).toBe('Goblin');
     expect(c.level).toBe(24); // clamped to PF2e max

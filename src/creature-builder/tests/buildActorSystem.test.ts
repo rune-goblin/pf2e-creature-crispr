@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildActorSystemFromStats } from '@/creature-builder/services/crud';
-import { calculateCreatureStats } from '@/creature-builder/config/creatureStatTables';
-import { getDefaultBenchmarks } from '@/creature-builder/models';
+import { calculateCreatureStats } from '@/creature-builder/logic/creatureStatTables';
+import { getDefaultBenchmarks } from '@/creature-builder/logic/models';
 
 describe('buildActorSystemFromStats', () => {
   const sys = buildActorSystemFromStats(calculateCreatureStats(5, getDefaultBenchmarks())) as any;

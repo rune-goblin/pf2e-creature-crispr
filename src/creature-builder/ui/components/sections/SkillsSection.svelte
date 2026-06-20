@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EditableCreature, CreatureStats } from '@/creature-builder/editor';
-  import { getStatRangesForLevel, type SkillStatRange } from '@/creature-builder/config/creatureStatTables';
+  import { getStatRangesForLevel, type SkillStatRange } from '@/creature-builder/logic/creatureStatTables';
   import { SKILLS } from '@/creature-builder/editor/creatureEditorUtils';
   import BenchmarkSelector from '../widgets/BenchmarkSelector.svelte';
   import CollapsibleSection from '../widgets/CollapsibleSection.svelte';

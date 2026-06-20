@@ -14,8 +14,8 @@
  * them when the creature's level changes.
  */
 
-import type { SpecialAbility } from '../models';
-import { parseAbilityDescription, renderAbilityDescription } from './abilityScaling';
+import type { SpecialAbility } from '../logic/models';
+import { parseAbilityDescription, renderAbilityDescription } from '../logic/abilityScaling';
 import { CREATURE_FLAG, ABILITY_BENCHMARK_KEY } from './constants';
 import type { AbilityBenchmarkData } from './types';
 

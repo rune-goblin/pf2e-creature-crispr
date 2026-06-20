@@ -6,11 +6,11 @@
  */
 
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
-import type { CreatureStrike, SpecialAbility, DamageModifier, Immunity } from '../models';
-import { createDefaultStrike } from '../models';
-import { getStatRangesForLevel, statToScalar4 } from '../config/creatureStatTables';
+import type { CreatureStrike, SpecialAbility, DamageModifier, Immunity } from '../logic/models';
+import { createDefaultStrike } from '../logic/models';
+import { getStatRangesForLevel, statToScalar4 } from '../logic/creatureStatTables';
 import { logger } from './logger';
-import { parseAbilityDescription, damageToBenchmark, parseDiceFormulaAverage } from './abilityScaling';
+import { parseAbilityDescription, damageToBenchmark, parseDiceFormulaAverage } from '../logic/abilityScaling';
 import { findCreaturesFolder, isCreatureMember } from './crud';
 import {
   CREATURE_FLAG,

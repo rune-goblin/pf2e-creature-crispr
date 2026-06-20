@@ -1,10 +1,10 @@
 <script lang="ts">
    import type { EditableCreature, CreatureStats } from '@/creature-builder/editor';
-   import { SPELL_BENCHMARK_VALUES, SPELL_TRADITIONS, type SpellBenchmarkLabel } from '@/creature-builder/models';
+   import { SPELL_BENCHMARK_VALUES, SPELL_TRADITIONS, type SpellBenchmarkLabel } from '@/creature-builder/logic/models';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
-   import { getStatRangesForLevel, spellStatToScalar } from '@/creature-builder/config/creatureStatTables';
-   import { getSpellSlots } from '@/creature-builder/config/spellSlotTables';
+   import { getStatRangesForLevel, spellStatToScalar } from '@/creature-builder/logic/creatureStatTables';
+   import { getSpellSlots } from '@/creature-builder/logic/spellSlotTables';
    import {
       SPELL_PROGRESSION_OPTIONS,
       SPELL_TRADITION_LABELS,

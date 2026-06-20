@@ -1,6 +1,6 @@
 {
   "name": "pf2e-creature-crispr",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "PF2e Foundry VTT module template (hybrid content + scripted Svelte UI).",
@@ -13,7 +13,7 @@
     "build": "node scripts/pack.ts && vite build",
     "dev": "vite",
     "watch": "vite build --watch",
-    "check": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "check": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.logic.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

@@ -10,7 +10,7 @@ export * from './actorStatsExtractor';
 export * from './bestiaryBrowser';
 export * from './folderManager';
 export * from './pickFile';
-export * from './abilityScaling';
+export * from '../logic/abilityScaling';
 export * from './abilityItemBuilder';
 
 export type {
@@ -20,6 +20,6 @@ export type {
   SpecialAbility,
   ScalableValue,
   DamageModifier
-} from '../models';
-export { getDefaultBenchmarks, createDefaultStrike } from '../models';
-export { calculateCreatureStats } from '../config/creatureStatTables';
+} from '../logic/models';
+export { getDefaultBenchmarks, createDefaultStrike } from '../logic/models';
+export { calculateCreatureStats } from '../logic/creatureStatTables';

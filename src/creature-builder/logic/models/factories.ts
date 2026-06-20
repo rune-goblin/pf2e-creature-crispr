@@ -1,8 +1,14 @@
 import type { TroopSize, Creature, CreatureBenchmarks, CreatureStrike } from './types';
 import { BENCHMARK_VALUES, BENCHMARK_VALUES_4, BENCHMARK_VALUES_3 } from './benchmarks';
 
+const ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+// The kernel must stay Foundry-free, so we can't call foundry.utils.randomID(); roll an
+// equivalent 16-char [A-Za-z0-9] id ourselves.
 function generateCreatureId(): string {
-  return `creature-${foundry.utils.randomID()}`;
+  let id = '';
+  for (let i = 0; i < 16; i++) id += ID_CHARS[Math.floor(Math.random() * ID_CHARS.length)];
+  return `creature-${id}`;
 }
 
 export const TROOP_SIZES: TroopSize[] = ['large', 'huge', 'gargantuan'];

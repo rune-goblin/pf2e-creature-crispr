@@ -1,4 +1,4 @@
-import type { CreatureBenchmarks, CreatureStats, ScalableValue } from '../models';
+import type { CreatureBenchmarks, CreatureStats, ScalableValue } from '../logic/models';
 
 /** Data stored as a flag on creature actors. */
 export interface CreatureActorData {

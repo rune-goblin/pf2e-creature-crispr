@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EditableCreature, CreatureStats } from '@/creature-builder/editor';
-  import { ABILITY_SCORES, ABILITY_SCORE_LABELS } from '@/creature-builder/models';
+  import { ABILITY_SCORES, ABILITY_SCORE_LABELS } from '@/creature-builder/logic/models';
   import BenchmarkSelector from '../widgets/BenchmarkSelector.svelte';
   import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
 

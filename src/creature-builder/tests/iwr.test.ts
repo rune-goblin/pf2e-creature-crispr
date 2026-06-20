@@ -7,7 +7,7 @@ import {
   RESISTANCE_TYPE_GROUPS,
   IMMUNITY_TYPE_GROUPS,
   humanizeIwrType
-} from '@/creature-builder/config/iwrTypes';
+} from '@/creature-builder/logic/iwrTypes';
 import { buildIwrSystem } from '@/creature-builder/services/crud';
 
 const noDuplicates = (slugs: string[]) => expect(new Set(slugs).size).toBe(slugs.length);

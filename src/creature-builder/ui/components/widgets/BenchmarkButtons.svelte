@@ -12,7 +12,7 @@
     type BenchmarkLabel4,
     type BenchmarkLabel3,
     type SpellBenchmarkLabel
-  } from '@/creature-builder/models';
+  } from '@/creature-builder/logic/models';
 
   let {
     value,

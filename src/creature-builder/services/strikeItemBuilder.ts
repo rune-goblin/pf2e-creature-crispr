@@ -10,8 +10,8 @@
  * The caller is responsible for performing the create call.
  */
 
-import type { CreatureStrike } from '../models';
-import { calculateStrikeStats } from '../config/creatureStatTables';
+import type { CreatureStrike } from '../logic/models';
+import { calculateStrikeStats } from '../logic/creatureStatTables';
 import { CREATURE_FLAG, ITEM_BENCHMARK_KEY } from './constants';
 import type { ItemBenchmarkData } from './types';
 

@@ -1,7 +1,7 @@
 import type { ActorPF2e } from 'foundry-pf2e';
-import type { CreatureBenchmarks, CreatureStrike, SpecialAbility, CreatureStats, DamageModifier, Immunity } from '../models';
-import { getDefaultBenchmarks } from '../models';
-import { calculateCreatureStats } from '../config/creatureStatTables';
+import type { CreatureBenchmarks, CreatureStrike, SpecialAbility, CreatureStats, DamageModifier, Immunity } from '../logic/models';
+import { getDefaultBenchmarks } from '../logic/models';
+import { calculateCreatureStats } from '../logic/creatureStatTables';
 import { createNPCInFolder, ensureCreatureFolder, requireActor } from './folderManager';
 import { logger } from './logger';
 import { composeStrikeItemData } from './strikeItemBuilder';

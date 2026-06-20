@@ -15,14 +15,14 @@ import {
    getPersistentDamageForLevel,
    type StatRange,
    type StrikeDamageRange4
-} from '@/creature-builder/config/creatureStatTables';
+} from '@/creature-builder/logic/creatureStatTables';
 import {
    BENCHMARK_VALUES,
    type BenchmarkLabel,
    type SpellProgressionType,
    type SpellSlotLayout,
    type SpellFont
-} from '@/creature-builder/models';
+} from '@/creature-builder/logic/models';
 import type { CreatureStrike, EditableCreature } from './types';
 
 // ============================================================================

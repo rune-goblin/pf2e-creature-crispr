@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { parseAbilityDescription } from '@/creature-builder/services/abilityScaling';
+import { parseAbilityDescription } from '@/creature-builder/logic/abilityScaling';
 import { composeAbilityItemForExport, type AbilityItemData } from '@/creature-builder/services/abilityItemBuilder';
 import { actionItemToSpecialAbility } from '@/creature-builder/services/actorQueries';
-import type { SpecialAbility } from '@/creature-builder/models';
+import type { SpecialAbility } from '@/creature-builder/logic/models';
 
 // Stand-in for the PF2e item that `specialAbilityFromDrop` builds from a dropped payload, so the
 // round-trip can be exercised without Foundry globals.

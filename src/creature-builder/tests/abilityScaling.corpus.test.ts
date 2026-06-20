@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
-import { parseAbilityDescription } from '@/creature-builder/services/abilityScaling';
+import { parseAbilityDescription } from '@/creature-builder/logic/abilityScaling';
 
 // The PF2e bestiary JSON sources, reached via the repo's `_pf2e-source` reference symlink (created by
 // `npm run setup`). Absent on fresh clones / CI — the suite skips itself there rather than fail.

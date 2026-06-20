@@ -2,7 +2,7 @@
   "id": "pf2e-creature-crispr",
   "title": "PF2E Creature CRISPR",
   "description": "A creature builder for Pathfinder 2e: pick a level and role, fine-tune by benchmark, and get a ready-to-play NPC actor. Import and back-solve existing creatures, then re-level to rescale.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "authors": [
     {

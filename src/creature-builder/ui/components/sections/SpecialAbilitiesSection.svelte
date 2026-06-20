@@ -1,7 +1,7 @@
 <script lang="ts">
    import { SvelteSet } from 'svelte/reactivity';
    import type { EditableCreature, SpecialAbility, ScalableValue } from '@/creature-builder/editor';
-   import type { BenchmarkLabel4, BenchmarkLabel3, SpellBenchmarkLabel } from '@/creature-builder/models';
+   import type { BenchmarkLabel4, BenchmarkLabel3, SpellBenchmarkLabel } from '@/creature-builder/logic/models';
    import {
       getAbilityDescription,
       renderAbilityDescriptionHtml,

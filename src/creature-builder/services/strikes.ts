@@ -6,15 +6,15 @@
  */
 
 import type { NPCPF2e, MeleePF2e, ItemSourcePF2e } from 'foundry-pf2e';
-import type { CreatureStrike, SpecialAbility } from '../models';
-import { calculateStrikeStats, getStatRangesForLevel, statToScalar4 } from '../config/creatureStatTables';
+import type { CreatureStrike, SpecialAbility } from '../logic/models';
+import { calculateStrikeStats, getStatRangesForLevel, statToScalar4 } from '../logic/creatureStatTables';
 import { logger } from './logger';
 import {
   damageToBenchmark,
   parseDiceFormulaAverage,
   parseAbilityDescription,
   renderAbilityDescription
-} from './abilityScaling';
+} from '../logic/abilityScaling';
 import { composeStrikeItemData } from './strikeItemBuilder';
 import { composeAbilityItemData } from './abilityItemBuilder';
 import {

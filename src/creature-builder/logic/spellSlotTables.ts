@@ -10,7 +10,7 @@
  * - Bounded (Magus/Summoner): 2 slots, only top 2 ranks active
  */
 
-import type { SpellProgressionType, SpellSlotLayout, SpellFont } from '../models';
+import type { SpellProgressionType, SpellSlotLayout, SpellFont } from './models';
 
 // ============================================================================
 // CORE HELPERS

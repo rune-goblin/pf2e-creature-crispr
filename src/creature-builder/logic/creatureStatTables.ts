@@ -8,8 +8,8 @@
  * SINGLE SOURCE OF TRUTH for all creature stat calculations.
  */
 
-import type { CreatureBenchmarks, CreatureStats, AbilityScore, TroopSize } from '../models';
-import { BENCHMARK_VALUES, TROOP_SQUARES } from '../models';
+import type { CreatureBenchmarks, CreatureStats, AbilityScore, TroopSize } from './models';
+import { BENCHMARK_VALUES, TROOP_SQUARES } from './models';
 import { getSpellSlots } from './spellSlotTables';
 
 // Valid creature levels in PF2e

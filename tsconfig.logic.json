@@ -1,0 +1,12 @@
+// Kernel-purity gate. Type-checks creature-builder/logic/ in isolation with Foundry's ambient
+// types stripped (types: []), so any reference to game/Actor/foundry.* etc. becomes a hard
+// "Cannot find name" error. Run by `npm run check`. ReignMaker vendors logic/ and compiles it
+// standalone, so the kernel must stand on its own types — this proves it does.
+// (Escaping imports are caught separately by tests/logicPurity.test.ts.)
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": []
+  },
+  "include": ["src/creature-builder/logic/**/*"]
+}

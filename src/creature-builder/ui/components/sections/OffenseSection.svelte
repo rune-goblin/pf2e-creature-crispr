@@ -3,7 +3,7 @@
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
    import { damageToBenchmark } from '@/creature-builder/services';
-   import { getStatRangesForLevel, statToScalar4, getStrikeDamageForScalar } from '@/creature-builder/config/creatureStatTables';
+   import { getStatRangesForLevel, statToScalar4, getStrikeDamageForScalar } from '@/creature-builder/logic/creatureStatTables';
    import {
       DAMAGE_TYPES,
       DICE_SIZES,

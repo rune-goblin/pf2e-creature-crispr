@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { humanizeIwrType, type IwrTypeGroup } from '@/creature-builder/config/iwrTypes';
+  import { humanizeIwrType, type IwrTypeGroup } from '@/creature-builder/logic/iwrTypes';
   import TypeFilterMenu from './TypeFilterMenu.svelte';
 
   type IwrField = 'exceptions' | 'doubleVs';

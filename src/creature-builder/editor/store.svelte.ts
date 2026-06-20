@@ -8,9 +8,9 @@ import type {
   DamageModifier,
   Immunity,
   SpecialAbility
-} from '../models';
-import { getDefaultBenchmarks, createDefaultStrike, CREATURE_PRESETS, BENCHMARK_VALUES_4 } from '../models';
-import { calculateCreatureStats, analyzeStatsForBenchmarks } from '../config/creatureStatTables';
+} from '../logic/models';
+import { getDefaultBenchmarks, createDefaultStrike, CREATURE_PRESETS, BENCHMARK_VALUES_4 } from '../logic/models';
+import { calculateCreatureStats, analyzeStatsForBenchmarks } from '../logic/creatureStatTables';
 import {
   getCreatureData,
   getStrikesFromActor,

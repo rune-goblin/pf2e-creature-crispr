@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { EditableCreature, CreatureStats, DamageModifier, Immunity } from '@/creature-builder/editor';
-  import { getStatRangesForLevel, getHPRange, getResistanceWeaknessRange } from '@/creature-builder/config/creatureStatTables';
+  import { getStatRangesForLevel, getHPRange, getResistanceWeaknessRange } from '@/creature-builder/logic/creatureStatTables';
   import {
     RESISTANCE_TYPE_GROUPS,
     WEAKNESS_TYPE_GROUPS,
     IMMUNITY_TYPE_GROUPS,
     EXCEPTION_TYPE_GROUPS
-  } from '@/creature-builder/config/iwrTypes';
+  } from '@/creature-builder/logic/iwrTypes';
   import BenchmarkSelector from '../widgets/BenchmarkSelector.svelte';
   import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
   import IwrChipCloud from '../widgets/IwrChipCloud.svelte';

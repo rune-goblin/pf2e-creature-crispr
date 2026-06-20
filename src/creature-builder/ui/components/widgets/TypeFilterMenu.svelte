@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import type { IwrTypeGroup } from '@/creature-builder/config/iwrTypes';
+  import type { IwrTypeGroup } from '@/creature-builder/logic/iwrTypes';
 
   let {
     groups,

@@ -15,7 +15,7 @@
     statToScalar4,
     hpToScalar,
     type StatRange
-  } from '@/creature-builder/config/creatureStatTables';
+  } from '@/creature-builder/logic/creatureStatTables';
   import { type StatType, getStatRangeForType } from '@/creature-builder/editor/creatureEditorUtils';
   import Dialog from './baseComponents/Dialog.svelte';
   import BasicInfoSection from './sections/BasicInfoSection.svelte';

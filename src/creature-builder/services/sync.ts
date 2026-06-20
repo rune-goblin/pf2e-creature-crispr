@@ -1,7 +1,7 @@
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
-import type { CreatureBenchmarks, DamageModifier, Immunity } from '../models';
-import { getDefaultBenchmarks } from '../models';
-import { calculateCreatureStats, calculateStrikeStats } from '../config/creatureStatTables';
+import type { CreatureBenchmarks, DamageModifier, Immunity } from '../logic/models';
+import { getDefaultBenchmarks } from '../logic/models';
+import { calculateCreatureStats, calculateStrikeStats } from '../logic/creatureStatTables';
 import { logger } from './logger';
 import { requireActor } from './folderManager';
 import { buildActorSystemFromStats, buildIwrSystem } from './crud';

@@ -5,9 +5,9 @@
  */
 
 import type { NPCPF2e, SpellcastingEntryPF2e } from 'foundry-pf2e';
-import type { CreatureBenchmarks, SpellProgressionType, SpellTradition, SpellFont } from '../models';
-import { deduceSpellProgression, detectFont } from '../config/spellSlotTables';
-import { calculateCreatureStats } from '../config/creatureStatTables';
+import type { CreatureBenchmarks, SpellProgressionType, SpellTradition, SpellFont } from '../logic/models';
+import { deduceSpellProgression, detectFont } from '../logic/spellSlotTables';
+import { calculateCreatureStats } from '../logic/creatureStatTables';
 import { logger } from './logger';
 
 /** Per-rank spell-slot record; computed `slot${rank}` keys aren't on the prepared entry type. */

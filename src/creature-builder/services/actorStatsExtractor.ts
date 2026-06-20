@@ -10,11 +10,11 @@
  */
 
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
-import type { CreatureStats, CreatureBenchmarks } from '../models';
-import { getDefaultBenchmarks } from '../models';
-import { analyzeStatsForBenchmarks } from '../config/creatureStatTables';
+import type { CreatureStats, CreatureBenchmarks } from '../logic/models';
+import { getDefaultBenchmarks } from '../logic/models';
+import { analyzeStatsForBenchmarks } from '../logic/creatureStatTables';
 import { extractSpellcastingStats, extractSpellcastingProgression } from './spells';
-import { parseDiceFormulaAverage } from './abilityScaling';
+import { parseDiceFormulaAverage } from '../logic/abilityScaling';
 
 /** The 12 base stats. Perception reads both the newer `system.perception.value` and the older `system.attributes.perception.value` shape. */
 function extractStatsFromActor(actor: NPCPF2e): Pick<CreatureStats,

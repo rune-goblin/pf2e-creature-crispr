@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { editorStore } from '@/creature-builder/editor';
-import { BENCHMARK_VALUES_4 } from '@/creature-builder/models';
+import { BENCHMARK_VALUES_4 } from '@/creature-builder/logic/models';
 
 // Exercises the runes store's reactivity contract headlessly: mutating $state must make
 // the $derived `computedStats` recompute, and SvelteSet/SvelteMap mutations must be visible.

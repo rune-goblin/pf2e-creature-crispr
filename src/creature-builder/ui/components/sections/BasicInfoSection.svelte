@@ -1,6 +1,6 @@
 <script lang="ts">
    import type { EditableCreature } from '@/creature-builder/editor';
-   import { CREATURE_PRESETS } from '@/creature-builder/models';
+   import { CREATURE_PRESETS } from '@/creature-builder/logic/models';
    import { pickFile } from '@/creature-builder/services';
    import Dialog from '../baseComponents/Dialog.svelte';
 

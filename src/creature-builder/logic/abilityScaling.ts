@@ -7,11 +7,11 @@
  * Uses the official PF2e Spell DC/Attack table (3-benchmark: Moderate, High, Extreme)
  */
 
-import type { SpecialAbility, ScalableValue } from '../models';
+import type { SpecialAbility, ScalableValue } from './models';
 import {
   getStatRangesForLevel,
   scaleStrikeDamage
-} from '../config/creatureStatTables';
+} from './creatureStatTables';
 
 // ============================================================================
 // ABILITY DC AND SPELL ATTACK TABLES
