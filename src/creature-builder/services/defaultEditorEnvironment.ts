@@ -1,5 +1,6 @@
 import type { EditorEnvironment } from '../editor/environment';
 import type { SpecialAbility } from '../logic/models';
+import { customAbilityToSpecialAbility } from '../logic/customAbility';
 import { pickFile } from './pickFile';
 import { specialAbilityFromDrop } from './actorQueries';
 import { composeAbilityItemForExport } from './abilityItemBuilder';
@@ -21,5 +22,6 @@ export const defaultEditorEnvironment: EditorEnvironment = {
   pickImage: (current) => pickFile({ type: 'image', current }),
   abilityFromDrop: (data, level) => specialAbilityFromDrop(data as Parameters<typeof specialAbilityFromDrop>[0], level),
   abilityToDropPayload: (ability: SpecialAbility, level) =>
-    JSON.stringify({ type: 'Item', data: composeAbilityItemForExport(ability, level), crisprAbilityDrag: true })
+    JSON.stringify({ type: 'Item', data: composeAbilityItemForExport(ability, level), crisprAbilityDrag: true }),
+  abilityFromDefinition: (def, level) => customAbilityToSpecialAbility(def, level, foundry.utils.randomID())
 };

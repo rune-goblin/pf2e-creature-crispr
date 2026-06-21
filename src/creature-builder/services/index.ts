@@ -16,6 +16,7 @@ export * from './defaultSaveTarget';
 export * from './saveTargetRegistry';
 export * from './defaultEditorEnvironment';
 export * from './editorHost';
+export * from './abilityProviderRegistry';
 
 export type {
   CreatureStats,

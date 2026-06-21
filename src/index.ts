@@ -3,11 +3,16 @@ import './creature-builder/styles/variables.css';
 import './creature-builder/styles/form-controls.css';
 import './creature-builder/styles/app-shell.css';
 import { MODULE_ID } from './constants';
-import { CreatureCrisprApp } from './creature-builder/ui/CreatureCrisprApp';
+import { editCreature, openEditor, type EditCreatureOptions } from './creature-builder/editorLaunch';
+import { registerAbilityProvider, registerSaveTarget } from './creature-builder/services';
+import type { AbilityProvider, CreatureSaveTarget } from './creature-builder/logic/contracts';
 
 interface ModuleApi {
   version: string;
   open: () => void;
+  editCreature: (opts?: EditCreatureOptions) => void;
+  registerAbilityProvider: (provider: AbilityProvider) => void;
+  registerSaveTarget: (target: CreatureSaveTarget) => void;
 }
 
 Hooks.once('init', () => {
@@ -19,9 +24,10 @@ Hooks.once('ready', () => {
   const version = module?.version ?? '0.0.0';
   const api: ModuleApi = {
     version,
-    open: () => {
-      CreatureCrisprApp.open();
-    }
+    open: openEditor,
+    editCreature,
+    registerAbilityProvider,
+    registerSaveTarget
   };
   // `api` is the Foundry convention for a public API, but isn't a typed field on Module.
   if (module) (module as { api?: ModuleApi }).api = api;
@@ -40,7 +46,7 @@ Hooks.on('renderActorDirectory', (...args: unknown[]) => {
   button.type = 'button';
   button.className = 'creature-crispr-launch';
   button.innerHTML = '<i class="fa-solid fa-dna"></i> Creature CRISPR';
-  button.addEventListener('click', () => CreatureCrisprApp.open());
+  button.addEventListener('click', () => openEditor());
 
   const header = root.querySelector('.directory-header') ?? root;
   header.prepend(button);

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ActorPF2e } from 'foundry-pf2e';
   import { editorStore } from '@/creature-builder/editor';
-  import { getActiveSaveTarget, defaultEditorEnvironment } from '@/creature-builder/services';
+  import { getActiveSaveTarget, defaultEditorEnvironment, getActiveProviders } from '@/creature-builder/services';
   import {
     getStatRangesForLevel,
     statToScalar,
@@ -27,6 +27,8 @@
   // All actor I/O flows through the active save target; UI side-effects (notify/pick/ability drop)
   // through the injected env. Read the target per-action so a Phase-3 editCreate() switch is honoured.
   const env = defaultEditorEnvironment;
+  // Registered providers' abilities drive the picker; empty (CRISPR default) → no picker button.
+  const abilityProviders = getActiveProviders();
 
   let isSaving = $state(false);
   let isExporting = $state(false);
@@ -290,6 +292,7 @@
         <SpecialAbilitiesSection
           {creature}
           {env}
+          {abilityProviders}
           expanded={expandedSections.has('specialAbilities')}
           onToggle={() => editorStore.toggleSection('specialAbilities')}
           onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}

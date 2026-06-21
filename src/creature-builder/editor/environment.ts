@@ -1,4 +1,5 @@
 import type { SpecialAbility } from '../logic/models';
+import type { CustomAbilityDefinition } from '../logic/contracts';
 
 export interface EditorNotifier {
   info(message: string): void;
@@ -17,4 +18,6 @@ export interface EditorEnvironment {
   abilityFromDrop(data: unknown, level: number): Promise<SpecialAbility | null>;
   /** Serialize an ability to the Foundry Item drop-payload string set on a drag-out onto an actor sheet. */
   abilityToDropPayload(ability: SpecialAbility, level: number): string;
+  /** Instantiate a provider ability for the creature — the kernel mapping plus a host-assigned id. */
+  abilityFromDefinition(def: CustomAbilityDefinition, level: number): SpecialAbility;
 }

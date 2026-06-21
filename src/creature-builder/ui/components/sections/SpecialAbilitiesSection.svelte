@@ -2,6 +2,7 @@
    import { SvelteSet } from 'svelte/reactivity';
    import type { EditableCreature, SpecialAbility, ScalableValue, EditorEnvironment } from '@/creature-builder/editor';
    import type { BenchmarkLabel4, BenchmarkLabel3, SpellBenchmarkLabel } from '@/creature-builder/logic/models';
+   import type { AbilityProvider, CustomAbilityDefinition } from '@/creature-builder/logic/contracts';
    import {
       getAbilityDescription,
       renderAbilityDescriptionHtml,
@@ -14,6 +15,7 @@
    } from '@/creature-builder/logic/abilityScaling';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
+   import AbilityPickerDialog from './AbilityPickerDialog.svelte';
 
    const DAMAGE_BENCHMARKS: BenchmarkLabel4[] = ['low', 'moderate', 'high', 'extreme'];
    const PERSISTENT_BENCHMARKS: BenchmarkLabel3[] = ['low', 'moderate', 'high'];
@@ -23,6 +25,7 @@
       creature,
       env,
       expanded,
+      abilityProviders = [],
       onToggle,
       onUpdateAbilityScalableOverride,
       onUpdateAbilityScalableCustomValue,
@@ -32,6 +35,7 @@
       creature: EditableCreature;
       env: EditorEnvironment;
       expanded: boolean;
+      abilityProviders?: AbilityProvider[];
       onToggle?: () => void;
       onUpdateAbilityScalableOverride?: (detail: { abilityIndex: number; valueIndex: number; override: number | undefined }) => void;
       onUpdateAbilityScalableCustomValue?: (detail: { abilityIndex: number; valueIndex: number; customValue: string | undefined }) => void;
@@ -42,6 +46,14 @@
    const expandedAbilities = new SvelteSet<number>();
 
    let isDragOver = $state(false);
+   let showAbilityPicker = $state(false);
+
+   // Picked provider ability → host instantiates it (kernel mapping + id), then it's added like a drop.
+   function handlePickerAdd(def: CustomAbilityDefinition): void {
+      const ability = env.abilityFromDefinition(def, creature.level);
+      onAddAbility?.(ability);
+      env.notify.info(`Added "${ability.name}" to special abilities`);
+   }
 
    // Drag a CRISPR ability onto a PF2e actor sheet: the host serializes it to a Foundry Item drop
    // payload (with the user's current scalable edits baked in).
@@ -238,6 +250,13 @@
          ondragleave={handleSectionDragLeave}
          ondrop={handleSectionDrop}
       >
+         {#if abilityProviders.length > 0}
+            <div class="ability-picker-row">
+               <button type="button" class="add-ability-btn" onclick={() => (showAbilityPicker = true)}>
+                  <i class="fas fa-plus"></i> Add Ability
+               </button>
+            </div>
+         {/if}
          {#if creature.specialAbilities.length === 0}
             <p class="no-abilities-message">
                No special abilities yet. Drag an action or passive from an actor sheet here, or import a creature.
@@ -502,6 +521,13 @@
    {/if}
 </section>
 
+<AbilityPickerDialog
+   bind:show={showAbilityPicker}
+   providers={abilityProviders}
+   level={creature.level}
+   onPick={handlePickerAdd}
+/>
+
 <style lang="scss">
    .editor-section {
       background: var(--surface-low);
@@ -532,6 +558,35 @@
       font-size: var(--font-sm);
       font-style: italic;
       padding: var(--space-8);
+   }
+
+   .ability-picker-row {
+      display: flex;
+   }
+
+   .add-ability-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-6);
+      padding: var(--space-6) var(--space-12);
+      background: var(--surface-lowest);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-medium);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+
+      &:hover {
+         background: var(--hover);
+         border-color: var(--color-primary);
+         color: var(--text-primary);
+      }
+
+      i {
+         font-size: var(--font-xs);
+      }
    }
 
    .abilities-toolbar {
