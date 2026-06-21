@@ -1,6 +1,13 @@
 <script lang="ts">
   import type { EditableCreature, CreatureStats, DamageModifier, Immunity } from '@/creature-builder/editor';
-  import { getStatRangesForLevel, getHPRange, getResistanceWeaknessRange } from '@/creature-builder/logic/creatureStatTables';
+  import {
+    getStatRangesForLevel,
+    getHPRange,
+    getResistanceWeaknessRange,
+    calculateTroopThresholds,
+    getTroopWeaknessValues
+  } from '@/creature-builder/logic/creatureStatTables';
+  import { TROOP_SIZES, type TroopSize } from '@/creature-builder/logic/models';
   import {
     RESISTANCE_TYPE_GROUPS,
     WEAKNESS_TYPE_GROUPS,
@@ -26,7 +33,10 @@
     onUpdateWeakness,
     onAddImmunity,
     onRemoveImmunity,
-    onUpdateImmunity
+    onUpdateImmunity,
+    onSetTroop,
+    onSetTroopSize,
+    onConvertToTroop
   }: {
     creature: EditableCreature;
     computedStats: CreatureStats | null;
@@ -43,6 +53,9 @@
     onAddImmunity?: (type: string) => void;
     onRemoveImmunity?: (index: number) => void;
     onUpdateImmunity?: (d: { index: number; updates: Partial<Immunity> }) => void;
+    onSetTroop?: (isTroop: boolean) => void;
+    onSetTroopSize?: (size: TroopSize) => void;
+    onConvertToTroop?: () => void;
   } = $props();
 
   const hpRangeSubtext = $derived.by(() => {
@@ -53,12 +66,52 @@
   });
 
   const resistanceWeaknessRange = $derived(getResistanceWeaknessRange(creature?.level ?? 1));
+
+  // Troops show formation thresholds (from live HP) + level-derived area/splash weaknesses; the
+  // weaknesses themselves are stamped on save, so here they're read-only guidance.
+  const troopInfo = $derived.by(() => {
+    if (!creature?.isTroop || !computedStats) return null;
+    return {
+      thresholds: calculateTroopThresholds(computedStats.hp, creature.troopSize ?? 'gargantuan'),
+      weakness: getTroopWeaknessValues(creature.level)
+    };
+  });
 </script>
 
 <section class="editor-section">
   <CollapsibleSection label="Defenses" {expanded} ontoggle={() => onToggle?.()} />
   {#if expanded}
     <div class="section-body">
+      <div class="troop-row">
+        <label class="troop-toggle">
+          <input type="checkbox" checked={creature.isTroop ?? false} onchange={(e) => onSetTroop?.(e.currentTarget.checked)} />
+          <span>Troop</span>
+        </label>
+        {#if creature.isTroop}
+          <select
+            class="cc-select troop-size-select"
+            value={creature.troopSize ?? 'gargantuan'}
+            onchange={(e) => onSetTroopSize?.(e.currentTarget.value as TroopSize)}
+            aria-label="Troop formation size"
+          >
+            {#each TROOP_SIZES as size (size)}
+              <option value={size}>{size}</option>
+            {/each}
+          </select>
+        {:else}
+          <button type="button" class="convert-troop-btn" onclick={() => onConvertToTroop?.()}>
+            <i class="fas fa-people-group"></i> Convert to Troop
+          </button>
+        {/if}
+      </div>
+      {#if troopInfo}
+        <div class="troop-info">
+          <div class="troop-line"><span class="troop-label">Squares</span><span>{troopInfo.thresholds.squares.full} → {troopInfo.thresholds.squares.atThreshold1} → {troopInfo.thresholds.squares.atThreshold2}</span></div>
+          <div class="troop-line"><span class="troop-label">HP thresholds</span><span>{troopInfo.thresholds.maxHP} / {troopInfo.thresholds.threshold1} / {troopInfo.thresholds.threshold2}</span></div>
+          <div class="troop-line"><span class="troop-label">Weaknesses</span><span>area {troopInfo.weakness.area}, splash {troopInfo.weakness.splash} <em>(added on save)</em></span></div>
+        </div>
+      {/if}
+
       <div class="benchmark-grid">
         <BenchmarkSelector
           label="AC"
@@ -180,6 +233,85 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-12);
+  }
+
+  .troop-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-12);
+  }
+
+  .troop-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-6);
+    font-size: var(--font-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-secondary);
+    cursor: pointer;
+
+    input {
+      cursor: pointer;
+    }
+  }
+
+  .troop-size-select {
+    text-transform: capitalize;
+    min-height: auto;
+    padding: var(--space-2) var(--space-24) var(--space-2) var(--space-8);
+    font-size: var(--font-sm);
+  }
+
+  .convert-troop-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-6);
+    padding: var(--space-4) var(--space-12);
+    background: var(--surface-lowest);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+
+    &:hover {
+      background: var(--hover);
+      border-color: var(--color-primary);
+      color: var(--text-primary);
+    }
+
+    i {
+      font-size: var(--font-xs);
+    }
+  }
+
+  .troop-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-8) var(--space-12);
+    background: var(--surface-lowest);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+
+    .troop-line {
+      display: flex;
+      gap: var(--space-8);
+    }
+
+    .troop-label {
+      width: 8rem;
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+
+    em {
+      color: var(--text-muted);
+      font-style: italic;
+    }
   }
 
   .benchmark-grid {

@@ -1,6 +1,8 @@
 import type { ActorPF2e, ItemPF2e } from 'foundry-pf2e';
 import type { EditableCreature } from '../logic/editableCreature';
 import type { CreatureSaveTarget, StoredCreatureData } from '../logic/contracts';
+import type { DamageModifier } from '../logic/models';
+import { withTroopTrait, withTroopWeaknesses } from '../logic/troop';
 import { MODULE_ID } from '@/constants';
 import { createCreatureActor, cloneCreatureActor, getCreatureData } from './crud';
 import { updateCreature } from './sync';
@@ -22,6 +24,15 @@ function buildItemIdMap(
   return map;
 }
 
+/** Troops persist with the `troop` trait + level-derived area/splash weaknesses; non-troops unchanged. */
+function troopAdjusted(creature: EditableCreature): { traits: string[]; weaknesses: DamageModifier[] } {
+  if (!creature.isTroop) return { traits: creature.traits, weaknesses: creature.weaknesses };
+  return {
+    traits: withTroopTrait(creature.traits),
+    weaknesses: withTroopWeaknesses(creature.weaknesses, creature.level)
+  };
+}
+
 // CRISPR's built-in save target: the "Creature CRISPR" flat folder + the module's own flag scope.
 // Wraps the existing crud/sync/import services so behaviour is identical to the pre-contract editor.
 export const defaultSaveTarget: CreatureSaveTarget = {
@@ -33,33 +44,35 @@ export const defaultSaveTarget: CreatureSaveTarget = {
   },
 
   createActor(creature: EditableCreature): Promise<string> {
+    const { traits, weaknesses } = troopAdjusted(creature);
     return createCreatureActor(creature.name, creature.level, creature.benchmarks, {
       size: creature.size,
       creatureType: creature.creatureType,
-      traits: creature.traits,
+      traits,
       portraitImage: creature.portraitImage,
       tokenImage: creature.tokenImage,
       strikes: creature.strikes,
       specialAbilities: creature.specialAbilities,
       immunities: creature.immunities,
       resistances: creature.resistances,
-      weaknesses: creature.weaknesses
+      weaknesses
     });
   },
 
   async updateActor(actorId: string, creature: EditableCreature): Promise<void> {
+    const { traits, weaknesses } = troopAdjusted(creature);
     await updateCreature(actorId, {
       name: creature.name,
       level: creature.level,
       benchmarks: creature.benchmarks,
       size: creature.size,
       creatureType: creature.creatureType,
-      traits: creature.traits,
+      traits,
       portraitImage: creature.portraitImage,
       tokenImage: creature.tokenImage,
       immunities: creature.immunities,
       resistances: creature.resistances,
-      weaknesses: creature.weaknesses
+      weaknesses
     });
     await updateMeleeItems(actorId, creature.strikes, creature.level);
     await updateAbilityItems(actorId, creature.specialAbilities, creature.level);
@@ -82,18 +95,19 @@ export const defaultSaveTarget: CreatureSaveTarget = {
     const remappedStrikes = creature.strikes.map((s) => (s.id && strikeMap[s.id] ? { ...s, id: strikeMap[s.id] } : s));
     const remappedAbilities = creature.specialAbilities.map((a) => (a.id && abilityMap[a.id] ? { ...a, id: abilityMap[a.id] } : a));
 
+    const { traits, weaknesses } = troopAdjusted(creature);
     await updateCreature(newActorId, {
       name: newName,
       level: creature.level,
       benchmarks: creature.benchmarks,
       size: creature.size,
       creatureType: creature.creatureType,
-      traits: creature.traits,
+      traits,
       portraitImage: creature.portraitImage,
       tokenImage: creature.tokenImage,
       immunities: creature.immunities,
       resistances: creature.resistances,
-      weaknesses: creature.weaknesses
+      weaknesses
     });
     await updateMeleeItems(newActorId, remappedStrikes, creature.level);
     await updateAbilityItems(newActorId, remappedAbilities, creature.level);

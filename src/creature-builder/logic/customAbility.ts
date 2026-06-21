@@ -29,3 +29,12 @@ export function customAbilityToSpecialAbility(
 
   return ability;
 }
+
+/**
+ * Append the incoming abilities the creature doesn't already have (matched by name, case-insensitive).
+ * Used by Convert to Troop so a provider's seeded standard abilities don't clobber the user's own.
+ */
+export function mergeSpecialAbilitiesByName(existing: SpecialAbility[], incoming: SpecialAbility[]): SpecialAbility[] {
+  const have = new Set(existing.map((a) => a.name.toLowerCase()));
+  return [...existing, ...incoming.filter((a) => !have.has(a.name.toLowerCase()))];
+}

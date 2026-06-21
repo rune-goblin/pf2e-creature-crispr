@@ -4,7 +4,8 @@ import type {
   CreatureStrike,
   DamageModifier,
   Immunity,
-  SpecialAbility
+  SpecialAbility,
+  TroopSize
 } from '../logic/models';
 import { getDefaultBenchmarks, createDefaultStrike, CREATURE_PRESETS, BENCHMARK_VALUES_4 } from '../logic/models';
 import { calculateCreatureStats } from '../logic/creatureStatTables';
@@ -437,6 +438,36 @@ class CreatureEditorStore {
     if (!this.creature || index < 0 || index >= this.creature.immunities.length) return;
     this.mutateCreature((c) => {
       c.immunities[index] = { ...c.immunities[index], ...updates };
+    });
+  }
+
+  // ── Troop ──────────────────────────────────────────────────────────────────
+
+  setTroop(isTroop: boolean): void {
+    this.mutateCreature((c) => {
+      c.isTroop = isTroop;
+      if (isTroop && !c.troopSize) c.troopSize = 'gargantuan';
+    });
+  }
+
+  setTroopSize(size: TroopSize): void {
+    this.mutateCreature((c) => {
+      c.troopSize = size;
+    });
+  }
+
+  /**
+   * Structural half of Convert to Troop: flag + formation size + actor size, plus the provider
+   * recipe's level/name tweaks. Pure — ability seeding is host-side (it needs item ids), reconciled
+   * separately so the user's existing abilities survive.
+   */
+  convertToTroop(opts: { troopSize?: TroopSize; levelDelta?: number; nameSuffix?: string } = {}): void {
+    this.mutateCreature((c) => {
+      c.isTroop = true;
+      c.troopSize = opts.troopSize ?? c.troopSize ?? 'gargantuan';
+      c.size = c.troopSize;
+      if (opts.levelDelta) c.level = Math.max(-1, Math.min(24, c.level + opts.levelDelta));
+      if (opts.nameSuffix) c.name = `${c.name}${opts.nameSuffix}`;
     });
   }
 }

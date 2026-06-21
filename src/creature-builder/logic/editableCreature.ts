@@ -5,7 +5,8 @@ import type {
   CreatureStrike,
   DamageModifier,
   Immunity,
-  SpecialAbility
+  SpecialAbility,
+  TroopSize
 } from './models';
 
 /** Working copy of a creature: actor-derived fields plus everything the editor can change. */
@@ -29,4 +30,6 @@ export interface EditableCreature {
   importedFrom?: string;
   sourceActorUuid?: string;
   speeds: CreatureSpeeds;
+  isTroop?: boolean;
+  troopSize?: TroopSize; // formation size driving thresholds; the troop trait + area/splash weaknesses are save-derived
 }
