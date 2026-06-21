@@ -35,8 +35,7 @@
     onRemoveImmunity,
     onUpdateImmunity,
     onSetTroop,
-    onSetTroopSize,
-    onConvertToTroop
+    onSetTroopSize
   }: {
     creature: EditableCreature;
     computedStats: CreatureStats | null;
@@ -55,7 +54,6 @@
     onUpdateImmunity?: (d: { index: number; updates: Partial<Immunity> }) => void;
     onSetTroop?: (isTroop: boolean) => void;
     onSetTroopSize?: (size: TroopSize) => void;
-    onConvertToTroop?: () => void;
   } = $props();
 
   const hpRangeSubtext = $derived.by(() => {
@@ -98,10 +96,6 @@
               <option value={size}>{size}</option>
             {/each}
           </select>
-        {:else}
-          <button type="button" class="convert-troop-btn" onclick={() => onConvertToTroop?.()}>
-            <i class="fas fa-people-group"></i> Convert to Troop
-          </button>
         {/if}
       </div>
       {#if troopInfo}
@@ -260,30 +254,6 @@
     min-height: auto;
     padding: var(--space-2) var(--space-24) var(--space-2) var(--space-8);
     font-size: var(--font-sm);
-  }
-
-  .convert-troop-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-6);
-    padding: var(--space-4) var(--space-12);
-    background: var(--surface-lowest);
-    border: 1px solid var(--border-medium);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    font-size: var(--font-sm);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-
-    &:hover {
-      background: var(--hover);
-      border-color: var(--color-primary);
-      color: var(--text-primary);
-    }
-
-    i {
-      font-size: var(--font-xs);
-    }
   }
 
   .troop-info {

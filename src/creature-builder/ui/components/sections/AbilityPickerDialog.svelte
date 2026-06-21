@@ -3,17 +3,20 @@
   import { customAbilityToSpecialAbility } from '@/creature-builder/logic/customAbility';
   import { getAbilityDescription, renderAbilityDescriptionHtml } from '@/creature-builder/logic/abilityScaling';
   import PickerDialog from '../baseComponents/PickerDialog.svelte';
+  import EnrichedHtml from '../baseComponents/EnrichedHtml.svelte';
 
   let {
     show = $bindable(false),
     providers,
     level,
-    onPick
+    onPick,
+    enrich
   }: {
     show?: boolean;
     providers: AbilityProvider[];
     level: number;
     onPick: (def: CustomAbilityDefinition) => void;
+    enrich?: (html: string) => Promise<string>;
   } = $props();
 
   let searchTerm = $state('');
@@ -117,7 +120,7 @@
           </div>
         {/if}
         <!-- Trusted: kernel renderer output from a registered provider, not free user input. -->
-        <div class="ability-preview-desc">{@html previewHtml(def)}</div>
+        <div class="ability-preview-desc"><EnrichedHtml html={previewHtml(def)} {enrich} /></div>
       </div>
     {/if}
   {/snippet}

@@ -13,7 +13,11 @@ import {
   damageToBenchmark,
   parseDiceFormulaAverage,
   parseAbilityDescription,
-  renderAbilityDescription
+  renderAbilityDescription,
+  getEffectiveValue,
+  readFastHealingRule,
+  setFastHealingRuleValue,
+  composeFastHealingName
 } from '../logic/abilityScaling';
 import { composeStrikeItemData } from './strikeItemBuilder';
 import { composeAbilityItemData } from './abilityItemBuilder';
@@ -242,6 +246,8 @@ export async function updateAbilityItems(
     const item = actor.items.get(ability.id);
     if (!item) continue;
 
+    const healingSV = ability.scalableValues?.find((v) => v.type === 'healing');
+
     // Resolve template + scalable values, parsing on the fly for legacy items
     let template = ability.descriptionTemplate;
     let scalableValues = ability.scalableValues;
@@ -249,48 +255,79 @@ export async function updateAbilityItems(
     if (!template || !scalableValues || scalableValues.length === 0) {
       const rawDescription = item.system?.description?.value || '';
       const parsed = parseAbilityDescription(rawDescription, parseLevel);
-      if (parsed.scalableValues.length === 0) {
-        // Nothing scalable to persist — leave the item alone
+      if (parsed.scalableValues.length > 0) {
+        // Merge any in-memory overrides/customValues onto freshly-parsed values
+        // (index-aligned) so user edits survive the migration. The healing value (if any) carries
+        // no description placeholder, so re-append it after the description-derived values.
+        const merged = parsed.scalableValues.map((sv, i) => {
+          const inMemory = scalableValues?.[i];
+          if (!inMemory) return sv;
+          return {
+            ...sv,
+            ...(inMemory.override !== undefined ? { override: inMemory.override } : {}),
+            ...(inMemory.customValue !== undefined ? { customValue: inMemory.customValue } : {})
+          };
+        });
+        template = parsed.template;
+        scalableValues = healingSV ? [...merged, healingSV] : merged;
+      } else if (!ability.fastHealing) {
+        // Nothing scalable to persist and no fast healing — leave the item alone.
         continue;
       }
-      // Merge any in-memory overrides/customValues onto freshly-parsed values
-      // (index-aligned) so user edits survive the migration.
-      const merged = parsed.scalableValues.map((sv, i) => {
-        const inMemory = scalableValues?.[i];
-        if (!inMemory) return sv;
-        return {
-          ...sv,
-          ...(inMemory.override !== undefined ? { override: inMemory.override } : {}),
-          ...(inMemory.customValue !== undefined ? { customValue: inMemory.customValue } : {})
-        };
-      });
-      template = parsed.template;
-      scalableValues = merged;
+      // else: fast-healing-only ability — no description template, handled below.
     }
 
-    const benchmarkData: AbilityBenchmarkData = {
-      descriptionTemplate: template,
-      scalableValues,
-      originalDescription: (item.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY) as AbilityBenchmarkData | undefined)?.originalDescription
-        ?? item.system?.description?.value
-        ?? ''
-    };
+    const update: EmbeddedDocumentUpdateData = { _id: item.id };
 
-    // Carry over the user-edited template override if set — it takes precedence
-    // when rendering the final description, but the parsed `descriptionTemplate`
-    // is preserved alongside so Reset can restore it.
-    if (ability.customDescriptionTemplate) {
-      benchmarkData.customDescriptionTemplate = ability.customDescriptionTemplate;
+    // Fast healing / regeneration: rewrite the rule amount + the item name from the (possibly
+    // edited) healing scalable value. Done here rather than via the description because the amount
+    // lives on the rule + name, not in the prose.
+    if (ability.fastHealing && healingSV) {
+      const amount = parseInt(getEffectiveValue(healingSV, level), 10);
+      if (Number.isFinite(amount)) {
+        update['system.rules'] = setFastHealingRuleValue(
+          item.system?.rules as Array<Record<string, unknown>> | undefined,
+          amount,
+          ability.fastHealing.kind,
+          ability.fastHealing.deactivatedBy
+        );
+        update.name = composeFastHealingName(item.name ?? ability.name, amount);
+      }
     }
 
-    const renderTemplate = ability.customDescriptionTemplate ?? template;
-    const scaledDescription = renderAbilityDescription(renderTemplate, scalableValues, level);
+    if (template && scalableValues && scalableValues.length > 0) {
+      const benchmarkData: AbilityBenchmarkData = {
+        descriptionTemplate: template,
+        scalableValues,
+        originalDescription: (item.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY) as AbilityBenchmarkData | undefined)?.originalDescription
+          ?? item.system?.description?.value
+          ?? ''
+      };
 
-    updates.push({
-      _id: item.id,
-      'system.description.value': scaledDescription,
-      [`flags.${CREATURE_FLAG}.${ABILITY_BENCHMARK_KEY}`]: benchmarkData
-    });
+      // Carry over the user-edited template override if set — it takes precedence
+      // when rendering the final description, but the parsed `descriptionTemplate`
+      // is preserved alongside so Reset can restore it.
+      if (ability.customDescriptionTemplate) {
+        benchmarkData.customDescriptionTemplate = ability.customDescriptionTemplate;
+      }
+
+      const renderTemplate = ability.customDescriptionTemplate ?? template;
+      update['system.description.value'] = renderAbilityDescription(renderTemplate, scalableValues, level);
+      update[`flags.${CREATURE_FLAG}.${ABILITY_BENCHMARK_KEY}`] = benchmarkData;
+    } else if (ability.fastHealing && healingSV) {
+      // Fast-healing-only ability: no templated description, but still persist the healing scalable
+      // so it round-trips (the raw description has no {N} placeholders).
+      const rawDescription = item.system?.description?.value ?? '';
+      update[`flags.${CREATURE_FLAG}.${ABILITY_BENCHMARK_KEY}`] = {
+        descriptionTemplate: rawDescription,
+        scalableValues: [healingSV],
+        originalDescription: (item.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY) as AbilityBenchmarkData | undefined)?.originalDescription
+          ?? rawDescription
+      } satisfies AbilityBenchmarkData;
+    }
+
+    // Only persist if we actually have a change beyond the _id.
+    if (Object.keys(update).length > 1) updates.push(update);
   }
 
   if (updates.length > 0) {
@@ -384,10 +421,28 @@ export async function syncAbilityItemsForLevel(actor: NPCPF2e, level: number): P
       level
     );
 
-    updates.push({
+    const update: EmbeddedDocumentUpdateData = {
       _id: item.id,
       'system.description.value': scaledDescription
-    });
+    };
+
+    // Fast healing / regeneration: rescale the amount on the rule + name (it isn't in the prose).
+    const healingSV = benchmarkData.scalableValues.find((v) => v.type === 'healing');
+    const fh = readFastHealingRule(item.system?.rules as Array<Record<string, unknown>> | undefined);
+    if (healingSV && fh) {
+      const amount = parseInt(getEffectiveValue(healingSV, level), 10);
+      if (Number.isFinite(amount)) {
+        update['system.rules'] = setFastHealingRuleValue(
+          item.system?.rules as Array<Record<string, unknown>> | undefined,
+          amount,
+          fh.kind,
+          fh.deactivatedBy
+        );
+        update.name = composeFastHealingName(item.name, amount);
+      }
+    }
+
+    updates.push(update);
   }
 
   if (updates.length > 0) {

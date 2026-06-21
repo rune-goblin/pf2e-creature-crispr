@@ -163,10 +163,14 @@ export interface CreatureStats {
 }
 
 /**
- * A scalable value within a special ability (damage formula or DC)
+ * A scalable value within a special ability (damage formula, DC, or fast-healing/regeneration amount).
+ *
+ * `healing` values are the flat HP amount of a PF2e FastHealing rule element. Unlike damage/dc/persistent,
+ * the value lives on the item's rule + name rather than inside the description text, so it has no `{N}`
+ * placeholder in `descriptionTemplate` — the editor surfaces it directly from `scalableValues`.
  */
 export interface ScalableValue {
-  type: 'damage' | 'dc' | 'persistent';
+  type: 'damage' | 'dc' | 'persistent' | 'healing';
   benchmark: number;           // Scalar 0-1 representing the benchmark level (immutable after parse)
   originalValue: string;       // Original value from import (e.g., "2d6+4" or "25")
   baseLevel?: number;          // Creature level at which this value was parsed. When the current level matches, the recommendation is the literal `originalValue` instead of the (lossy) benchmark-scaled form.
@@ -189,6 +193,15 @@ export interface SpecialAbility {
   actionType: 'action' | 'reaction' | 'free' | 'passive';
   actions?: 1 | 2 | 3;  // Number of actions if actionType is 'action'
   traits?: string[];
+  /**
+   * Present when the ability carries a PF2e FastHealing rule element (fast healing / regeneration).
+   * The healing amount itself is a `ScalableValue` of type 'healing' in `scalableValues`; this marker
+   * records the rule's kind + deactivation types so the amount can be written back to the rule + name.
+   */
+  fastHealing?: {
+    kind: 'fast-healing' | 'regeneration';
+    deactivatedBy?: string[];  // regeneration only: damage-type slugs that suppress it
+  };
 }
 
 /**

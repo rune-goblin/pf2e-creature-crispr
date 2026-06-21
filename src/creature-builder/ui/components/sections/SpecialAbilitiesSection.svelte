@@ -15,10 +15,12 @@
    } from '@/creature-builder/logic/abilityScaling';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
+   import EnrichedHtml from '../baseComponents/EnrichedHtml.svelte';
    import AbilityPickerDialog from './AbilityPickerDialog.svelte';
 
    const DAMAGE_BENCHMARKS: BenchmarkLabel4[] = ['low', 'moderate', 'high', 'extreme'];
    const PERSISTENT_BENCHMARKS: BenchmarkLabel3[] = ['low', 'moderate', 'high'];
+   const HEALING_BENCHMARKS: BenchmarkLabel3[] = ['low', 'moderate', 'high'];
    const DC_BENCHMARKS: SpellBenchmarkLabel[] = ['moderate', 'high', 'extreme'];
 
    let {
@@ -103,8 +105,15 @@
       if (sv.type === 'dc') {
          return `DC ${raw}`;
       }
+      if (sv.type === 'healing') {
+         return raw;
+      }
       const dmgType = sv.damageType ? ` ${sv.damageType}` : '';
       return `${raw}${dmgType}`;
+   }
+
+   function healingLabel(ability: SpecialAbility): string {
+      return ability.fastHealing?.kind === 'regeneration' ? 'Regeneration' : 'Fast Healing';
    }
 
    function handleBenchmarkSelect(abilityIndex: number, valueIndex: number, benchmark: number): void {
@@ -150,6 +159,16 @@
    function handleDcEdit(abilityIndex: number, valueIndex: number, rawValue: number): void {
       if (!Number.isFinite(rawValue)) return;
       const clamped = Math.max(0, Math.round(rawValue));
+      onUpdateAbilityScalableCustomValue?.({
+         abilityIndex,
+         valueIndex,
+         customValue: String(clamped)
+      });
+   }
+
+   function handleHealingEdit(abilityIndex: number, valueIndex: number, rawValue: number): void {
+      if (!Number.isFinite(rawValue)) return;
+      const clamped = Math.max(1, Math.round(rawValue));
       onUpdateAbilityScalableCustomValue?.({
          abilityIndex,
          valueIndex,
@@ -358,9 +377,8 @@
                                     </div>
                                  </div>
                               {:else}
-                                 <!-- Trusted: renderDescriptionHtml emits PF2e-formatted markup from our own renderer, not user input. -->
                                  <div class="ability-description">
-                                    {@html renderDescriptionHtml(ability)}
+                                    <EnrichedHtml html={renderDescriptionHtml(ability)} enrich={env.enrichHtml} />
                                  </div>
                               {/if}
                               {#if ability.scalableValues && ability.scalableValues.length > 0}
@@ -375,13 +393,15 @@
                                        <div
                                           class="scalable-row"
                                           role="group"
-                                          aria-label="{sv.type === 'dc' ? 'DC' : sv.type === 'persistent' ? 'Persistent' : 'Damage'} editor"
+                                          aria-label="{sv.type === 'dc' ? 'DC' : sv.type === 'persistent' ? 'Persistent' : sv.type === 'healing' ? healingLabel(ability) : 'Damage'} editor"
                                        >
                                           <span class="scalable-type">
                                              {#if sv.type === 'damage'}
                                                 Damage{sv.damageType ? ` (${sv.damageType})` : ''}
                                              {:else if sv.type === 'persistent'}
                                                 Persistent{sv.damageType ? ` ${sv.damageType}` : ''}
+                                             {:else if sv.type === 'healing'}
+                                                {healingLabel(ability)}
                                              {:else}
                                                 DC
                                              {/if}
@@ -404,6 +424,27 @@
                                                       value={displayBenchmark}
                                                       benchmarks={DC_BENCHMARKS}
                                                       useSpellBenchmark={true}
+                                                      compact={true}
+                                                      onselect={(d) => handleBenchmarkSelect(abilityIndex, valueIndex, d.value)}
+                                                   />
+                                                </div>
+                                             {:else if sv.type === 'healing'}
+                                                <div class="scalable-editor scalable-editor--healing" class:overridden>
+                                                   <input
+                                                      type="number"
+                                                      class="input-field healing-input"
+                                                      min="1"
+                                                      step="1"
+                                                      value={Number(effectiveValue)}
+                                                      oninput={(e) => handleHealingEdit(abilityIndex, valueIndex, e.currentTarget.valueAsNumber)}
+                                                   />
+                                                   <span class="dice-suffix">HP/round</span>
+                                                </div>
+                                                <div class="scalable-tiers">
+                                                   <BenchmarkButtons
+                                                      value={displayBenchmark}
+                                                      benchmarks={HEALING_BENCHMARKS}
+                                                      use3Benchmark={true}
                                                       compact={true}
                                                       onselect={(d) => handleBenchmarkSelect(abilityIndex, valueIndex, d.value)}
                                                    />
@@ -526,6 +567,7 @@
    providers={abilityProviders}
    level={creature.level}
    onPick={handlePickerAdd}
+   enrich={env.enrichHtml}
 />
 
 <style lang="scss">
@@ -1017,6 +1059,7 @@
                }
 
                .dc-input { width: 3rem; }
+               .healing-input { width: 3rem; }
                .dice-count { width: 2.5rem; }
                .dice-bonus { width: 2.75rem; }
 

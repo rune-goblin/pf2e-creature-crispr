@@ -133,6 +133,54 @@ const PERSISTENT_DAMAGE_TABLE: Record<CreatureLevel, PersistentDamageRange> = {
 };
 
 // ============================================================================
+// FAST HEALING / REGENERATION TABLE
+// PF2e publishes no benchmark table for fast healing / regeneration, so this is
+// derived from analysis of bestiary creatures across levels: the typical amount
+// tracks creature level closely (moderate ≈ level), with low/high bracketing the
+// observed spread. 3-benchmark system (low / moderate / high).
+// ============================================================================
+
+interface FastHealingRange {
+  low: number;
+  moderate: number;
+  high: number;
+}
+
+const FAST_HEALING_TABLE: Record<CreatureLevel, FastHealingRange> = {
+  [-1]: { low:  1, moderate:  1, high:  2 },
+  [0]:  { low:  1, moderate:  1, high:  2 },
+  [1]:  { low:  1, moderate:  2, high:  3 },
+  [2]:  { low:  2, moderate:  3, high:  5 },
+  [3]:  { low:  2, moderate:  4, high:  6 },
+  [4]:  { low:  3, moderate:  5, high:  8 },
+  [5]:  { low:  4, moderate:  6, high: 10 },
+  [6]:  { low:  4, moderate:  7, high: 11 },
+  [7]:  { low:  5, moderate:  8, high: 13 },
+  [8]:  { low:  5, moderate:  9, high: 14 },
+  [9]:  { low:  6, moderate: 10, high: 16 },
+  [10]: { low:  7, moderate: 11, high: 18 },
+  [11]: { low:  7, moderate: 12, high: 19 },
+  [12]: { low:  8, moderate: 13, high: 21 },
+  [13]: { low:  8, moderate: 14, high: 22 },
+  [14]: { low:  9, moderate: 15, high: 24 },
+  [15]: { low: 10, moderate: 16, high: 26 },
+  [16]: { low: 10, moderate: 17, high: 27 },
+  [17]: { low: 11, moderate: 18, high: 29 },
+  [18]: { low: 11, moderate: 19, high: 30 },
+  [19]: { low: 12, moderate: 20, high: 32 },
+  [20]: { low: 13, moderate: 21, high: 34 },
+  [21]: { low: 14, moderate: 23, high: 37 },
+  [22]: { low: 15, moderate: 25, high: 40 },
+  [23]: { low: 16, moderate: 27, high: 43 },
+  [24]: { low: 18, moderate: 30, high: 48 }
+};
+
+function getFastHealingRange(level: number): FastHealingRange {
+  const clampedLevel = Math.max(-1, Math.min(24, Math.round(level))) as CreatureLevel;
+  return FAST_HEALING_TABLE[clampedLevel];
+}
+
+// ============================================================================
 // BENCHMARK VALUES FOR 3-BENCHMARK SYSTEM
 // ============================================================================
 
@@ -440,6 +488,33 @@ export function getPersistentBenchmarkLabel(scalar: number): 'low' | 'moderate' 
 }
 
 /**
+ * Determine the benchmark scalar for a fast-healing / regeneration amount at a given level.
+ * Uses a 3-benchmark system (0 = low, 0.5 = moderate, 1 = high).
+ */
+export function healingToBenchmark(amount: number, level: number): number {
+  const range = getFastHealingRange(level);
+  if (amount <= range.low) return 0;
+  if (amount >= range.high) return 1;
+  if (amount <= range.moderate) {
+    const t = (amount - range.low) / (range.moderate - range.low);
+    return t * 0.5;
+  }
+  const t = (amount - range.moderate) / (range.high - range.moderate);
+  return 0.5 + t * 0.5;
+}
+
+/**
+ * Calculate the scaled fast-healing / regeneration amount for a benchmark at a new level.
+ * Maps the scalar to the nearest tier (0-0.33 low, 0.33-0.67 moderate, 0.67-1 high).
+ */
+export function scaleHealing(benchmark: number, newLevel: number): number {
+  const range = getFastHealingRange(newLevel);
+  if (benchmark < 0.33) return range.low;
+  if (benchmark < 0.67) return range.moderate;
+  return range.high;
+}
+
+/**
  * Benchmark tier values per scalable-value type.
  * Damage uses the 4-benchmark strike-damage table;
  * DC and persistent use 3-benchmark tables.
@@ -447,10 +522,12 @@ export function getPersistentBenchmarkLabel(scalar: number): 'low' | 'moderate' 
 const DAMAGE_TIERS: readonly number[] = [0, 1 / 3, 2 / 3, 1];
 const DC_TIERS: readonly number[] = [0, 0.5, 1];
 const PERSISTENT_TIERS: readonly number[] = [0, 0.5, 1];
+const HEALING_TIERS: readonly number[] = [0, 0.5, 1];
 
 function getTiersForType(type: ScalableValue['type']): readonly number[] {
   if (type === 'damage') return DAMAGE_TIERS;
   if (type === 'persistent') return PERSISTENT_TIERS;
+  if (type === 'healing') return HEALING_TIERS;
   return DC_TIERS;
 }
 
@@ -502,18 +579,28 @@ function getPersistentTierAveragesForLevel(level: number): TierAverages {
 }
 
 /**
- * Compute a level-to-level scale factor for the given damage type, using the
+ * Tier averages for fast healing / regeneration (3-tier table). No `extreme`.
+ */
+function getHealingTierAveragesForLevel(level: number): TierAverages {
+  const row = getFastHealingRange(level);
+  return { low: row.low, mod: row.moderate, high: row.high };
+}
+
+function getTierAveragesForLevel(type: 'damage' | 'persistent' | 'healing', level: number): TierAverages {
+  if (type === 'damage') return getDamageTierAveragesForLevel(level);
+  if (type === 'healing') return getHealingTierAveragesForLevel(level);
+  return getPersistentTierAveragesForLevel(level);
+}
+
+/**
+ * Compute a level-to-level scale factor for the given value type, using the
  * moderate tier as the reference point (the "spine" of the PF2e progression curve).
  * Returns 1 when base and target are the same level.
  */
-function computeLevelScaleFactor(type: 'damage' | 'persistent', baseLevel: number, targetLevel: number): number {
+function computeLevelScaleFactor(type: 'damage' | 'persistent' | 'healing', baseLevel: number, targetLevel: number): number {
   if (baseLevel === targetLevel) return 1;
-  const baseTiers = type === 'damage'
-    ? getDamageTierAveragesForLevel(baseLevel)
-    : getPersistentTierAveragesForLevel(baseLevel);
-  const targetTiers = type === 'damage'
-    ? getDamageTierAveragesForLevel(targetLevel)
-    : getPersistentTierAveragesForLevel(targetLevel);
+  const baseTiers = getTierAveragesForLevel(type, baseLevel);
+  const targetTiers = getTierAveragesForLevel(type, targetLevel);
   if (baseTiers.mod <= 0) return 1;
   return targetTiers.mod / baseTiers.mod;
 }
@@ -559,11 +646,12 @@ export function scaleProportionally(sv: ScalableValue, level: number): string {
     return String(scaleDC(sv.benchmark, level));
   }
 
-  // Flat numeric damage (e.g. @Damage[7[piercing]], @Damage[5[persistent,acid]]) has no dice to
-  // reshape — scale the integer by the level-to-level factor and keep it flat.
+  // Flat numeric values — fast-healing/regeneration amounts, and flat damage like
+  // @Damage[7[piercing]] / @Damage[5[persistent,acid]] — have no dice to reshape. Scale the
+  // integer by the level-to-level factor and keep it flat.
   if (/^\s*\d+\s*$/.test(sv.originalValue) && sv.baseLevel !== undefined) {
     const original = parseInt(sv.originalValue, 10);
-    const kind = sv.type === 'persistent' ? 'persistent' : 'damage';
+    const kind = sv.type === 'persistent' ? 'persistent' : sv.type === 'healing' ? 'healing' : 'damage';
     const factor = computeLevelScaleFactor(kind, sv.baseLevel, level);
     return String(Math.max(1, Math.round(original * factor)));
   }
@@ -571,6 +659,7 @@ export function scaleProportionally(sv: ScalableValue, level: number): string {
   const components = parseDiceComponents(sv.originalValue);
   if (!components || sv.baseLevel === undefined) {
     if (sv.type === 'damage') return scaleDamage(sv.benchmark, level);
+    if (sv.type === 'healing') return String(scaleHealing(sv.benchmark, level));
     return scalePersistentDamage(sv.benchmark, level);
   }
 
@@ -600,6 +689,11 @@ export function getTierInfo(
       if (Number.isNaN(dc)) return null;
       return classifyDcByValue(dc, level);
     }
+    if (sv.type === 'healing') {
+      const amount = parseInt(sv.customValue, 10);
+      if (Number.isNaN(amount)) return null;
+      return classifyHealingByValue(amount, level);
+    }
     const components = parseDiceComponents(sv.customValue);
     if (!components) return null;
     const avg = components.count * ((components.die + 1) / 2) + components.bonus;
@@ -623,7 +717,7 @@ function classifyByBenchmarkScalar(
     if (b < 5 / 6) return { label: 'high', exact: Math.abs(b - 2 / 3) < epsilon };
     return { label: 'extreme', exact: Math.abs(b - 1) < epsilon };
   }
-  if (type === 'persistent') {
+  if (type === 'persistent' || type === 'healing') {
     // 3 tiers: [0, 0.5, 1] → low/mod/high
     if (b < 0.25) return { label: 'low', exact: Math.abs(b) < epsilon };
     if (b < 0.75) return { label: 'moderate', exact: Math.abs(b - 0.5) < epsilon };
@@ -659,6 +753,28 @@ function classifyDamageByAverage(
   let closestDiff = Math.abs(avg - closest.avg);
   for (const e of entries) {
     const d = Math.abs(avg - e.avg);
+    if (d < closestDiff) {
+      closestDiff = d;
+      closest = e;
+    }
+  }
+  return { label: closest.label, exact: closestDiff < 0.5 };
+}
+
+function classifyHealingByValue(
+  amount: number,
+  level: number
+): { label: 'low' | 'moderate' | 'high'; exact: boolean } {
+  const range = getFastHealingRange(level);
+  const entries: Array<{ label: 'low' | 'moderate' | 'high'; avg: number }> = [
+    { label: 'low', avg: range.low },
+    { label: 'moderate', avg: range.moderate },
+    { label: 'high', avg: range.high }
+  ];
+  let closest = entries[0];
+  let closestDiff = Math.abs(amount - closest.avg);
+  for (const e of entries) {
+    const d = Math.abs(amount - e.avg);
     if (d < closestDiff) {
       closestDiff = d;
       closest = e;
@@ -719,6 +835,11 @@ export function getDisplayBenchmark(sv: ScalableValue, level: number): number {
       const dc = parseInt(sv.customValue, 10);
       if (Number.isNaN(dc)) return sv.benchmark;
       return dcToBenchmark(dc, level);
+    }
+    if (sv.type === 'healing') {
+      const amount = parseInt(sv.customValue, 10);
+      if (Number.isNaN(amount)) return sv.benchmark;
+      return healingToBenchmark(amount, level);
     }
     const avg = parseDiceFormulaAverage(sv.customValue);
     if (avg === 0) return sv.benchmark; // unparseable formula — fall back
@@ -1075,6 +1196,7 @@ export function getEffectiveValue(sv: ScalableValue, level: number): string {
   if (sv.override !== undefined) {
     if (sv.type === 'damage') return scaleDamage(sv.override, level);
     if (sv.type === 'persistent') return scalePersistentDamage(sv.override, level);
+    if (sv.type === 'healing') return String(scaleHealing(sv.override, level));
     return String(scaleDC(sv.override, level));
   }
   return getScaledRecommendation(sv, level);
@@ -1113,21 +1235,32 @@ export function renderAbilityDescriptionHtml(
   level: number,
   activeIndex?: number
 ): string {
-  let result = template;
+  // A placeholder inside an @Check/@Damage macro must stay a plain value: wrapping it in the
+  // inline <span> corrupts the macro's brackets, so Foundry can't enrich it and the raw
+  // "@Check[…]" text leaks into the rendered description. Only free-text placeholders get the
+  // cross-highlightable tag; in-macro values stay editable via the stepper list instead.
+  const macroRanges: Array<[number, number]> = [];
+  for (const pattern of [AT_CHECK_MACRO, AT_DAMAGE_MACRO]) {
+    const re = new RegExp(pattern.source, pattern.flags);
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(template)) !== null) macroRanges.push([m.index, m.index + m[0].length]);
+  }
+  const insideMacro = (offset: number): boolean =>
+    macroRanges.some(([start, end]) => offset >= start && offset < end);
 
-  for (let i = 0; i < scalableValues.length; i++) {
+  return template.replace(/\{(\d+)\}/g, (match, digits: string, offset: number) => {
+    const i = Number(digits);
     const sv = scalableValues[i];
+    if (!sv) return match;
     const scaledValue = getEffectiveValue(sv, level);
+    if (insideMacro(offset)) return scaledValue;
     const classes = [
       'scalable-inline',
       hasOverride(sv) ? 'scalable-inline--overridden' : '',
       activeIndex === i ? 'scalable-inline--active' : ''
     ].filter(Boolean).join(' ');
-    const span = `<span class="${classes}" data-scalable-index="${i}">${scaledValue}</span>`;
-    result = result.replace(`{${i}}`, span);
-  }
-
-  return result;
+    return `<span class="${classes}" data-scalable-index="${i}">${scaledValue}</span>`;
+  });
 }
 
 /**
@@ -1178,7 +1311,86 @@ export function processAbilitiesForScaling(
 }
 
 // ============================================================================
+// FAST HEALING / REGENERATION RULE-ELEMENT HELPERS
+// The healing amount lives on a PF2e FastHealing rule element + the item name,
+// not in the description. These pure helpers read/write that shape so the
+// Foundry-coupled services can stay thin.
+// ============================================================================
+
+/** The fields of a PF2e FastHealing rule element this module reads/writes. */
+export interface FastHealingRuleData {
+  key: string;
+  type?: 'fast-healing' | 'regeneration';
+  value: number | string;
+  deactivatedBy?: string[];
+  [extra: string]: unknown;
+}
+
+type RuleLike = Record<string, unknown>;
+
+/**
+ * Find the FastHealing rule in an item's `system.rules` and return its kind, numeric value, and
+ * deactivation types. `value` is null when the rule's amount is a formula/expression (e.g.
+ * `@item.system.badge.value * 3`) — those self-scale in Foundry and must be left untouched.
+ */
+export function readFastHealingRule(
+  rules: readonly RuleLike[] | undefined
+): { kind: 'fast-healing' | 'regeneration'; value: number | null; deactivatedBy: string[] } | null {
+  if (!Array.isArray(rules)) return null;
+  const rule = rules.find((r) => r && r.key === 'FastHealing') as FastHealingRuleData | undefined;
+  if (!rule) return null;
+  const kind = rule.type === 'regeneration' ? 'regeneration' : 'fast-healing';
+  const value = typeof rule.value === 'number' && Number.isFinite(rule.value) ? rule.value : null;
+  const deactivatedBy = Array.isArray(rule.deactivatedBy)
+    ? rule.deactivatedBy.filter((t): t is string => typeof t === 'string')
+    : [];
+  return { kind, value, deactivatedBy };
+}
+
+/** Build a fresh FastHealing rule element for a new item. */
+export function buildFastHealingRule(
+  kind: 'fast-healing' | 'regeneration',
+  value: number,
+  deactivatedBy?: string[]
+): FastHealingRuleData {
+  const rule: FastHealingRuleData = { key: 'FastHealing', type: kind, value };
+  if (kind === 'regeneration') rule.deactivatedBy = deactivatedBy ?? [];
+  return rule;
+}
+
+/**
+ * Return a copy of `rules` with the FastHealing rule's `value` replaced. If no FastHealing rule is
+ * present, appends one built from `kind`/`deactivatedBy` so a creature that gained the ability in the
+ * editor still gets a working rule.
+ */
+export function setFastHealingRuleValue(
+  rules: readonly RuleLike[] | undefined,
+  value: number,
+  kind: 'fast-healing' | 'regeneration',
+  deactivatedBy?: string[]
+): RuleLike[] {
+  const list = Array.isArray(rules) ? rules.map((r) => ({ ...r })) : [];
+  const existing = list.find((r) => r.key === 'FastHealing');
+  if (existing) {
+    existing.value = value;
+    return list;
+  }
+  list.push(buildFastHealingRule(kind, value, deactivatedBy) as RuleLike);
+  return list;
+}
+
+/**
+ * Compose the display name for a fast-healing/regeneration ability, swapping the amount in.
+ * Replaces the first run of digits in the existing name (preserving any localized suffix such as
+ * "(Deactivated by Fire or Electricity)"); appends the value when the name carries no number.
+ */
+export function composeFastHealingName(currentName: string, value: number | string): string {
+  if (/\d+/.test(currentName)) return currentName.replace(/\d+/, String(value));
+  return `${currentName.trim()} ${value}`;
+}
+
+// ============================================================================
 // EXPORTS FOR DIRECT TABLE ACCESS
 // ============================================================================
 
-export { getAbilityDCRange, getSpellAttackRange, getPersistentDamageRange };
+export { getAbilityDCRange, getSpellAttackRange, getPersistentDamageRange, getFastHealingRange };

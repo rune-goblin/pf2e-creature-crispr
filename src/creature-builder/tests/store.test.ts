@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { editorStore } from '@/creature-builder/editor';
+import type { EditorEnvironment } from '@/creature-builder/editor';
 import { BENCHMARK_VALUES_4 } from '@/creature-builder/logic/models';
 
 // Exercises the runes store's reactivity contract headlessly: mutating $state must make
@@ -73,5 +74,42 @@ describe('CreatureEditorStore', () => {
     expect(editorStore.active).toBe(false);
     expect(editorStore.creature).toBeNull();
     expect(editorStore.computedStats).toBeNull();
+  });
+});
+
+describe('confirmDiscardIfDirty (shared Cancel/close guard)', () => {
+  beforeEach(() => editorStore.resetEditor());
+
+  const envWith = (result: boolean) => {
+    const confirmDiscard = vi.fn(async () => result);
+    return { env: { confirmDiscard } as unknown as EditorEnvironment, confirmDiscard };
+  };
+
+  it('proceeds without prompting when no edit is active', async () => {
+    const { env, confirmDiscard } = envWith(false);
+    expect(await editorStore.confirmDiscardIfDirty(env)).toBe(true);
+    expect(confirmDiscard).not.toHaveBeenCalled();
+  });
+
+  it('proceeds without prompting when active but not dirty', async () => {
+    editorStore.startCreate();
+    const { env, confirmDiscard } = envWith(false);
+    expect(editorStore.isDirty).toBe(false);
+    expect(await editorStore.confirmDiscardIfDirty(env)).toBe(true);
+    expect(confirmDiscard).not.toHaveBeenCalled();
+  });
+
+  it('prompts when dirty and relays the user choice', async () => {
+    editorStore.startCreate();
+    editorStore.updateBenchmark('ac', BENCHMARK_VALUES_4.extreme);
+    expect(editorStore.isDirty).toBe(true);
+
+    const keep = envWith(false);
+    expect(await editorStore.confirmDiscardIfDirty(keep.env)).toBe(false);
+    expect(keep.confirmDiscard).toHaveBeenCalledOnce();
+
+    const discard = envWith(true);
+    expect(await editorStore.confirmDiscardIfDirty(discard.env)).toBe(true);
+    expect(discard.confirmDiscard).toHaveBeenCalledOnce();
   });
 });

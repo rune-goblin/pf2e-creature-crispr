@@ -33,6 +33,10 @@
 
   let isSaving = $state(false);
   let isExporting = $state(false);
+
+  async function handleCancel(): Promise<void> {
+    if (await editorStore.confirmDiscardIfDirty(env)) editorStore.cancelEdit();
+  }
   let showSaveAsDialog = $state(false);
   let saveAsName = $state('');
   let isSavingAs = $state(false);
@@ -216,7 +220,12 @@
         {#if mode === 'create'}New Creature{:else if mode === 'import'}Import{:else}Edit{/if}
       </span>
       <div class="header-actions">
-        <button class="btn-secondary" onclick={() => editorStore.cancelEdit()} disabled={isSaving || isExporting || isSavingAs}>
+        {#if !creature.isTroop}
+          <button class="btn-secondary" onclick={handleConvertToTroop} disabled={isSaving || isExporting || isSavingAs}>
+            <i class="fas fa-people-group"></i> Convert to Troop
+          </button>
+        {/if}
+        <button class="btn-secondary" onclick={handleCancel} disabled={isSaving || isExporting || isSavingAs}>
           Cancel
         </button>
         {#if mode === 'edit' && creature.actorId}
@@ -272,7 +281,6 @@
             onUpdateImmunity={(d) => editorStore.updateImmunity(d.index, d.updates)}
             onSetTroop={(v) => editorStore.setTroop(v)}
             onSetTroopSize={(s) => editorStore.setTroopSize(s)}
-            onConvertToTroop={handleConvertToTroop}
           />
         </div>
 
@@ -432,7 +440,11 @@
     cursor: pointer;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: var(--space-6);
+    /* Explicit line-height + flex centering: the inherited (Signika) line-height left the
+       glyphs sitting high in the padded box. */
+    line-height: 1;
 
     &:hover:not(:disabled) {
       background: var(--btn-primary-hover);
@@ -453,6 +465,12 @@
     font-size: var(--font-sm);
     font-weight: var(--font-weight-medium);
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-6);
+    /* See .btn-primary — same line-height fix, plus flex centering this never had. */
+    line-height: 1;
 
     &:hover:not(:disabled) {
       background: var(--hover);

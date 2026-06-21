@@ -6,11 +6,17 @@
  */
 
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
-import type { CreatureStrike, SpecialAbility, DamageModifier, Immunity } from '../logic/models';
+import type { CreatureStrike, SpecialAbility, ScalableValue, DamageModifier, Immunity } from '../logic/models';
 import { createDefaultStrike } from '../logic/models';
 import { getStatRangesForLevel, statToScalar4 } from '../logic/creatureStatTables';
 import { logger } from './logger';
-import { parseAbilityDescription, damageToBenchmark, parseDiceFormulaAverage } from '../logic/abilityScaling';
+import {
+  parseAbilityDescription,
+  damageToBenchmark,
+  parseDiceFormulaAverage,
+  readFastHealingRule,
+  healingToBenchmark
+} from '../logic/abilityScaling';
 import { findCreaturesFolder, isCreatureMember } from './crud';
 import {
   CREATURE_FLAG,
@@ -289,6 +295,7 @@ interface AbilityItemSystemView {
   actions?: { value?: number };
   category?: string;
   traits?: { value?: string[] };
+  rules?: Array<Record<string, unknown>>;
 }
 
 /** The fields of a PF2e action/creature-feat item we read — satisfied by embedded items and by
@@ -332,6 +339,29 @@ export function actionItemToSpecialAbility(item: AbilityItemView, parseLevel: nu
 
   if (benchmarkData.customDescriptionTemplate) {
     ability.customDescriptionTemplate = benchmarkData.customDescriptionTemplate;
+  }
+
+  // Fast healing / regeneration: the amount lives on a FastHealing rule element + the item name,
+  // not in the description, so it's surfaced as a stand-alone 'healing' scalable value. Prefer a
+  // stored healing scalable (carries the user's edits + true import baseLevel) over re-reading the
+  // rule. A formula-valued rule (value === null) self-scales in Foundry — mark it but don't edit it.
+  const fastHealing = readFastHealingRule(sys.rules);
+  if (fastHealing) {
+    ability.fastHealing = {
+      kind: fastHealing.kind,
+      ...(fastHealing.deactivatedBy.length ? { deactivatedBy: fastHealing.deactivatedBy } : {})
+    };
+    if (fastHealing.value !== null) {
+      const stored = (benchmarkData.scalableValues ?? ability.scalableValues)?.find((v) => v.type === 'healing');
+      const healingValue: ScalableValue = stored ?? {
+        type: 'healing',
+        benchmark: healingToBenchmark(fastHealing.value, parseLevel),
+        originalValue: String(fastHealing.value),
+        baseLevel: parseLevel
+      };
+      const others = (ability.scalableValues ?? []).filter((v) => v.type !== 'healing');
+      ability.scalableValues = [...others, healingValue];
+    }
   }
 
   return ability;

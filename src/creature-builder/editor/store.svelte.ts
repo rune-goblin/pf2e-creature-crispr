@@ -10,6 +10,7 @@ import type {
 import { getDefaultBenchmarks, createDefaultStrike, CREATURE_PRESETS, BENCHMARK_VALUES_4 } from '../logic/models';
 import { calculateCreatureStats } from '../logic/creatureStatTables';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
+import type { EditorEnvironment } from './environment';
 import { ALL_SECTIONS } from './types';
 
 const DEFAULT_EXPANDED: EditorSection[] = ['abilities', 'defenses', 'skills', 'offense', 'spellcasting'];
@@ -182,6 +183,15 @@ class CreatureEditorStore {
 
   getCreatureForSave(): EditableCreature | null {
     return this.validate() ? this.creature : null;
+  }
+
+  /**
+   * Shared guard for Cancel and window-close: resolves true when it's safe to drop the edit —
+   * nothing unsaved, or the user confirmed the discard. The caller does the actual reset/close.
+   */
+  async confirmDiscardIfDirty(env: EditorEnvironment): Promise<boolean> {
+    if (!this.active || !this.isDirty) return true;
+    return env.confirmDiscard();
   }
 
   cancelEdit(): void {

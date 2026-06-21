@@ -298,18 +298,28 @@
               <td class="center stat-cell">{creature.ac}</td>
               <td class="center stat-cell">{creature.hp}</td>
               <td class="actions-cell">
-                <RowActionsMenu
-                  triggerTitle="Creature actions"
-                  actions={[
-                    { label: 'Edit creature', icon: 'fa-edit', onSelect: () => handleEdit(creature) },
-                    { label: 'Duplicate', icon: 'fa-copy', onSelect: () => handleDuplicate(creature) },
-                    { label: 'Open actor sheet', icon: 'fa-user', onSelect: () => handleOpenSheet(creature) },
-                    { label: 'Reveal in sidebar', icon: 'fa-folder-tree', onSelect: () => handleReveal(creature) },
-                    { label: 'Move to CRISPR folder', icon: 'fa-arrow-up-from-bracket', onSelect: () => handleMoveToFolder(creature) },
-                    { label: 'Remove from CRISPR', icon: 'fa-minus-circle', onSelect: () => confirmRemove(creature) },
-                    { label: 'Delete actor', icon: 'fa-trash', onSelect: () => confirmDelete(creature), danger: true, dividerBefore: true }
-                  ]}
-                />
+                <div class="row-actions">
+                  <button
+                    type="button"
+                    class="edit-btn"
+                    title="Edit creature"
+                    aria-label="Edit creature"
+                    onclick={() => handleEdit(creature)}
+                  >
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <RowActionsMenu
+                    triggerTitle="Creature actions"
+                    actions={[
+                      { label: 'Duplicate', icon: 'fa-copy', onSelect: () => handleDuplicate(creature) },
+                      { label: 'Open actor sheet', icon: 'fa-user', onSelect: () => handleOpenSheet(creature) },
+                      { label: 'Reveal in sidebar', icon: 'fa-folder-tree', onSelect: () => handleReveal(creature) },
+                      { label: 'Move to CRISPR folder', icon: 'fa-arrow-up-from-bracket', onSelect: () => handleMoveToFolder(creature) },
+                      { label: 'Remove from CRISPR', icon: 'fa-minus-circle', onSelect: () => confirmRemove(creature) },
+                      { label: 'Delete actor', icon: 'fa-trash', onSelect: () => confirmDelete(creature), danger: true, dividerBefore: true }
+                    ]}
+                  />
+                </div>
               </td>
             </tr>
           {/each}
@@ -577,6 +587,30 @@
     width: 1%;
     white-space: nowrap;
     text-align: right;
+  }
+
+  .row-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .edit-btn {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.2s;
+
+    &:hover {
+      background: var(--hover);
+    }
   }
 
   .warning-text {

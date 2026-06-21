@@ -12,6 +12,8 @@ export interface EditorNotifier {
 // the ability item interop). The save target owns actor persistence; this owns everything else.
 export interface EditorEnvironment {
   notify: EditorNotifier;
+  /** Confirm discarding unsaved edits (the Cancel button / closing the window). True = discard, false = keep editing. */
+  confirmDiscard(): Promise<boolean>;
   /** Open an image file picker; resolves to the chosen path. Mirrors FilePicker: a cancel never resolves. */
   pickImage(current: string): Promise<string>;
   /** Parse a dropped Foundry Item payload into an ability (drag-in), or null if it isn't an action/ability. */
@@ -20,4 +22,6 @@ export interface EditorEnvironment {
   abilityToDropPayload(ability: SpecialAbility, level: number): string;
   /** Instantiate a provider ability for the creature — the kernel mapping plus a host-assigned id. */
   abilityFromDefinition(def: CustomAbilityDefinition, level: number): SpecialAbility;
+  /** Enrich rendered markup so inline tags (@UUID/@Check/@Damage) become Foundry content links. */
+  enrichHtml(html: string): Promise<string>;
 }

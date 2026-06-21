@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAbilityDescription } from '@/creature-builder/logic/abilityScaling';
+import { parseAbilityDescription, healingToBenchmark } from '@/creature-builder/logic/abilityScaling';
 import { composeAbilityItemForExport, type AbilityItemData } from '@/creature-builder/services/abilityItemBuilder';
 import { actionItemToSpecialAbility } from '@/creature-builder/services/actorQueries';
 import type { SpecialAbility } from '@/creature-builder/logic/models';
@@ -94,5 +94,46 @@ describe('special ability drag transfer', () => {
     const back = actionItemToSpecialAbility(asDroppedItem(data), 4);
     expect(back.customDescriptionTemplate).toBe('Custom text with {0} inside.');
     expect(back.descriptionTemplate).toBe(parsed.template);
+  });
+
+  it('round-trips a regeneration ability via the FastHealing rule + name', () => {
+    const regen: SpecialAbility = {
+      id: 'r1',
+      name: 'Regeneration 25 (Deactivated by Fire)',
+      description: '<p>@Localize[PF2E.NPC.Abilities.Glossary.Regeneration]</p>',
+      actionType: 'passive',
+      traits: [],
+      fastHealing: { kind: 'regeneration', deactivatedBy: ['fire'] },
+      scalableValues: [{ type: 'healing', benchmark: healingToBenchmark(25, 14), originalValue: '25', baseLevel: 14 }]
+    };
+
+    const data = composeAbilityItemForExport(regen, 14);
+    expect(data.name).toBe('Regeneration 25 (Deactivated by Fire)');
+    expect(data.system.rules).toEqual([
+      { key: 'FastHealing', type: 'regeneration', value: 25, deactivatedBy: ['fire'] }
+    ]);
+
+    const back = actionItemToSpecialAbility(asDroppedItem(data), 14);
+    expect(back.fastHealing).toEqual({ kind: 'regeneration', deactivatedBy: ['fire'] });
+    const healing = back.scalableValues?.find((v) => v.type === 'healing');
+    expect(healing?.originalValue).toBe('25');
+    expect(healing?.baseLevel).toBe(14);
+  });
+
+  it('bakes a level change into the regeneration amount on export (name + rule)', () => {
+    const regen: SpecialAbility = {
+      id: 'r2',
+      name: 'Regeneration 25 (Deactivated by Fire)',
+      description: '<p>@Localize[PF2E.NPC.Abilities.Glossary.Regeneration]</p>',
+      actionType: 'passive',
+      traits: [],
+      fastHealing: { kind: 'regeneration', deactivatedBy: ['fire'] },
+      scalableValues: [{ type: 'healing', benchmark: healingToBenchmark(25, 14), originalValue: '25', baseLevel: 14 }]
+    };
+
+    const data = composeAbilityItemForExport(regen, 20);
+    const ruleValue = (data.system.rules![0] as { value: number }).value;
+    expect(ruleValue).toBeGreaterThan(25);
+    expect(data.name).toBe(`Regeneration ${ruleValue} (Deactivated by Fire)`);
   });
 });

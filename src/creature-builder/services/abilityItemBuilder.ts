@@ -14,8 +14,14 @@
  * them when the creature's level changes.
  */
 
-import type { SpecialAbility } from '../logic/models';
-import { parseAbilityDescription, renderAbilityDescription } from '../logic/abilityScaling';
+import type { SpecialAbility, ScalableValue } from '../logic/models';
+import {
+  parseAbilityDescription,
+  renderAbilityDescription,
+  getEffectiveValue,
+  setFastHealingRuleValue,
+  composeFastHealingName
+} from '../logic/abilityScaling';
 import { CREATURE_FLAG, ABILITY_BENCHMARK_KEY } from './constants';
 import type { AbilityBenchmarkData } from './types';
 
@@ -29,8 +35,30 @@ export interface AbilityItemData {
     actionType: { value: SpecialAbility['actionType'] };
     actions: { value: number | null };
     traits: { value: string[] };
+    rules?: Array<Record<string, unknown>>;
   };
   flags?: Record<string, Record<string, AbilityBenchmarkData>>;
+}
+
+/**
+ * If `ability` carries a FastHealing marker, stamp the scaled amount onto the item's name + a
+ * FastHealing rule element (its value lives there, not in the prose). Returns the healing scalable
+ * value to persist on the benchmark flag, or null when there's nothing to apply.
+ */
+function applyFastHealingToItem(itemData: AbilityItemData, ability: SpecialAbility, level: number): ScalableValue | null {
+  if (!ability.fastHealing) return null;
+  const healingSV = ability.scalableValues?.find((v) => v.type === 'healing');
+  if (!healingSV) return null;
+  const amount = parseInt(getEffectiveValue(healingSV, level), 10);
+  if (!Number.isFinite(amount)) return null;
+  itemData.name = composeFastHealingName(ability.name, amount);
+  itemData.system.rules = setFastHealingRuleValue(
+    itemData.system.rules,
+    amount,
+    ability.fastHealing.kind,
+    ability.fastHealing.deactivatedBy
+  );
+  return healingSV;
 }
 
 const ACTION_ICONS: Record<SpecialAbility['actionType'], (actions?: 1 | 2 | 3) => string> = {
@@ -60,10 +88,17 @@ export function composeAbilityItemData(ability: SpecialAbility, level: number): 
   // the editor can tier-step damage/DC and so syncAbilityItemsForLevel rescales
   // them on level change. Skip if there's nothing to scale.
   const parsed = parseAbilityDescription(ability.description, level);
-  if (parsed.scalableValues.length > 0) {
+  const scalableValues: ScalableValue[] = [...parsed.scalableValues];
+
+  // Fast healing / regeneration writes the amount to the item name + rule, and persists its
+  // (placeholder-less) healing scalable alongside any description-derived values.
+  const healingSV = applyFastHealingToItem(itemData, ability, level);
+  if (healingSV) scalableValues.push(healingSV);
+
+  if (scalableValues.length > 0) {
     const benchmarkData: AbilityBenchmarkData = {
       descriptionTemplate: parsed.template,
-      scalableValues: parsed.scalableValues,
+      scalableValues,
       originalDescription: ability.description
     };
     itemData.flags = {
@@ -102,10 +137,13 @@ export function composeAbilityItemForExport(ability: SpecialAbility, level: numb
     }
   };
 
-  if (hasScalables) {
+  // Bake the user's current fast-healing edit into the exported item's name + rule.
+  const healingSV = applyFastHealingToItem(itemData, ability, level);
+
+  if (hasScalables || healingSV) {
     const benchmarkData: AbilityBenchmarkData = {
-      descriptionTemplate: ability.descriptionTemplate ?? template!,
-      scalableValues: ability.scalableValues!,
+      descriptionTemplate: ability.descriptionTemplate ?? template ?? ability.description,
+      scalableValues: ability.scalableValues ?? [],
       originalDescription: ability.description
     };
     if (ability.customDescriptionTemplate) benchmarkData.customDescriptionTemplate = ability.customDescriptionTemplate;
