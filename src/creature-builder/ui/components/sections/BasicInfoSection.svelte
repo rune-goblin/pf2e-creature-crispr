@@ -1,11 +1,11 @@
 <script lang="ts">
-   import type { EditableCreature } from '@/creature-builder/editor';
+   import type { EditableCreature, EditorEnvironment } from '@/creature-builder/editor';
    import { CREATURE_PRESETS } from '@/creature-builder/logic/models';
-   import { pickFile } from '@/creature-builder/services';
    import Dialog from '../baseComponents/Dialog.svelte';
 
    let {
       creature,
+      env,
       expanded,
       onToggle,
       onUpdateCreature,
@@ -15,6 +15,7 @@
       onOpenOrCreateActor
    }: {
       creature: EditableCreature;
+      env: EditorEnvironment;
       expanded: boolean;
       onToggle?: () => void;
       onUpdateCreature?: (detail: Partial<EditableCreature>) => void;
@@ -115,12 +116,12 @@
    }
 
    async function selectPortraitImage(): Promise<void> {
-      const path = await pickFile({ type: 'image', current: creature.portraitImage || '' });
+      const path = await env.pickImage(creature.portraitImage || '');
       onUpdateCreature?.({ portraitImage: path });
    }
 
    async function selectTokenImage(): Promise<void> {
-      const path = await pickFile({ type: 'image', current: creature.tokenImage || '' });
+      const path = await env.pickImage(creature.tokenImage || '');
       onUpdateCreature?.({ tokenImage: path });
    }
 </script>

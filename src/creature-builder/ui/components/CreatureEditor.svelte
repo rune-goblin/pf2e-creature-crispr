@@ -1,14 +1,7 @@
 <script lang="ts">
-  import type { ActorPF2e, ItemPF2e } from 'foundry-pf2e';
+  import type { ActorPF2e } from 'foundry-pf2e';
   import { editorStore } from '@/creature-builder/editor';
-  import {
-    createCreatureActor,
-    updateCreature as updateCreatureService,
-    updateMeleeItems,
-    updateAbilityItems,
-    cloneCreatureActor,
-    exportCreatureToFile
-  } from '@/creature-builder/services';
+  import { getActiveSaveTarget, defaultEditorEnvironment } from '@/creature-builder/services';
   import {
     getStatRangesForLevel,
     statToScalar,
@@ -31,6 +24,10 @@
   const computedStats = $derived(editorStore.computedStats);
   const expandedSections = $derived(editorStore.expandedSections);
 
+  // All actor I/O flows through the active save target; UI side-effects (notify/pick/ability drop)
+  // through the injected env. Read the target per-action so a Phase-3 editCreate() switch is honoured.
+  const env = defaultEditorEnvironment;
+
   let isSaving = $state(false);
   let isExporting = $state(false);
   let showSaveAsDialog = $state(false);
@@ -40,46 +37,24 @@
   async function handleSave(): Promise<void> {
     const c = editorStore.getCreatureForSave();
     if (!c) {
-      ui.notifications?.error('Please fix validation errors before saving');
+      env.notify.error('Please fix validation errors before saving');
       return;
     }
+    const target = getActiveSaveTarget();
     isSaving = true;
     try {
       if (mode === 'create' || mode === 'import') {
-        await createCreatureActor(c.name, c.level, c.benchmarks, {
-          size: c.size,
-          creatureType: c.creatureType,
-          traits: c.traits,
-          portraitImage: c.portraitImage,
-          tokenImage: c.tokenImage,
-          strikes: c.strikes,
-          specialAbilities: c.specialAbilities,
-          immunities: c.immunities,
-          resistances: c.resistances,
-          weaknesses: c.weaknesses
-        });
+        const actorId = await target.createActor(c);
+        await target.onAfterSave?.(actorId, c, 'create');
       } else if (c.actorId) {
-        await updateCreatureService(c.actorId, {
-          name: c.name,
-          level: c.level,
-          benchmarks: c.benchmarks,
-          size: c.size,
-          creatureType: c.creatureType,
-          traits: c.traits,
-          portraitImage: c.portraitImage,
-          tokenImage: c.tokenImage,
-          immunities: c.immunities,
-          resistances: c.resistances,
-          weaknesses: c.weaknesses
-        });
-        await updateMeleeItems(c.actorId, c.strikes, c.level);
-        await updateAbilityItems(c.actorId, c.specialAbilities, c.level);
+        await target.updateActor(c.actorId, c);
+        await target.onAfterSave?.(c.actorId, c, 'update');
       }
-      ui.notifications?.info(`Saved creature: ${c.name}`);
+      env.notify.info(`Saved creature: ${c.name}`);
       editorStore.resetEditor();
     } catch (error) {
       console.error('[Creature CRISPR] Failed to save creature:', error);
-      ui.notifications?.error('Failed to save creature');
+      env.notify.error('Failed to save creature');
     } finally {
       isSaving = false;
     }
@@ -88,7 +63,7 @@
   function handleOpenSaveAs(): void {
     const c = editorStore.creature;
     if (!c?.actorId) {
-      ui.notifications?.error('Save As is only available for existing creatures');
+      env.notify.error('Save As is only available for existing creatures');
       return;
     }
     saveAsName = `Copy of ${c.name}`;
@@ -99,69 +74,28 @@
     showSaveAsDialog = false;
   }
 
-  // Relies on Foundry's toObject() preserving embedded-item order: the ith source
-  // item (within a filter) maps to the ith clone item.
-  function buildItemIdMap(sourceActor: ActorPF2e, cloneActor: ActorPF2e, filter: (i: ItemPF2e) => boolean): Record<string, string> {
-    const sourceItems = (sourceActor.items?.contents ?? []).filter(filter);
-    const cloneItems = (cloneActor.items?.contents ?? []).filter(filter);
-    const map: Record<string, string> = {};
-    const len = Math.min(sourceItems.length, cloneItems.length);
-    for (let i = 0; i < len; i++) map[sourceItems[i].id] = cloneItems[i].id;
-    return map;
-  }
-
   async function handleSaveAsConfirm(): Promise<void> {
     const c = editorStore.getCreatureForSave();
     if (!c || !c.actorId) {
-      ui.notifications?.error('Please fix validation errors before saving');
+      env.notify.error('Please fix validation errors before saving');
       return;
     }
     const trimmedName = saveAsName.trim();
     if (!trimmedName) {
-      ui.notifications?.error('Please provide a name for the copy');
+      env.notify.error('Please provide a name for the copy');
       return;
     }
+    const target = getActiveSaveTarget();
     isSavingAs = true;
     try {
-      const sourceActorId = c.actorId;
-      const newActorId = await cloneCreatureActor(sourceActorId, trimmedName);
-
-      const sourceActor = game.actors?.get(sourceActorId);
-      const cloneActor = game.actors?.get(newActorId);
-      if (!sourceActor || !cloneActor) throw new Error('Clone succeeded but new actor could not be resolved');
-
-      const strikeMap = buildItemIdMap(sourceActor, cloneActor, (i) => i.type === 'melee');
-      const abilityMap = buildItemIdMap(sourceActor, cloneActor, (i) => {
-        if (i.type === 'action') return true;
-        if (i.type === 'feat' && (i.system as { category?: string }).category === 'creature') return true;
-        return false;
-      });
-
-      const remappedStrikes = c.strikes.map((s) => (s.id && strikeMap[s.id] ? { ...s, id: strikeMap[s.id] } : s));
-      const remappedAbilities = c.specialAbilities.map((a) => (a.id && abilityMap[a.id] ? { ...a, id: abilityMap[a.id] } : a));
-
-      await updateCreatureService(newActorId, {
-        name: trimmedName,
-        level: c.level,
-        benchmarks: c.benchmarks,
-        size: c.size,
-        creatureType: c.creatureType,
-        traits: c.traits,
-        portraitImage: c.portraitImage,
-        tokenImage: c.tokenImage,
-        immunities: c.immunities,
-        resistances: c.resistances,
-        weaknesses: c.weaknesses
-      });
-      await updateMeleeItems(newActorId, remappedStrikes, c.level);
-      await updateAbilityItems(newActorId, remappedAbilities, c.level);
-
-      ui.notifications?.info(`Saved creature copy: ${trimmedName}`);
+      const newActorId = await target.cloneActor(c.actorId, trimmedName, c);
+      await target.onAfterSave?.(newActorId, c, 'clone');
+      env.notify.info(`Saved creature copy: ${trimmedName}`);
       showSaveAsDialog = false;
       editorStore.resetEditor();
     } catch (error) {
       console.error('[Creature CRISPR] Failed to save creature copy:', error);
-      ui.notifications?.error('Failed to save creature copy');
+      env.notify.error('Failed to save creature copy');
     } finally {
       isSavingAs = false;
     }
@@ -170,16 +104,17 @@
   async function handleExport(): Promise<void> {
     const c = editorStore.getCreatureForSave();
     if (!c || !c.actorId) {
-      ui.notifications?.error('Save the creature first before exporting');
+      env.notify.error('Save the creature first before exporting');
       return;
     }
+    const target = getActiveSaveTarget();
     isExporting = true;
     try {
-      await exportCreatureToFile(c.actorId);
-      ui.notifications?.info(`Exported creature: ${c.name}`);
+      await target.exportActor?.(c.actorId);
+      env.notify.info(`Exported creature: ${c.name}`);
     } catch (error) {
       console.error('[Creature CRISPR] Failed to export creature:', error);
-      ui.notifications?.error('Failed to export creature');
+      env.notify.error('Failed to export creature');
     } finally {
       isExporting = false;
     }
@@ -198,28 +133,20 @@
     }
     const saveable = editorStore.getCreatureForSave();
     if (!saveable) {
-      ui.notifications?.error('Please fix validation errors before opening actor');
+      env.notify.error('Please fix validation errors before opening actor');
       return;
     }
+    const target = getActiveSaveTarget();
     isSaving = true;
     try {
-      const actorId = await createCreatureActor(saveable.name, saveable.level, saveable.benchmarks, {
-        size: saveable.size,
-        creatureType: saveable.creatureType,
-        traits: saveable.traits,
-        portraitImage: saveable.portraitImage,
-        tokenImage: saveable.tokenImage,
-        immunities: saveable.immunities,
-        resistances: saveable.resistances,
-        weaknesses: saveable.weaknesses
-      });
+      const actorId = await target.createActor(saveable);
       const actor = game.actors?.get(actorId);
       actor?.sheet?.render(true);
       editorStore.updateCreature({ actorId, sourceActorUuid: actor?.uuid });
-      ui.notifications?.info(`Created creature: ${saveable.name}`);
+      env.notify.info(`Created creature: ${saveable.name}`);
     } catch (error) {
       console.error('[Creature CRISPR] Failed to create creature:', error);
-      ui.notifications?.error('Failed to create creature');
+      env.notify.error('Failed to create creature');
     } finally {
       isSaving = false;
     }
@@ -282,6 +209,7 @@
       <div class="sticky-section">
         <BasicInfoSection
           {creature}
+          {env}
           expanded={expandedSections.has('basic')}
           onToggle={() => editorStore.toggleSection('basic')}
           onUpdateCreature={(d) => editorStore.updateCreature(d)}
@@ -361,6 +289,7 @@
 
         <SpecialAbilitiesSection
           {creature}
+          {env}
           expanded={expandedSections.has('specialAbilities')}
           onToggle={() => editorStore.toggleSection('specialAbilities')}
           onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}

@@ -2,6 +2,8 @@
 // and consumes the creature math through this barrel — keep everything reachable Foundry-free
 // (enforced by logicPurity.test.ts).
 export * from './models';
+export * from './editableCreature';
+export * from './contracts';
 export * from './creatureStatTables';
 export * from './spellSlotTables';
 export * from './iwrTypes';

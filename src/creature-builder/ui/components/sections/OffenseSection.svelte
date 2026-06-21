@@ -2,7 +2,7 @@
    import type { EditableCreature, CreatureStrike, CreatureStats } from '@/creature-builder/editor';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
-   import { damageToBenchmark } from '@/creature-builder/services';
+   import { damageToBenchmark } from '@/creature-builder/logic/abilityScaling';
    import { getStatRangesForLevel, statToScalar4, getStrikeDamageForScalar } from '@/creature-builder/logic/creatureStatTables';
    import {
       DAMAGE_TYPES,

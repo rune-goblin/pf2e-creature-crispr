@@ -1,8 +1,5 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-import type { NPCPF2e } from 'foundry-pf2e';
 import type {
-  CreatureBenchmarks,
-  CreatureSpeeds,
   CreatureStats,
   CreatureStrike,
   DamageModifier,
@@ -10,35 +7,11 @@ import type {
   SpecialAbility
 } from '../logic/models';
 import { getDefaultBenchmarks, createDefaultStrike, CREATURE_PRESETS, BENCHMARK_VALUES_4 } from '../logic/models';
-import { calculateCreatureStats, analyzeStatsForBenchmarks } from '../logic/creatureStatTables';
-import {
-  getCreatureData,
-  getStrikesFromActor,
-  getSpecialAbilitiesFromActor,
-  getResistancesFromActor,
-  getWeaknessesFromActor,
-  getImmunitiesFromActor,
-  readActorStatsAndBenchmarks,
-  deriveBenchmarksFromActor
-} from '../services';
+import { calculateCreatureStats } from '../logic/creatureStatTables';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import { ALL_SECTIONS } from './types';
 
 const DEFAULT_EXPANDED: EditorSection[] = ['abilities', 'defenses', 'skills', 'offense', 'spellcasting'];
-
-/** `system.attributes.speed` isn't on the prepared NPC type; read it through a narrow view of just the movement fields. */
-type ActorSpeedView = { speed?: { value?: number; otherSpeeds?: Array<{ type?: string; value?: number }> } };
-
-function getSpeedsFromActor(actor: NPCPF2e | null | undefined): CreatureSpeeds {
-  const speed = (actor?.system?.attributes as ActorSpeedView | undefined)?.speed;
-  const speeds: CreatureSpeeds = { land: speed?.value ?? 25 };
-  for (const other of speed?.otherSpeeds ?? []) {
-    if (other.type && other.value != null) {
-      (speeds as unknown as Record<string, number>)[other.type] = other.value;
-    }
-  }
-  return speeds;
-}
 
 class CreatureEditorStore {
   active = $state(false);
@@ -105,43 +78,9 @@ class CreatureEditorStore {
     this.validationErrors.clear();
   }
 
-  startEditActor(actorId: string): void {
-    const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
-    if (!actor) {
-      console.error('[CreatureEditor] Actor not found:', actorId);
-      return;
-    }
-
-    const level = actor.system?.details?.level?.value ?? 1;
-
-    // Flagged creatures keep their stored benchmarks/baseStats verbatim. Actors without the
-    // flag back-solve from live stats, so editing them never resets their real numbers.
-    const creatureData = getCreatureData(actorId);
-    const fromActor = creatureData ? undefined : readActorStatsAndBenchmarks(actor, level);
-    const benchmarks = creatureData?.benchmarks ?? fromActor?.benchmarks ?? deriveBenchmarksFromActor(actor, level);
-    const baseLevel = creatureData ? creatureData.baseLevel : level;
-    const baseStats = creatureData ? creatureData.baseStats : fromActor!.baseStats;
-
-    this.creature = {
-      actorId,
-      name: actor.name || 'Unknown',
-      level,
-      creatureType: (actor.system?.details as { creatureType?: string }).creatureType || 'creature',
-      size: actor.system?.traits?.size?.value || 'medium',
-      traits: actor.system?.traits?.value || [],
-      benchmarks,
-      baseLevel,
-      baseStats,
-      strikes: getStrikesFromActor(actorId),
-      specialAbilities: getSpecialAbilitiesFromActor(actorId),
-      immunities: getImmunitiesFromActor(actorId),
-      resistances: getResistancesFromActor(actorId),
-      weaknesses: getWeaknessesFromActor(actorId),
-      speeds: getSpeedsFromActor(actor),
-      portraitImage: actor.img,
-      tokenImage: actor.prototypeToken?.texture?.src ?? undefined,
-      importedFrom: creatureData?.importedFrom
-    };
+  /** Edit a creature already read off its actor by the host (services/editorHost.loadCreatureForEdit). */
+  startEdit(creature: EditableCreature): void {
+    this.creature = creature;
     // snapshot already deep-clones, so no extra structuredClone is needed.
     this.originalCreature = $state.snapshot(this.creature) as EditableCreature;
     this.active = true;
@@ -151,42 +90,9 @@ class CreatureEditorStore {
     this.validationErrors.clear();
   }
 
-  startImport(
-    actorId: string,
-    actorData: {
-      name: string;
-      level: number;
-      stats: Partial<CreatureStats>;
-      traits?: string[];
-      size?: string;
-      type?: string;
-    }
-  ): void {
-    const analyzed = analyzeStatsForBenchmarks(actorData.level, actorData.stats);
-    const defaults = getDefaultBenchmarks();
-    const benchmarks: CreatureBenchmarks = {
-      ...defaults,
-      ...analyzed,
-      abilities: { ...defaults.abilities, ...(analyzed.abilities || {}) },
-      saves: { ...defaults.saves, ...(analyzed.saves || {}) }
-    };
-
-    this.creature = {
-      actorId,
-      name: actorData.name,
-      level: actorData.level,
-      creatureType: actorData.type || 'creature',
-      size: actorData.size || 'medium',
-      traits: actorData.traits || [],
-      benchmarks,
-      strikes: getStrikesFromActor(actorId),
-      specialAbilities: getSpecialAbilitiesFromActor(actorId),
-      immunities: getImmunitiesFromActor(actorId),
-      resistances: getResistancesFromActor(actorId),
-      weaknesses: getWeaknessesFromActor(actorId),
-      speeds: getSpeedsFromActor(game.actors?.get(actorId) as NPCPF2e | undefined),
-      importedFrom: actorData.name
-    };
+  /** Import a creature already read off its actor by the host (services/editorHost.loadCreatureForImport). */
+  startImport(creature: EditableCreature): void {
+    this.creature = creature;
     this.originalCreature = null;
     this.active = true;
     this.mode = 'import';

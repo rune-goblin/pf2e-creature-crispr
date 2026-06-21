@@ -1,11 +1,9 @@
-import type { CreatureBenchmarks, CreatureStats, ScalableValue } from '../logic/models';
+import type { ScalableValue } from '../logic/models';
+import type { StoredCreatureData } from '../logic/contracts';
 
-/** Data stored as a flag on creature actors. */
-export interface CreatureActorData {
-  benchmarks: CreatureBenchmarks;
-  baseLevel: number;        // level at which the creature was imported/created
-  baseStats: CreatureStats; // exact stats at baseLevel — used verbatim when level is unchanged
-  importedFrom?: string;
+/** Data stored as a flag on creature actors — the kernel's shared StoredCreatureData shape (benchmarks,
+ *  baseLevel, baseStats, importedFrom) with CRISPR's own create/update timestamps made required. */
+export interface CreatureActorData extends StoredCreatureData {
   createdAt: number;
   updatedAt: number;
 }

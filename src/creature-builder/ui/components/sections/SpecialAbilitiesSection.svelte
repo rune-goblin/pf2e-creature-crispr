@@ -1,6 +1,6 @@
 <script lang="ts">
    import { SvelteSet } from 'svelte/reactivity';
-   import type { EditableCreature, SpecialAbility, ScalableValue } from '@/creature-builder/editor';
+   import type { EditableCreature, SpecialAbility, ScalableValue, EditorEnvironment } from '@/creature-builder/editor';
    import type { BenchmarkLabel4, BenchmarkLabel3, SpellBenchmarkLabel } from '@/creature-builder/logic/models';
    import {
       getAbilityDescription,
@@ -10,10 +10,8 @@
       getDisplayBenchmark,
       hasOverride,
       parseDiceComponents,
-      formatDiceFormula,
-      composeAbilityItemForExport,
-      specialAbilityFromDrop
-   } from '@/creature-builder/services';
+      formatDiceFormula
+   } from '@/creature-builder/logic/abilityScaling';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
 
@@ -23,6 +21,7 @@
 
    let {
       creature,
+      env,
       expanded,
       onToggle,
       onUpdateAbilityScalableOverride,
@@ -31,6 +30,7 @@
       onAddAbility
    }: {
       creature: EditableCreature;
+      env: EditorEnvironment;
       expanded: boolean;
       onToggle?: () => void;
       onUpdateAbilityScalableOverride?: (detail: { abilityIndex: number; valueIndex: number; override: number | undefined }) => void;
@@ -43,12 +43,11 @@
 
    let isDragOver = $state(false);
 
-   // Drag a CRISPR ability onto a PF2e actor sheet: serialize it to an action-item source (with
-   // the user's current scalable edits baked in) as a standard Foundry Item drop payload.
+   // Drag a CRISPR ability onto a PF2e actor sheet: the host serializes it to a Foundry Item drop
+   // payload (with the user's current scalable edits baked in).
    function handleAbilityDragStart(event: DragEvent, ability: SpecialAbility): void {
       if (!event.dataTransfer) return;
-      const data = composeAbilityItemForExport(ability, creature.level);
-      event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'Item', data, crisprAbilityDrag: true }));
+      event.dataTransfer.setData('text/plain', env.abilityToDropPayload(ability, creature.level));
       event.dataTransfer.effectAllowed = 'copy';
    }
 
@@ -78,13 +77,13 @@
       }
       // A CRISPR ability dragged out and dropped back in — don't duplicate it.
       if (data.crisprAbilityDrag) return;
-      const ability = await specialAbilityFromDrop(data, creature.level);
+      const ability = await env.abilityFromDrop(data, creature.level);
       if (!ability) {
-         ui.notifications?.warn('Drop an action or passive ability here.');
+         env.notify.warn('Drop an action or passive ability here.');
          return;
       }
       onAddAbility?.(ability);
-      ui.notifications?.info(`Added "${ability.name}" to special abilities`);
+      env.notify.info(`Added "${ability.name}" to special abilities`);
    }
 
    function getScalableValue(sv: ScalableValue, level: number): string {

@@ -12,6 +12,10 @@ export * from './folderManager';
 export * from './pickFile';
 export * from '../logic/abilityScaling';
 export * from './abilityItemBuilder';
+export * from './defaultSaveTarget';
+export * from './saveTargetRegistry';
+export * from './defaultEditorEnvironment';
+export * from './editorHost';
 
 export type {
   CreatureStats,

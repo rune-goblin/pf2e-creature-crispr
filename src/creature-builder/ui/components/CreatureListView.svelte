@@ -12,6 +12,7 @@
     moveCreatureToCrisprFolder,
     revealCreatureInSidebar,
     isCreatureMember,
+    loadCreatureForEdit,
     type CreatureEntry
   } from '@/creature-builder/services';
   import Dialog from './baseComponents/Dialog.svelte';
@@ -61,7 +62,8 @@
   }
 
   function handleEdit(creature: CreatureEntry): void {
-    editorStore.startEditActor(creature.actorId);
+    const loaded = loadCreatureForEdit(creature.actorId);
+    if (loaded) editorStore.startEdit(loaded);
   }
 
   function handleOpenSheet(creature: CreatureEntry): void {
@@ -73,7 +75,8 @@
       const newActorId = await duplicateCreature(creature.actorId);
       ui.notifications?.info('Duplicated creature');
       refreshCreatures();
-      editorStore.startEditActor(newActorId);
+      const loaded = loadCreatureForEdit(newActorId);
+      if (loaded) editorStore.startEdit(loaded);
     } catch (error) {
       console.error('[Creature CRISPR] Failed to duplicate creature:', error);
       ui.notifications?.error('Failed to duplicate creature');
