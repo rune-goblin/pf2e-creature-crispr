@@ -6,7 +6,7 @@
   "description": "PF2e Foundry VTT module template (hybrid content + scripted Svelte UI).",
   "license": "MIT",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "remove-example-files": "node scripts/removeExampleFiles.ts",
