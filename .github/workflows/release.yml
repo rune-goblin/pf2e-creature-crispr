@@ -29,6 +29,7 @@ jobs:
 
       - name: Install and build
         run: |
+          node scripts/check-lockfile.ts
           npm ci
           npm run check
           npm run build
