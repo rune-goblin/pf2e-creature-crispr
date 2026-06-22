@@ -35,4 +35,5 @@ export interface CreatureEntry {
   size: string;
   ac: number;
   hp: number;
+  img: string;
 }

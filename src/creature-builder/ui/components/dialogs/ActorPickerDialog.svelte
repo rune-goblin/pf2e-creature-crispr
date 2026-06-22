@@ -97,10 +97,10 @@
       await loader.loadAsync(
          async () => {
             await initializeBestiaryTab();
-            const entries = await searchBestiary(
-               { search: searchTerm || undefined, includeLegacy },
-               200
-            );
+            const entries = await searchBestiary({
+               search: searchTerm || undefined,
+               includeLegacy
+            });
             return entries.map((e) => ({ id: e.uuid, name: e.name, level: e.level }));
          },
          {

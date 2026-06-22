@@ -143,7 +143,17 @@
 </script>
 
 <section class="editor-section">
-   <CollapsibleSection label="Spellcasting" {expanded} ontoggle={() => onToggle?.()} />
+   <CollapsibleSection label="Spellcasting" {expanded} ontoggle={() => onToggle?.()}>
+      {#snippet summary()}
+         {#if spellcastingEnabled}
+            <span class="sum-stat"><span class="sum-key">DC</span><strong>{computedStats?.spellDC ?? '—'}</strong></span>
+            <span class="sum-stat"><span class="sum-key">atk</span><strong>{computedStats?.spellAttack !== undefined ? (computedStats.spellAttack >= 0 ? `+${computedStats.spellAttack}` : computedStats.spellAttack) : '—'}</strong></span>
+            {#if creature.benchmarks.spellTradition}<span class="sum-muted">{SPELL_TRADITION_LABELS[creature.benchmarks.spellTradition as keyof typeof SPELL_TRADITION_LABELS]}</span>{/if}
+         {:else}
+            <span class="sum-muted">none</span>
+         {/if}
+      {/snippet}
+   </CollapsibleSection>
    {#if expanded}
       <div class="section-body">
          <label class="spellcasting-toggle">
@@ -323,7 +333,7 @@
 
 <style lang="scss">
    .editor-section {
-      background: var(--surface-low);
+      background: var(--section-body-bg);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-lg);
       overflow: hidden;
@@ -369,7 +379,6 @@
          font-size: var(--font-xs);
          font-weight: var(--font-weight-semibold);
          color: var(--text-muted);
-         text-transform: uppercase;
       }
 
       .cc-select {
@@ -403,6 +412,7 @@
       .stat-value {
          font-size: var(--font-md);
          font-weight: var(--font-weight-bold);
+         font-variant-numeric: tabular-nums;
          color: var(--text-primary);
          min-width: 2.5rem;
          text-align: center;
@@ -484,7 +494,6 @@
       font-size: var(--font-xs);
       font-weight: var(--font-weight-semibold);
       color: var(--text-muted);
-      text-transform: uppercase;
    }
 
    .slots-table {
@@ -527,6 +536,7 @@
       color: var(--text-primary);
       min-width: 2rem;
       text-align: center;
+      font-variant-numeric: tabular-nums;
 
       &.overridden {
          color: var(--color-primary);

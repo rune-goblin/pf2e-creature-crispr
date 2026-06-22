@@ -20,6 +20,15 @@
   import RowActionsMenu from './widgets/RowActionsMenu.svelte';
 
   let creatures = $state<CreatureEntry[]>([]);
+  let searchTerm = $state('');
+
+  const filteredCreatures = $derived.by(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return creatures;
+    return creatures.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.creatureType.toLowerCase().includes(q)
+    );
+  });
 
   let showImportDialog = $state(false);
   let showDeleteDialog = $state(false);
@@ -264,6 +273,23 @@
       </div>
     </div>
   {:else}
+    <div class="list-toolbar">
+      <div class="search-box">
+        <i class="fas fa-search search-icon" aria-hidden="true"></i>
+        <input
+          type="search"
+          class="search-input"
+          placeholder="Search by name or type…"
+          bind:value={searchTerm}
+          aria-label="Search creatures by name or type"
+        />
+      </div>
+      <span class="result-count">
+        {filteredCreatures.length === creatures.length
+          ? `${creatures.length} creature${creatures.length === 1 ? '' : 's'}`
+          : `${filteredCreatures.length} of ${creatures.length}`}
+      </span>
+    </div>
     <div
       class="creatures-table-container"
       class:drag-over={isDragOver}
@@ -276,6 +302,7 @@
       <table class="creatures-table">
         <thead>
           <tr>
+            <th class="thumb-col" aria-label="Portrait"></th>
             <th>Name</th>
             <th class="center">Level</th>
             <th>Type</th>
@@ -285,8 +312,18 @@
           </tr>
         </thead>
         <tbody>
-          {#each creatures as creature (creature.actorId)}
+          {#if filteredCreatures.length === 0}
+            <tr class="no-matches-row">
+              <td colspan="7">No creatures match “{searchTerm.trim()}”.</td>
+            </tr>
+          {/if}
+          {#each filteredCreatures as creature (creature.actorId)}
             <tr data-actor-id={creature.actorId} class:flash={creature.actorId === flashActorId}>
+              <td class="thumb-cell">
+                <span class="thumb">
+                  <img src={creature.img} alt="" loading="lazy" />
+                </span>
+              </td>
               <td class="name-cell">
                 <button class="name-link" onclick={() => handleOpenSheet(creature)} title="Open actor sheet">
                   {creature.name}
@@ -494,6 +531,62 @@
     }
   }
 
+  .list-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-12);
+    margin-bottom: var(--space-12);
+  }
+
+  .search-box {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .search-icon {
+    position: absolute;
+    left: var(--space-10);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    pointer-events: none;
+  }
+
+  .search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-8) var(--space-10) var(--space-8) var(--space-32);
+    background: var(--surface-lowest);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-sm);
+    transition: border-color var(--transition-fast);
+
+    &::placeholder {
+      color: var(--text-muted);
+    }
+
+    &:hover {
+      border-color: var(--border-strong);
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--color-primary);
+    }
+  }
+
+  .result-count {
+    flex: none;
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    white-space: nowrap;
+  }
+
   .creatures-table {
     width: 100%;
     border-collapse: separate;
@@ -530,6 +623,40 @@
       &.flash {
         animation: crispr-row-flash 1.4s ease-out;
       }
+    }
+
+    .thumb-col {
+      width: 1%;
+    }
+
+    .thumb-cell {
+      width: 1%;
+      padding: var(--space-6) var(--space-12);
+    }
+
+    .thumb {
+      display: block;
+      width: 36px;
+      height: 36px;
+      overflow: hidden; // fixed square frame; clips the bottom of the full-width portrait
+      border-radius: var(--radius-sm);
+      background: var(--surface-low);
+    }
+
+    .thumb img {
+      display: block;
+      width: 36px;
+      // Pin width against Foundry's global `img { max-width: 100% }`, which auto-layout would
+      // otherwise collapse to a sliver; height stays auto so the portrait keeps its aspect ratio.
+      min-width: 36px;
+      max-width: 36px;
+      height: auto;
+    }
+
+    .no-matches-row td {
+      text-align: center;
+      color: var(--text-muted);
+      padding: var(--space-24) var(--space-16);
     }
   }
 

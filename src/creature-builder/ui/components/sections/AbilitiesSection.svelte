@@ -19,10 +19,18 @@
     onBenchmarkSelect?: (detail: { path: string; value: number }) => void;
     onBenchmarkEdit?: (detail: { path: string; value: number; statType: string }) => void;
   } = $props();
+
+  const fmtMod = (v: number | undefined): string => (v === undefined ? '—' : v >= 0 ? `+${v}` : `${v}`);
 </script>
 
 <section class="editor-section">
-  <CollapsibleSection label="Ability Scores" {expanded} ontoggle={() => onToggle?.()} />
+  <CollapsibleSection label="Ability Scores" {expanded} ontoggle={() => onToggle?.()}>
+    {#snippet summary()}
+      {#each ABILITY_SCORES as ability}
+        <span class="sum-stat"><span class="sum-key">{ABILITY_SCORE_LABELS[ability].slice(0, 3)}</span> <strong>{fmtMod(computedStats?.[ability])}</strong></span>
+      {/each}
+    {/snippet}
+  </CollapsibleSection>
   {#if expanded}
     <div class="section-body">
       <div class="benchmark-grid">
@@ -44,7 +52,7 @@
 
 <style lang="scss">
   .editor-section {
-    background: var(--surface-low);
+    background: var(--section-body-bg);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     overflow: hidden;

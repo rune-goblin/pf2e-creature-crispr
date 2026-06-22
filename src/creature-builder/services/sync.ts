@@ -1,10 +1,11 @@
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
-import type { CreatureBenchmarks, DamageModifier, Immunity } from '../logic/models';
+import type { CreatureBenchmarks, CreatureSense, CreatureSpeeds, DamageModifier, Immunity } from '../logic/models';
 import { getDefaultBenchmarks } from '../logic/models';
+import { sizeToPf2e } from '../logic/sizes';
 import { calculateCreatureStats, calculateStrikeStats } from '../logic/creatureStatTables';
 import { logger } from './logger';
 import { requireActor } from './folderManager';
-import { buildActorSystemFromStats, buildIwrSystem } from './crud';
+import { buildActorSystemFromStats, buildIwrSystem, buildSpeedSystem, buildSensesSystem } from './crud';
 import { syncSpellcastingEntriesForLevel } from './spells';
 import { syncAbilityItemsForLevel } from './strikes';
 import { CREATURE_FLAG, CREATURE_DATA_KEY, ITEM_BENCHMARK_KEY } from './constants';
@@ -24,6 +25,9 @@ export async function updateCreature(
     immunities?: Immunity[];
     resistances?: DamageModifier[];
     weaknesses?: DamageModifier[];
+    speeds?: CreatureSpeeds;
+    languages?: string[];
+    senses?: CreatureSense[];
   }
 ): Promise<void> {
   // requireActor yields a world actor (ActorPF2e<null>); normalize to NPCPF2e for the
@@ -46,11 +50,14 @@ export async function updateCreature(
 
   if (updates.name) actorUpdate.name = updates.name;
   if (updates.creatureType) actorUpdate.system.details.creatureType = updates.creatureType;
-  if (updates.size) actorUpdate.system.traits = { size: { value: updates.size } };
+  if (updates.size) actorUpdate.system.traits = { size: { value: sizeToPf2e(updates.size) } };
   if (updates.traits) {
     actorUpdate.system.traits = actorUpdate.system.traits || {};
     actorUpdate.system.traits.value = updates.traits;
   }
+  if (updates.languages) actorUpdate.system.details.languages = { value: updates.languages };
+  if (updates.speeds) actorUpdate.system.attributes.speed = buildSpeedSystem(updates.speeds);
+  if (updates.senses) actorUpdate.system.perception.senses = buildSensesSystem(updates.senses);
   if (updates.portraitImage) actorUpdate.img = updates.portraitImage;
   if (updates.tokenImage) actorUpdate.prototypeToken = { texture: { src: updates.tokenImage } };
   if (updates.immunities || updates.resistances || updates.weaknesses) {

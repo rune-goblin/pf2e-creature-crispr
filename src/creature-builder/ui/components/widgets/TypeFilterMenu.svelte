@@ -37,6 +37,21 @@
 
   const MENU_W = 260;
 
+  // The menu is `position: fixed` and placed from viewport coords, but an ancestor
+  // (`.editor-body` has `container-type: inline-size`) becomes the containing block for fixed
+  // descendants — so left/top would resolve against that scrolled box, not the viewport, and the
+  // menu lands far from its trigger. Re-parent to the window root to restore true viewport-fixed
+  // positioning (and escape any overflow clip), staying in this window's stacking context.
+  function portal(node: HTMLElement) {
+    const host = triggerEl?.closest('.application') ?? document.body;
+    host.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      }
+    };
+  }
+
   const disabledSet = $derived(new Set(disabledValues));
 
   const filtered = $derived.by((): FilteredGroup[] => {
@@ -71,7 +86,7 @@
     open = true;
     query = '';
     activeIndex = 0;
-    tick().then(() => inputEl?.focus());
+    tick().then(() => inputEl?.focus({ preventScroll: true }));
   }
 
   function closeMenu(): void {
@@ -139,12 +154,13 @@
   onclick={() => (open ? closeMenu() : openMenu())}
 >
   <i class="fas {icon}"></i>
-  {#if variant === 'button' && label}<span>{label}</span>{/if}
+  {#if label}<span>{label}</span>{/if}
 </button>
 
 {#if open}
   <div
     bind:this={menuEl}
+    use:portal
     class="tfm-menu"
     role="listbox"
     tabindex="-1"
@@ -215,6 +231,42 @@
 
   .tfm-trigger.double:hover {
     color: var(--text-info);
+  }
+
+  /* The per-row "add exception / double-vs" triggers read as small labelled pills, not bare
+     "+" icons whose purpose was unclear. */
+  .tfm-trigger.icon.add-first {
+    width: auto;
+    height: auto;
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-6);
+    border: 1px solid transparent;
+    font-size: var(--font-xs);
+    white-space: nowrap;
+
+    i {
+      font-size: 0.6rem;
+    }
+  }
+
+  .tfm-trigger.add-first.except {
+    color: var(--text-accent-tertiary);
+    background: var(--surface-accent-lower);
+    border-color: var(--border-accent-subtle);
+
+    &:hover {
+      color: var(--text-accent-primary);
+    }
+  }
+
+  .tfm-trigger.add-first.double {
+    color: var(--text-info-tertiary);
+    background: var(--surface-info-lower);
+    border-color: var(--border-info-darker);
+
+    &:hover {
+      color: var(--text-info);
+    }
   }
 
   .tfm-trigger.qual-add.except {
@@ -298,9 +350,7 @@
 
   .tfm-group {
     padding: var(--space-6) var(--space-10) var(--space-2);
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: var(--font-xs);
     color: var(--text-muted);
   }
 

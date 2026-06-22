@@ -27,25 +27,109 @@
       creature,
       env,
       expanded,
+      kind,
       abilityProviders = [],
       onToggle,
       onUpdateAbilityScalableOverride,
       onUpdateAbilityScalableCustomValue,
       onUpdateAbilityCustomDescriptionTemplate,
-      onAddAbility
+      onAddAbility,
+      onUpdateAbility,
+      onRemoveAbility,
+      onAddBlank
    }: {
       creature: EditableCreature;
       env: EditorEnvironment;
       expanded: boolean;
+      kind: 'action' | 'passive';
       abilityProviders?: AbilityProvider[];
       onToggle?: () => void;
       onUpdateAbilityScalableOverride?: (detail: { abilityIndex: number; valueIndex: number; override: number | undefined }) => void;
       onUpdateAbilityScalableCustomValue?: (detail: { abilityIndex: number; valueIndex: number; customValue: string | undefined }) => void;
       onUpdateAbilityCustomDescriptionTemplate?: (detail: { abilityIndex: number; customTemplate: string | undefined }) => void;
       onAddAbility?: (ability: SpecialAbility) => void;
+      onUpdateAbility?: (detail: { index: number; updates: Partial<SpecialAbility> }) => void;
+      onRemoveAbility?: (index: number) => void;
+      onAddBlank?: () => void;
    } = $props();
 
-   const expandedAbilities = new SvelteSet<number>();
+   const isPassiveSection = $derived(kind === 'passive');
+   const sectionLabel = $derived(isPassiveSection ? 'Passives' : 'Actions');
+
+   // One section renders one kind; "Actions" holds action/reaction/free, "Passives" holds passive.
+   // Carry the original index so every edit callback still addresses the full specialAbilities array.
+   const entries = $derived(
+      creature.specialAbilities
+         .map((ability, index) => ({ ability, index }))
+         .filter(({ ability }) => (isPassiveSection ? ability.actionType === 'passive' : ability.actionType !== 'passive'))
+   );
+
+   type ActionCost = '1' | '2' | '3' | 'reaction' | 'free' | 'passive';
+   // Header cost picker: PF2e action glyphs for the five action costs, a text segment for "passive"
+   // (choosing it moves the ability between the Actions and Passives sections).
+   const COST_PICKER: { value: ActionCost; glyph?: string; label: string; title: string }[] = [
+      { value: '1', glyph: '◆', label: '◆', title: '1 action' },
+      { value: '2', glyph: '◆◆', label: '◆◆', title: '2 actions' },
+      { value: '3', glyph: '◆◆◆', label: '◆◆◆', title: '3 actions' },
+      { value: 'reaction', glyph: '↺', label: '↺', title: 'Reaction' },
+      { value: 'free', glyph: '◇', label: '◇', title: 'Free action' },
+      { value: 'passive', label: 'Passive', title: 'Passive (no action cost)' }
+   ];
+
+   function abilityCost(ability: SpecialAbility): ActionCost {
+      return ability.actionType === 'action' ? (String(ability.actions ?? 1) as ActionCost) : ability.actionType;
+   }
+
+   function setAbilityCost(index: number, cost: ActionCost): void {
+      if (cost === '1' || cost === '2' || cost === '3') {
+         onUpdateAbility?.({ index, updates: { actionType: 'action', actions: Number(cost) as 1 | 2 | 3 } });
+      } else {
+         onUpdateAbility?.({ index, updates: { actionType: cost, actions: undefined } });
+      }
+   }
+
+   // Keyed by ability id (not array index) so expansion survives add/remove/reorder.
+   const expandedAbilities = new SvelteSet<string>();
+
+   // Top-bar (name + action cost) editing is gated behind the pencil — separate from expansion
+   // and from the description/value editors. Snapshot the bar's fields to revert on cancel.
+   let headerEditId = $state<string | null>(null);
+   let headerEditSnapshot = $state<Pick<SpecialAbility, 'name' | 'actionType' | 'actions'> | null>(null);
+
+   function startHeaderEdit(ability: SpecialAbility): void {
+      headerEditId = ability.id;
+      headerEditSnapshot = { name: ability.name, actionType: ability.actionType, actions: ability.actions };
+      pendingDeleteId = null;
+   }
+
+   function confirmHeaderEdit(): void {
+      headerEditId = null;
+      headerEditSnapshot = null;
+   }
+
+   function cancelHeaderEdit(abilityIndex: number): void {
+      if (headerEditSnapshot) onUpdateAbility?.({ index: abilityIndex, updates: { ...headerEditSnapshot } });
+      headerEditId = null;
+      headerEditSnapshot = null;
+   }
+
+   // Two-step delete so a stray click can't destroy an ability.
+   let pendingDeleteId = $state<string | null>(null);
+
+   function requestDelete(id: string): void {
+      pendingDeleteId = id;
+      headerEditId = null;
+      headerEditSnapshot = null;
+   }
+
+   function cancelDelete(): void {
+      pendingDeleteId = null;
+   }
+
+   function confirmDelete(abilityIndex: number): void {
+      pendingDeleteId = null;
+      onRemoveAbility?.(abilityIndex);
+   }
 
    let isDragOver = $state(false);
    let showAbilityPicker = $state(false);
@@ -98,18 +182,6 @@
       }
       onAddAbility?.(ability);
       env.notify.info(`Added "${ability.name}" to special abilities`);
-   }
-
-   function getScalableValue(sv: ScalableValue, level: number): string {
-      const raw = getEffectiveValue(sv, level);
-      if (sv.type === 'dc') {
-         return `DC ${raw}`;
-      }
-      if (sv.type === 'healing') {
-         return raw;
-      }
-      const dmgType = sv.damageType ? ` ${sv.damageType}` : '';
-      return `${raw}${dmgType}`;
    }
 
    function healingLabel(ability: SpecialAbility): string {
@@ -226,30 +298,25 @@
       return getAbilityDescription(ability, creature.level);
    }
 
-   function hasExpandableContent(ability: SpecialAbility): boolean {
-      if (ability.traits && ability.traits.length > 0) return true;
-      if (ability.scalableValues && ability.scalableValues.length > 0) return true;
-
-      const description = getAbilityDescription(ability, creature.level);
-      const textContent = description.replace(/<[^>]*>/g, '').trim();
-      if (textContent.length > 0) return true;
-
-      return false;
+   // Every ability is now an editable card — its name, action cost, description and scalable
+   // values all live in the expandable body, so there's always something to open.
+   function hasExpandableContent(_ability: SpecialAbility): boolean {
+      return true;
    }
 
-   function toggleAbility(index: number): void {
-      if (expandedAbilities.has(index)) {
-         expandedAbilities.delete(index);
+   function toggleAbility(id: string): void {
+      if (expandedAbilities.has(id)) {
+         expandedAbilities.delete(id);
+         if (headerEditId === id) confirmHeaderEdit();
+         if (pendingDeleteId === id) pendingDeleteId = null;
       } else {
-         expandedAbilities.add(index);
+         expandedAbilities.add(id);
       }
    }
 
    function expandAllAbilities(): void {
       expandedAbilities.clear();
-      for (const [i, ability] of creature.specialAbilities.entries()) {
-         if (hasExpandableContent(ability)) expandedAbilities.add(i);
-      }
+      for (const { ability } of entries) expandedAbilities.add(ability.id);
    }
 
    function collapseAllAbilities(): void {
@@ -258,7 +325,22 @@
 </script>
 
 <section class="editor-section">
-   <CollapsibleSection label="Special Abilities ({creature.specialAbilities.length})" {expanded} ontoggle={() => onToggle?.()} />
+   <CollapsibleSection
+      label="{sectionLabel} ({entries.length})"
+      {expanded}
+      ontoggle={() => onToggle?.()}
+      addLabel={isPassiveSection ? 'Add Passive' : 'Add Action'}
+      addTitle="Add a blank {isPassiveSection ? 'passive' : 'action'}"
+      onAdd={() => onAddBlank?.()}
+   >
+      {#snippet actions()}
+         {#if abilityProviders.length > 0 && !isPassiveSection}
+            <button type="button" class="add-ability-btn" title="Add from the library" onclick={() => (showAbilityPicker = true)}>
+               <i class="fas fa-book"></i> From Library
+            </button>
+         {/if}
+      {/snippet}
+   </CollapsibleSection>
    {#if expanded}
       <div
          class="section-body"
@@ -269,30 +351,22 @@
          ondragleave={handleSectionDragLeave}
          ondrop={handleSectionDrop}
       >
-         {#if abilityProviders.length > 0}
-            <div class="ability-picker-row">
-               <button type="button" class="add-ability-btn" onclick={() => (showAbilityPicker = true)}>
-                  <i class="fas fa-plus"></i> Add Ability
-               </button>
-            </div>
-         {/if}
-         {#if creature.specialAbilities.length === 0}
+         {#if entries.length === 0}
             <p class="no-abilities-message">
-               No special abilities yet. Drag an action or passive from an actor sheet here, or import a creature.
+               No {isPassiveSection ? 'passives' : 'actions'} yet. Use <strong>Add</strong>, drag one from an actor sheet here, or import a creature.
             </p>
          {:else}
             <div class="abilities-toolbar">
                <button class="toolbar-btn" onclick={expandAllAbilities} title="Expand all" aria-label="Expand all">
-                  <i class="fas fa-expand-alt"></i>
+                  <i class="fas fa-arrows-from-line"></i>
                </button>
                <button class="toolbar-btn" onclick={collapseAllAbilities} title="Collapse all" aria-label="Collapse all">
-                  <i class="fas fa-compress-alt"></i>
+                  <i class="fas fa-arrows-to-line"></i>
                </button>
             </div>
             <div class="abilities-list">
-               {#each creature.specialAbilities as ability, abilityIndex (abilityIndex)}
-                  {@const isExpandable = hasExpandableContent(ability)}
-                  {@const isAbilityExpanded = isExpandable && expandedAbilities.has(abilityIndex)}
+               {#each entries as { ability, index: abilityIndex } (ability.id)}
+                  {@const isAbilityExpanded = expandedAbilities.has(ability.id)}
                   <div class="ability-row">
                      <span
                         class="drag-handle"
@@ -304,50 +378,95 @@
                      >
                         <i class="fas fa-grip-vertical"></i>
                      </span>
-                  {#if isExpandable}
                      <div class="ability-card" class:expanded={isAbilityExpanded}>
-                        <button class="ability-header" onclick={() => toggleAbility(abilityIndex)}>
-                           <i class="fas fa-chevron-right ability-toggle-icon"></i>
-                           <span class="ability-name">{ability.name}</span>
-                           <div class="ability-icons">
-                              {#if ability.actionType === 'action'}
-                                 {#if ability.actions === 1}
-                                    <span class="action-icon" title="1 action">◆</span>
-                                 {:else if ability.actions === 2}
-                                    <span class="action-icon" title="2 actions">◆◆</span>
-                                 {:else if ability.actions === 3}
-                                    <span class="action-icon" title="3 actions">◆◆◆</span>
-                                 {:else}
-                                    <span class="action-icon" title="action">◆</span>
-                                 {/if}
-                              {:else if ability.actionType === 'reaction'}
-                                 <span class="action-icon" title="reaction">↺</span>
-                              {:else if ability.actionType === 'free'}
-                                 <span class="action-icon" title="free action">◇</span>
-                              {:else}
-                                 <span class="action-icon" title="passive">—</span>
-                              {/if}
-                           </div>
-                           {#if !isAbilityExpanded && ability.scalableValues && ability.scalableValues.length > 0}
-                              <div class="scalable-tags">
-                                 {#each ability.scalableValues as sv, svIndex (svIndex)}
-                                    <span class="scalable-tag">
-                                       {getScalableValue(sv, creature.level)}
-                                    </span>
-                                 {/each}
+                        <div class="ability-card-head">
+                           {#if headerEditId === ability.id}
+                              <div class="ability-head-edit">
+                                 <button
+                                    type="button"
+                                    class="ability-toggle"
+                                    title="Collapse"
+                                    aria-label="Collapse {ability.name}"
+                                    onclick={() => toggleAbility(ability.id)}
+                                 ><i class="fas fa-chevron-right ability-toggle-icon"></i></button>
+                                 <input
+                                    class="ability-name-input"
+                                    value={ability.name}
+                                    placeholder="Ability name"
+                                    aria-label="Ability name"
+                                    oninput={(e) => onUpdateAbility?.({ index: abilityIndex, updates: { name: e.currentTarget.value } })}
+                                 />
+                                 <div class="cost-picker" role="group" aria-label="Action cost">
+                                    {#each COST_PICKER as o (o.value)}
+                                       <button
+                                          type="button"
+                                          class="cost-segment"
+                                          class:cost-glyph={!!o.glyph}
+                                          class:selected={abilityCost(ability) === o.value}
+                                          title={o.title}
+                                          aria-pressed={abilityCost(ability) === o.value}
+                                          onclick={() => setAbilityCost(abilityIndex, o.value)}
+                                       >{o.glyph ?? o.label}</button>
+                                    {/each}
+                                 </div>
                               </div>
+                              <button
+                                 type="button"
+                                 class="head-confirm"
+                                 title="Confirm"
+                                 aria-label="Confirm name and action cost"
+                                 onclick={confirmHeaderEdit}
+                              ><i class="fas fa-check"></i></button>
+                              <button
+                                 type="button"
+                                 class="head-cancel"
+                                 title="Cancel"
+                                 aria-label="Cancel name and action cost changes"
+                                 onclick={() => cancelHeaderEdit(abilityIndex)}
+                              ><i class="fas fa-times"></i></button>
+                           {:else}
+                              <button class="ability-header" onclick={() => toggleAbility(ability.id)}>
+                                 <i class="fas fa-chevron-right ability-toggle-icon"></i>
+                                 <span class="ability-name">{ability.name}</span>
+                                 {#if ability.actionType !== 'passive'}
+                                    <div class="ability-icons">
+                                       {#if ability.actionType === 'action'}
+                                          {#if ability.actions === 2}
+                                             <span class="action-icon" title="2 actions">◆◆</span>
+                                          {:else if ability.actions === 3}
+                                             <span class="action-icon" title="3 actions">◆◆◆</span>
+                                          {:else}
+                                             <span class="action-icon" title="1 action">◆</span>
+                                          {/if}
+                                       {:else if ability.actionType === 'reaction'}
+                                          <span class="action-icon" title="reaction">↺</span>
+                                       {:else if ability.actionType === 'free'}
+                                          <span class="action-icon" title="free action">◇</span>
+                                       {/if}
+                                    </div>
+                                 {/if}
+                              </button>
+                              <button
+                                 type="button"
+                                 class="ability-edit-btn"
+                                 title="Edit name & action cost"
+                                 aria-label="Edit name and action cost for {ability.name}"
+                                 onclick={() => startHeaderEdit(ability)}
+                              ><i class="fas fa-pencil"></i></button>
                            {/if}
-                        </button>
+                        </div>
                         {#if isAbilityExpanded}
                            <div class="ability-body">
                               {#if editingAbilityIndex !== abilityIndex}
-                                 <button
-                                    type="button"
-                                    class="ability-edit-btn"
-                                    title="Edit description template"
-                                    aria-label="Edit description template"
-                                    onclick={(e) => { e.stopPropagation(); startEditTemplate(abilityIndex, ability); }}
-                                 ><i class="fas fa-pencil"></i></button>
+                                 <div class="ability-body-toolbar">
+                                    <button
+                                       type="button"
+                                       class="desc-edit-btn"
+                                       title="Edit description"
+                                       aria-label="Edit description for {ability.name}"
+                                       onclick={() => startEditTemplate(abilityIndex, ability)}
+                                    ><i class="fas fa-pencil"></i> Edit description</button>
+                                 </div>
                               {/if}
                               {#if ability.traits && ability.traits.length > 0}
                                  <div class="ability-traits">
@@ -363,11 +482,6 @@
                                        rows="6"
                                        bind:value={editingTemplate}
                                     ></textarea>
-                                    <p class="template-help">
-                                       Edit the text freely. Use <code>{'{0}'}</code>, <code>{'{1}'}</code>, etc.
-                                       where you want the editable values below to be inserted. Foundry link
-                                       tags like <code>@UUID[...]</code> and <code>@Check[...]</code> are preserved.
-                                    </p>
                                     <div class="template-actions">
                                        <button type="button" class="template-btn template-btn-secondary" onclick={cancelEditTemplate}>Cancel</button>
                                        {#if ability.customDescriptionTemplate}
@@ -528,32 +642,19 @@
                                  </div>
                               {/if}
                            </div>
+                           <div class="ability-footer" class:confirming={pendingDeleteId === ability.id}>
+                              {#if pendingDeleteId === ability.id}
+                                 <span class="delete-confirm-text">Delete this ability?</span>
+                                 <button type="button" class="delete-confirm-btn" onclick={() => confirmDelete(abilityIndex)}>Delete</button>
+                                 <button type="button" class="delete-cancel-btn" onclick={cancelDelete}>Cancel</button>
+                              {:else}
+                                 <button type="button" class="ability-delete-btn" title="Delete this ability" onclick={() => requestDelete(ability.id)}>
+                                    <i class="fas fa-trash"></i> Delete ability
+                                 </button>
+                              {/if}
+                           </div>
                         {/if}
                      </div>
-                  {:else}
-                     <div class="ability-item">
-                        <span class="ability-name">{ability.name}</span>
-                        <div class="ability-icons">
-                           {#if ability.actionType === 'action'}
-                              {#if ability.actions === 1}
-                                 <span class="action-icon" title="1 action">◆</span>
-                              {:else if ability.actions === 2}
-                                 <span class="action-icon" title="2 actions">◆◆</span>
-                              {:else if ability.actions === 3}
-                                 <span class="action-icon" title="3 actions">◆◆◆</span>
-                              {:else}
-                                 <span class="action-icon" title="action">◆</span>
-                              {/if}
-                           {:else if ability.actionType === 'reaction'}
-                              <span class="action-icon" title="reaction">↺</span>
-                           {:else if ability.actionType === 'free'}
-                              <span class="action-icon" title="free action">◇</span>
-                           {:else}
-                              <span class="action-icon" title="passive">—</span>
-                           {/if}
-                        </div>
-                     </div>
-                  {/if}
                   </div>
                {/each}
             </div>
@@ -572,7 +673,7 @@
 
 <style lang="scss">
    .editor-section {
-      background: var(--surface-low);
+      background: var(--section-body-bg);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-lg);
       overflow: hidden;
@@ -602,32 +703,192 @@
       padding: var(--space-8);
    }
 
-   .ability-picker-row {
-      display: flex;
-   }
-
+   /* Secondary header add — ghost weight so the primary "Add Action" stays dominant. */
    .add-ability-btn {
       display: inline-flex;
       align-items: center;
-      gap: var(--space-6);
-      padding: var(--space-6) var(--space-12);
-      background: var(--surface-lowest);
-      border: 1px solid var(--border-medium);
-      border-radius: var(--radius-md);
-      color: var(--text-secondary);
-      font-size: var(--font-sm);
+      gap: var(--space-4);
+      padding: var(--space-2) var(--space-8);
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      font-size: var(--font-xs);
       font-weight: var(--font-weight-medium);
       cursor: pointer;
       transition: all var(--transition-fast);
 
       &:hover {
-         background: var(--hover);
-         border-color: var(--color-primary);
+         background: var(--hover-low);
          color: var(--text-primary);
       }
 
       i {
+         font-size: 0.6rem;
+      }
+   }
+
+   /* Header row: the expand/edit toggle fills the width; the edit pencil sits flush right. */
+   .ability-card-head {
+      display: flex;
+      align-items: stretch;
+   }
+
+   .ability-card-head .ability-header {
+      flex: 1 1 auto;
+      width: auto;
+      min-width: 0;
+   }
+
+   /* Confirm/cancel for the top-bar edit — neutral to match the surrounding controls, not a
+      bright green/red affirmation. They replace the pencil while editing. */
+   .head-confirm,
+   .head-cancel {
+      flex: 0 0 auto;
+      align-self: center;
+      margin-left: var(--space-4);
+      width: 1.75rem;
+      height: 1.75rem;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      background: var(--surface-low);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--font-xs);
+      padding: 0;
+      transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+
+      &:hover {
+         background: var(--hover);
+         border-color: var(--border-medium);
+      }
+   }
+
+   .head-confirm:hover {
+      color: var(--text-primary);
+   }
+
+   .head-cancel:hover {
+      color: var(--text-danger);
+   }
+
+   .head-cancel {
+      margin-right: var(--space-4);
+   }
+
+   /* Expanded header toolbar (edit mode): chevron · editable title · cost-glyph picker. */
+   .ability-head-edit {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--space-8);
+      padding: var(--space-6) var(--space-8) var(--space-6) var(--space-12);
+   }
+
+   .ability-toggle {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1rem;
+      padding: 0;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+
+      .ability-toggle-icon {
          font-size: var(--font-xs);
+         transition: transform 0.15s ease;
+      }
+   }
+
+   /* Only shown in the header edit state — a full bordered input matching the cost picker beside
+      it, so the name reads as clearly editable rather than static title text. */
+   .ability-name-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: var(--space-4) var(--space-8);
+      background: var(--surface-lowest);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: var(--font-md);
+      font-weight: var(--font-weight-semibold);
+      outline: none;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+
+      &::placeholder {
+         color: var(--text-muted);
+         font-weight: var(--font-weight-medium);
+      }
+
+      &:hover {
+         border-color: var(--border-medium);
+      }
+
+      &:focus {
+         border-color: var(--color-primary);
+         box-shadow: 0 0 0 1px var(--color-primary);
+      }
+   }
+
+   .cost-picker {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: stretch;
+      background: var(--surface-lowest);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+   }
+
+   .cost-segment {
+      /* Fixed height + flex centering gives the big glyphs and the small PASSIVE label one
+         shared vertical centre (their font metrics differ, so padding alone misaligns them). */
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.9rem;
+      height: 1.65rem;
+      padding: 0 var(--space-6);
+      background: transparent;
+      border: none;
+      border-right: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: var(--font-xs);
+      line-height: 1;
+      transition: background var(--transition-fast), color var(--transition-fast);
+
+      &:last-child {
+         border-right: none;
+      }
+
+      &.cost-glyph {
+         font-family: 'Pathfinder2eActions', sans-serif;
+         font-size: var(--font-lg);
+         line-height: 1;
+      }
+
+      &:not(.cost-glyph) {
+         text-transform: uppercase;
+         letter-spacing: 0.03em;
+         font-weight: var(--font-weight-semibold);
+      }
+
+      &:hover {
+         background: var(--hover-low);
+         color: var(--text-secondary);
+      }
+
+      &.selected {
+         background: var(--surface-primary-low);
+         color: var(--text-primary);
       }
    }
 
@@ -666,8 +927,7 @@
       gap: var(--space-4);
    }
 
-   .ability-row > .ability-card,
-   .ability-row > .ability-item {
+   .ability-row > .ability-card {
       flex: 1 1 auto;
       min-width: 0;
    }
@@ -695,37 +955,6 @@
       i {
          font-size: var(--font-xs);
          pointer-events: none;
-      }
-   }
-
-   /* Simple ability item (no expandable content) */
-   .ability-item {
-      display: flex;
-      align-items: center;
-      gap: var(--space-8);
-      padding: var(--space-8) var(--space-12);
-      background: var(--surface-lowest);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-
-      .ability-name {
-         font-size: var(--font-sm);
-         font-weight: var(--font-weight-semibold);
-         color: var(--text-primary);
-      }
-
-      .ability-icons {
-         display: flex;
-         gap: var(--space-4);
-         flex-shrink: 0;
-         /* 16px total from name: 8px gap + 8px margin */
-         margin-left: var(--space-8);
-      }
-
-      .action-icon {
-         font-size: var(--font-md);
-         color: var(--text-primary);
-         font-family: 'Pathfinder2eActions', sans-serif;
       }
    }
 
@@ -767,28 +996,9 @@
          }
 
          .ability-name {
-            font-size: var(--font-sm);
+            font-size: var(--font-md);
             font-weight: var(--font-weight-semibold);
             color: var(--text-primary);
-         }
-
-         .scalable-tags {
-            display: flex;
-            gap: var(--space-4);
-            flex-shrink: 0;
-            /* Push the collapsed-preview tags to the far right of the header */
-            margin-left: auto;
-         }
-
-         .scalable-tag {
-            padding: var(--space-2) var(--space-6);
-            border-radius: var(--radius-sm);
-            font-size: var(--font-xs);
-            font-weight: var(--font-weight-medium);
-            white-space: nowrap;
-            background: var(--surface-low);
-            color: var(--text-secondary);
-            border: 1px solid var(--border-medium);
          }
 
          .ability-icons {
@@ -802,7 +1012,8 @@
          }
 
          .action-icon {
-            font-size: var(--font-md);
+            font-size: var(--font-2xl);
+            line-height: 1;
             color: var(--text-primary);
             font-family: 'Pathfinder2eActions', sans-serif;
          }
@@ -814,10 +1025,111 @@
          border-top: 1px solid var(--border-subtle);
       }
 
+      .ability-body-toolbar {
+         display: flex;
+         justify-content: flex-end;
+         margin-bottom: var(--space-6);
+      }
+
+      .desc-edit-btn {
+         display: inline-flex;
+         align-items: center;
+         gap: var(--space-4);
+         padding: var(--space-2) var(--space-8);
+         border: 1px solid var(--border-default);
+         border-radius: var(--radius-sm);
+         background: var(--surface-low);
+         color: var(--text-muted);
+         cursor: pointer;
+         font-size: var(--font-xs);
+         font-weight: var(--font-weight-medium);
+         transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+
+         &:hover {
+            background: var(--hover);
+            color: var(--text-primary);
+            border-color: var(--border-medium);
+         }
+      }
+
+      /* Destructive action is the card's full-width footer — flush to the frame, clipped by the
+         card's rounded bottom, quiet until hovered. A background tint (not a divider rule) sets it
+         apart from the body, so the open card carries one fewer horizontal line. Two-step confirm
+         guards a stray click. */
+      .ability-footer {
+         display: flex;
+         align-items: center;
+         gap: var(--space-8);
+
+         &.confirming {
+            padding: var(--space-8) var(--space-12);
+            background: var(--surface-danger-lowest);
+         }
+      }
+
+      .ability-delete-btn {
+         display: flex;
+         align-items: center;
+         justify-content: center;
+         gap: var(--space-6);
+         width: 100%;
+         padding: var(--space-8);
+         background: var(--surface-low);
+         border: none;
+         color: var(--text-muted);
+         cursor: pointer;
+         font-size: var(--font-xs);
+         font-weight: var(--font-weight-medium);
+         transition: background var(--transition-fast), color var(--transition-fast);
+
+         &:hover {
+            background: var(--surface-danger-lowest);
+            color: var(--text-danger);
+         }
+      }
+
+      .delete-confirm-text {
+         margin-right: auto;
+         font-size: var(--font-sm);
+         color: var(--text-secondary);
+      }
+
+      .delete-confirm-btn,
+      .delete-cancel-btn {
+         padding: var(--space-4) var(--space-12);
+         border-radius: var(--radius-sm);
+         font-size: var(--font-xs);
+         font-weight: var(--font-weight-semibold);
+         cursor: pointer;
+         transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+      }
+
+      .delete-confirm-btn {
+         background: var(--surface-danger-low);
+         border: 1px solid var(--border-danger);
+         color: var(--text-danger);
+
+         &:hover {
+            background: var(--surface-danger);
+            color: var(--text-primary);
+         }
+      }
+
+      .delete-cancel-btn {
+         background: var(--surface-low);
+         border: 1px solid var(--border-default);
+         color: var(--text-secondary);
+
+         &:hover {
+            background: var(--hover);
+            color: var(--text-primary);
+         }
+      }
+
       .ability-edit-btn {
-         position: absolute;
-         top: var(--space-8);
-         right: var(--space-8);
+         flex: 0 0 auto;
+         align-self: center;
+         margin-right: var(--space-8);
          width: 1.75rem;
          height: 1.75rem;
          border: 1px solid var(--border-default);
@@ -830,7 +1142,6 @@
          justify-content: center;
          font-size: var(--font-xs);
          padding: 0;
-         z-index: 2;
          transition: color var(--transition-fast), border-color var(--transition-fast);
 
          &:hover {
@@ -862,22 +1173,6 @@
 
             &:focus {
                border-color: var(--border-medium);
-            }
-         }
-
-         .template-help {
-            margin: 0;
-            font-size: var(--font-xs);
-            color: var(--text-muted);
-            line-height: 1.4;
-
-            code {
-               font-family: var(--font-mono, ui-monospace, monospace);
-               background: var(--surface-lowest);
-               padding: 1px var(--space-4);
-               border: 1px solid var(--border-subtle);
-               border-radius: var(--radius-sm);
-               color: var(--text-secondary);
             }
          }
 
@@ -936,7 +1231,7 @@
       }
 
       .ability-description {
-         font-size: var(--font-sm);
+         font-size: var(--font-md);
          color: var(--text-secondary);
          line-height: 1.5;
          max-height: 200px;
@@ -948,6 +1243,15 @@
 
          :global(strong) {
             color: var(--text-primary);
+         }
+
+         /* PF2e enriched content ships a loud gold <hr> between Trigger/Effect — quiet it to a
+            faint hairline so it reads as a paragraph break, not another frame rung. */
+         :global(hr) {
+            height: 0;
+            border: none;
+            border-top: 1px solid var(--border-faint);
+            margin: var(--space-8) 0;
          }
 
          /* Inline scalable-value tags injected via renderAbilityDescriptionHtml */
@@ -971,9 +1275,7 @@
       }
 
       .ability-scalables {
-         margin-top: var(--space-12);
-         padding-top: var(--space-12);
-         border-top: 1px solid var(--border-subtle);
+         margin-top: var(--space-8);
          display: flex;
          flex-direction: column;
          gap: var(--space-6);
@@ -982,7 +1284,6 @@
             font-size: var(--font-xs);
             font-weight: var(--font-weight-semibold);
             color: var(--text-muted);
-            text-transform: uppercase;
             margin-bottom: var(--space-8);
          }
 

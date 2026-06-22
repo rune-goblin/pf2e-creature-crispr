@@ -11,7 +11,7 @@ export class CreatureCrisprApp extends ApplicationV2 {
     tag: 'section',
     classes: ['pf2e-creature-crispr'],
     window: { title: 'pf2e-creature-crispr.title', icon: 'fa-solid fa-dna', resizable: true },
-    position: { width: 900, height: 800 as const },
+    position: { width: 1024, height: 800 as const },
   };
 
   #component?: ReturnType<typeof mount>;

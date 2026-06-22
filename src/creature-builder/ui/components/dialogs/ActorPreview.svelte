@@ -157,8 +157,6 @@
       background: var(--overlay);
       color: var(--color-text-dark-secondary, #7a7971);
       font-size: var(--font-xs);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
    }
 
    .preview-stats {
@@ -182,8 +180,6 @@
       font-size: var(--font-xs);
       font-weight: var(--font-weight-semibold);
       color: var(--color-text-dark-secondary, #7a7971);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
    }
 
    .preview-stat-value {

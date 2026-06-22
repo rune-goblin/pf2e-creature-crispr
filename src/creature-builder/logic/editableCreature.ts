@@ -1,5 +1,6 @@
 import type {
   CreatureBenchmarks,
+  CreatureSense,
   CreatureSpeeds,
   CreatureStats,
   CreatureStrike,
@@ -30,6 +31,8 @@ export interface EditableCreature {
   importedFrom?: string;
   sourceActorUuid?: string;
   speeds: CreatureSpeeds;
+  languages: string[];
+  senses: CreatureSense[];
   isTroop?: boolean;
   troopSize?: TroopSize; // formation size driving thresholds; the troop trait + area/splash weaknesses are save-derived
 }

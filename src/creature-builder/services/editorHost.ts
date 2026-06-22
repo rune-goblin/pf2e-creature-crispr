@@ -1,8 +1,9 @@
 import type { NPCPF2e } from 'foundry-pf2e';
 import type { EditableCreature } from '../logic/editableCreature';
 import type { CreatureSaveTarget } from '../logic/contracts';
-import type { CreatureSpeeds, CreatureStats, CreatureBenchmarks } from '../logic/models';
+import type { CreatureSense, CreatureSpeeds, CreatureStats, CreatureBenchmarks, SenseAcuity, SenseType } from '../logic/models';
 import { getDefaultBenchmarks } from '../logic/models';
+import { pf2eToSize } from '../logic/sizes';
 import { analyzeStatsForBenchmarks } from '../logic/creatureStatTables';
 import {
   getStrikesFromActor,
@@ -26,6 +27,24 @@ function getSpeedsFromActor(actor: NPCPF2e | null | undefined): CreatureSpeeds {
     }
   }
   return speeds;
+}
+
+function getLanguagesFromActor(actor: NPCPF2e | null | undefined): string[] {
+  const languages = (actor?.system?.details as { languages?: { value?: string[] } } | undefined)?.languages?.value;
+  return Array.isArray(languages) ? [...languages] : [];
+}
+
+function getSensesFromActor(actor: NPCPF2e | null | undefined): CreatureSense[] {
+  const raw = (actor?.system?.perception as { senses?: Array<{ type?: string; acuity?: string; range?: number | null }> } | undefined)?.senses ?? [];
+  const out: CreatureSense[] = [];
+  for (const s of raw) {
+    if (!s.type) continue;
+    const sense: CreatureSense = { type: s.type as SenseType };
+    if (s.acuity) sense.acuity = s.acuity as SenseAcuity;
+    if (typeof s.range === 'number' && Number.isFinite(s.range) && s.range > 0) sense.range = s.range;
+    out.push(sense);
+  }
+  return out;
 }
 
 /**
@@ -58,7 +77,7 @@ export function loadCreatureForEdit(
     name: actor.name || 'Unknown',
     level,
     creatureType: (actor.system?.details as { creatureType?: string }).creatureType || 'creature',
-    size: actor.system?.traits?.size?.value || 'medium',
+    size: pf2eToSize(actor.system?.traits?.size?.value || 'med'),
     traits: actor.system?.traits?.value || [],
     benchmarks,
     baseLevel,
@@ -69,6 +88,8 @@ export function loadCreatureForEdit(
     resistances: getResistancesFromActor(actorId),
     weaknesses: getWeaknessesFromActor(actorId),
     speeds: getSpeedsFromActor(actor),
+    languages: getLanguagesFromActor(actor),
+    senses: getSensesFromActor(actor),
     portraitImage: actor.img,
     tokenImage: actor.prototypeToken?.texture?.src ?? undefined,
     importedFrom: creatureData?.importedFrom
@@ -105,7 +126,7 @@ export function loadCreatureForImport(
     name: actorData.name,
     level: actorData.level,
     creatureType: actorData.type || 'creature',
-    size: actorData.size || 'medium',
+    size: pf2eToSize(actorData.size || 'med'),
     traits: actorData.traits || [],
     benchmarks,
     strikes: getStrikesFromActor(actorId),
@@ -114,6 +135,8 @@ export function loadCreatureForImport(
     resistances: getResistancesFromActor(actorId),
     weaknesses: getWeaknessesFromActor(actorId),
     speeds: getSpeedsFromActor(game.actors?.get(actorId) as NPCPF2e | undefined),
+    languages: getLanguagesFromActor(game.actors?.get(actorId) as NPCPF2e | undefined),
+    senses: getSensesFromActor(game.actors?.get(actorId) as NPCPF2e | undefined),
     importedFrom: actorData.name
   };
 }

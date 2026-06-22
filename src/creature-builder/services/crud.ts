@@ -1,6 +1,7 @@
 import type { ActorPF2e } from 'foundry-pf2e';
-import type { CreatureBenchmarks, CreatureStrike, SpecialAbility, CreatureStats, DamageModifier, Immunity } from '../logic/models';
+import type { CreatureBenchmarks, CreatureSense, CreatureSpeeds, CreatureStrike, SpecialAbility, CreatureStats, DamageModifier, Immunity } from '../logic/models';
 import { getDefaultBenchmarks } from '../logic/models';
+import { sizeToPf2e } from '../logic/sizes';
 import { calculateCreatureStats } from '../logic/creatureStatTables';
 import { createNPCInFolder, ensureCreatureFolder, requireActor } from './folderManager';
 import { logger } from './logger';
@@ -9,14 +10,23 @@ import { composeAbilityItemData } from './abilityItemBuilder';
 import { CREATURE_FOLDER, CREATURE_FLAG, CREATURE_DATA_KEY, DEFAULT_NPC_IMAGE } from './constants';
 import type { CreatureActorData, CreatureEntry } from './types';
 
-const PF2E_SIZE: Record<string, string> = {
-  tiny: 'tiny',
-  small: 'sm',
-  medium: 'med',
-  large: 'lg',
-  huge: 'huge',
-  gargantuan: 'grg'
-};
+const OTHER_SPEED_TYPES = ['burrow', 'climb', 'fly', 'swim'] as const;
+
+/** Serialize editor speeds into PF2e's `system.attributes.speed` shape (land = `value`, the rest = `otherSpeeds`). */
+export function buildSpeedSystem(speeds: CreatureSpeeds): { value: number; otherSpeeds: Array<{ type: string; value: number }> } {
+  const otherSpeeds = OTHER_SPEED_TYPES.filter((t) => typeof speeds[t] === 'number').map((t) => ({ type: t, value: speeds[t] as number }));
+  return { value: speeds.land ?? 25, otherSpeeds };
+}
+
+/** Serialize editor senses into PF2e's `system.perception.senses` source shape (drop empty acuity/range). */
+export function buildSensesSystem(senses: CreatureSense[]): Array<{ type: string; acuity?: string; range?: number }> {
+  return senses.map((s) => {
+    const out: { type: string; acuity?: string; range?: number } = { type: s.type };
+    if (s.acuity) out.acuity = s.acuity;
+    if (typeof s.range === 'number') out.range = s.range;
+    return out;
+  });
+}
 
 /**
  * Map computed stats onto the PF2e NPC `system.*` shape shared by create and update.
@@ -101,7 +111,8 @@ function toCreatureEntry(actor: ActorPF2e): CreatureEntry {
     creatureType: (s.details as { creatureType?: string }).creatureType || 'creature',
     size: s.traits?.size?.value || 'medium',
     ac: s.attributes?.ac?.value ?? 10,
-    hp: s.attributes?.hp?.max ?? 10
+    hp: s.attributes?.hp?.max ?? 10,
+    img: actor.img || DEFAULT_NPC_IMAGE
   };
 }
 
@@ -234,14 +245,19 @@ export async function createCreatureActor(
     immunities?: Immunity[];
     resistances?: DamageModifier[];
     weaknesses?: DamageModifier[];
+    speeds?: CreatureSpeeds;
+    languages?: string[];
+    senses?: CreatureSense[];
   } = {}
 ): Promise<string> {
   const stats = calculateCreatureStats(level, benchmarks);
   const portraitImg = options.portraitImage || DEFAULT_NPC_IMAGE;
   const tokenImg = options.tokenImage || options.portraitImage || DEFAULT_NPC_IMAGE;
-  const pf2eSize = PF2E_SIZE[options.size || 'medium'] || 'med';
+  const pf2eSize = sizeToPf2e(options.size || 'medium');
   const system = buildActorSystemFromStats(stats);
   Object.assign(system.attributes as object, buildIwrSystem(options));
+  if (options.speeds) Object.assign(system.attributes as object, { speed: buildSpeedSystem(options.speeds) });
+  if (options.senses) (system.perception as { senses?: unknown }).senses = buildSensesSystem(options.senses);
 
   // Only override what we compute; Foundry's NPC template provides every other default.
   const actorData = {
@@ -251,7 +267,7 @@ export async function createCreatureActor(
       ...system,
       details: {
         level: { value: level },
-        languages: { value: ['common'] },
+        languages: { value: options.languages ?? ['common'] },
         publication: { title: 'Creature CRISPR', authors: CREATURE_FLAG }
       },
       traits: { size: { value: pf2eSize }, value: options.traits ?? [] }

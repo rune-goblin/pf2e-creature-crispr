@@ -55,7 +55,10 @@ export const defaultSaveTarget: CreatureSaveTarget = {
       specialAbilities: creature.specialAbilities,
       immunities: creature.immunities,
       resistances: creature.resistances,
-      weaknesses
+      weaknesses,
+      speeds: creature.speeds,
+      languages: creature.languages,
+      senses: creature.senses
     });
   },
 
@@ -72,7 +75,10 @@ export const defaultSaveTarget: CreatureSaveTarget = {
       tokenImage: creature.tokenImage,
       immunities: creature.immunities,
       resistances: creature.resistances,
-      weaknesses
+      weaknesses,
+      speeds: creature.speeds,
+      languages: creature.languages,
+      senses: creature.senses
     });
     await updateMeleeItems(actorId, creature.strikes, creature.level);
     await updateAbilityItems(actorId, creature.specialAbilities, creature.level);
@@ -107,7 +113,10 @@ export const defaultSaveTarget: CreatureSaveTarget = {
       tokenImage: creature.tokenImage,
       immunities: creature.immunities,
       resistances: creature.resistances,
-      weaknesses
+      weaknesses,
+      speeds: creature.speeds,
+      languages: creature.languages,
+      senses: creature.senses
     });
     await updateMeleeItems(newActorId, remappedStrikes, creature.level);
     await updateAbilityItems(newActorId, remappedAbilities, creature.level);

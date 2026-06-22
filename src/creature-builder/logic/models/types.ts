@@ -8,7 +8,7 @@
  * - Values between standard benchmarks (terrible/low/moderate/high/extreme)
  */
 
-type CreatureSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
+export type CreatureSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
 
 // Troop sizes - troops are typically large or larger
 export type TroopSize = 'large' | 'huge' | 'gargantuan';
@@ -39,8 +39,8 @@ export type SpellFont = 'harm' | 'heal';
 export type SpellSlotLayout = Record<number, number>;
 
 type Rarity = 'common' | 'uncommon' | 'rare' | 'unique';
-type SenseAcuity = 'precise' | 'imprecise' | 'vague';
-type SenseType =
+export type SenseAcuity = 'precise' | 'imprecise' | 'vague';
+export type SenseType =
   | 'darkvision' | 'greater-darkvision' | 'low-light-vision' | 'see-invisibility' | 'truesight'
   | 'bloodsense' | 'echolocation' | 'infrared-vision' | 'lifesense' | 'magicsense'
   | 'motion-sense' | 'scent' | 'spiritsense' | 'thoughtsense' | 'tremorsense' | 'wavesense';
@@ -48,10 +48,27 @@ type SenseType =
 /**
  * Creature sense data
  */
-interface CreatureSense {
+export interface CreatureSense {
   type: SenseType;
   acuity?: SenseAcuity;
   range?: number;  // In feet
+}
+
+export const SENSE_TYPES: SenseType[] = [
+  'darkvision', 'greater-darkvision', 'low-light-vision', 'see-invisibility', 'truesight',
+  'infrared-vision', 'scent', 'tremorsense', 'lifesense', 'bloodsense', 'echolocation',
+  'magicsense', 'motion-sense', 'spiritsense', 'thoughtsense', 'wavesense'
+];
+
+export const SENSE_ACUITIES: SenseAcuity[] = ['precise', 'imprecise', 'vague'];
+
+// Vision-family senses default to precise with no range; everything else is imprecise + ranged.
+const PRECISE_VISION_SENSES: SenseType[] = [
+  'darkvision', 'greater-darkvision', 'low-light-vision', 'see-invisibility', 'truesight', 'infrared-vision'
+];
+
+export function defaultSenseAcuity(type: SenseType): SenseAcuity {
+  return PRECISE_VISION_SENSES.includes(type) ? 'precise' : 'imprecise';
 }
 
 /**

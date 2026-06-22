@@ -15,6 +15,7 @@
   import BasicInfoSection from './sections/BasicInfoSection.svelte';
   import AbilitiesSection from './sections/AbilitiesSection.svelte';
   import DefensesSection from './sections/DefensesSection.svelte';
+  import DetailsSection from './sections/DetailsSection.svelte';
   import SkillsSection from './sections/SkillsSection.svelte';
   import OffenseSection from './sections/OffenseSection.svelte';
   import SpellcastingSection from './sections/SpellcastingSection.svelte';
@@ -250,10 +251,24 @@
           onApplyPreset={(key) => editorStore.applyRolePreset(key)}
           onOpenActorSheet={openActorSheet}
           onOpenOrCreateActor={openOrCreateActor}
+          onAddTrait={(t) => editorStore.addTrait(t)}
+          onRemoveTrait={(t) => editorStore.removeTrait(t)}
         />
       </div>
 
       <div class="editor-sections">
+        <DetailsSection
+          {creature}
+          expanded={expandedSections.has('details')}
+          onToggle={() => editorStore.toggleSection('details')}
+          onUpdateSpeed={(type, value) => editorStore.updateSpeed(type, value)}
+          onAddLanguage={(l) => editorStore.addLanguage(l)}
+          onRemoveLanguage={(l) => editorStore.removeLanguage(l)}
+          onAddSense={(t) => editorStore.addSense(t)}
+          onUpdateSense={(i, u) => editorStore.updateSense(i, u)}
+          onRemoveSense={(i) => editorStore.removeSense(i)}
+        />
+
         <div class="section-row">
           <AbilitiesSection
             {creature}
@@ -263,37 +278,36 @@
             onBenchmarkSelect={(d) => handleBenchmarkSelect(d.path, d.value)}
             onBenchmarkEdit={(d) => handleBenchmarkEdit(d.path, d.value, d.statType)}
           />
-          <DefensesSection
+          <SkillsSection
             {creature}
             {computedStats}
-            expanded={expandedSections.has('defenses')}
-            onToggle={() => editorStore.toggleSection('defenses')}
+            expanded={expandedSections.has('skills')}
+            onToggle={() => editorStore.toggleSection('skills')}
             onBenchmarkSelect={(d) => handleBenchmarkSelect(d.path, d.value)}
             onBenchmarkEdit={(d) => handleBenchmarkEdit(d.path, d.value, d.statType)}
-            onAddResistance={(type) => editorStore.addResistance(type)}
-            onRemoveResistance={(i) => editorStore.removeResistance(i)}
-            onUpdateResistance={(d) => editorStore.updateResistance(d.index, d.updates)}
-            onAddWeakness={(type) => editorStore.addWeakness(type)}
-            onRemoveWeakness={(i) => editorStore.removeWeakness(i)}
-            onUpdateWeakness={(d) => editorStore.updateWeakness(d.index, d.updates)}
-            onAddImmunity={(type) => editorStore.addImmunity(type)}
-            onRemoveImmunity={(i) => editorStore.removeImmunity(i)}
-            onUpdateImmunity={(d) => editorStore.updateImmunity(d.index, d.updates)}
-            onSetTroop={(v) => editorStore.setTroop(v)}
-            onSetTroopSize={(s) => editorStore.setTroopSize(s)}
+            onAddSkill={(skill) => editorStore.addSkill(skill)}
+            onRemoveSkill={(skill) => editorStore.removeSkill(skill)}
+            onUpdateSkillBenchmark={(d) => editorStore.updateSkillBenchmark(d.skill, d.benchmark)}
           />
         </div>
 
-        <SkillsSection
+        <DefensesSection
           {creature}
           {computedStats}
-          expanded={expandedSections.has('skills')}
-          onToggle={() => editorStore.toggleSection('skills')}
+          expanded={expandedSections.has('defenses')}
+          onToggle={() => editorStore.toggleSection('defenses')}
           onBenchmarkSelect={(d) => handleBenchmarkSelect(d.path, d.value)}
           onBenchmarkEdit={(d) => handleBenchmarkEdit(d.path, d.value, d.statType)}
-          onAddSkill={(skill) => editorStore.addSkill(skill)}
-          onRemoveSkill={(skill) => editorStore.removeSkill(skill)}
-          onUpdateSkillBenchmark={(d) => editorStore.updateSkillBenchmark(d.skill, d.benchmark)}
+          onAddResistance={(type) => editorStore.addResistance(type)}
+          onRemoveResistance={(i) => editorStore.removeResistance(i)}
+          onUpdateResistance={(d) => editorStore.updateResistance(d.index, d.updates)}
+          onAddWeakness={(type) => editorStore.addWeakness(type)}
+          onRemoveWeakness={(i) => editorStore.removeWeakness(i)}
+          onUpdateWeakness={(d) => editorStore.updateWeakness(d.index, d.updates)}
+          onAddImmunity={(type) => editorStore.addImmunity(type)}
+          onRemoveImmunity={(i) => editorStore.removeImmunity(i)}
+          onUpdateImmunity={(d) => editorStore.updateImmunity(d.index, d.updates)}
+          onSetTroopSize={(s) => editorStore.setTroopSize(s)}
         />
 
         <OffenseSection
@@ -323,15 +337,35 @@
         />
 
         <SpecialAbilitiesSection
+          kind="action"
           {creature}
           {env}
           {abilityProviders}
-          expanded={expandedSections.has('specialAbilities')}
-          onToggle={() => editorStore.toggleSection('specialAbilities')}
+          expanded={expandedSections.has('actions')}
+          onToggle={() => editorStore.toggleSection('actions')}
           onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}
           onUpdateAbilityScalableCustomValue={(d) => editorStore.updateAbilityScalableCustomValue(d.abilityIndex, d.valueIndex, d.customValue)}
           onUpdateAbilityCustomDescriptionTemplate={(d) => editorStore.updateAbilityCustomDescriptionTemplate(d.abilityIndex, d.customTemplate)}
           onAddAbility={(a) => editorStore.addSpecialAbility(a)}
+          onUpdateAbility={(d) => editorStore.updateSpecialAbility(d.index, d.updates)}
+          onRemoveAbility={(i) => editorStore.removeSpecialAbility(i)}
+          onAddBlank={() => editorStore.addBlankAbility('action')}
+        />
+
+        <SpecialAbilitiesSection
+          kind="passive"
+          {creature}
+          {env}
+          {abilityProviders}
+          expanded={expandedSections.has('passives')}
+          onToggle={() => editorStore.toggleSection('passives')}
+          onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}
+          onUpdateAbilityScalableCustomValue={(d) => editorStore.updateAbilityScalableCustomValue(d.abilityIndex, d.valueIndex, d.customValue)}
+          onUpdateAbilityCustomDescriptionTemplate={(d) => editorStore.updateAbilityCustomDescriptionTemplate(d.abilityIndex, d.customTemplate)}
+          onAddAbility={(a) => editorStore.addSpecialAbility(a)}
+          onUpdateAbility={(d) => editorStore.updateSpecialAbility(d.index, d.updates)}
+          onRemoveAbility={(i) => editorStore.removeSpecialAbility(i)}
+          onAddBlank={() => editorStore.addBlankAbility('passive')}
         />
       </div>
     </div>
@@ -372,6 +406,7 @@
     flex: 1 1 auto;
     min-height: 0;
     background: var(--empty);
+    font-size: var(--font-md);
   }
 
   .save-as-body {
@@ -518,12 +553,14 @@
     /* minmax(0,…) lets columns shrink below their content so wide section
        contents don't blow the grid out and force horizontal scroll. */
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: var(--space-8);
+    /* Gutter equals the section's outer padding (--space-16) so the central channel between the
+       two columns matches every other two-column section — one consistent vertical rhythm. */
+    gap: var(--space-16);
   }
 
   /* Stack the side-by-side sections once the editor gets narrow (responds to the
      resizable window, not the viewport — see container-type on .editor-body). */
-  @container (max-width: 40rem) {
+  @container (max-width: 48rem) {
     .section-row {
       grid-template-columns: 1fr;
     }

@@ -118,6 +118,12 @@
   --surface-high: color-mix(in oklch, var(--color-gray-900) 29%, var(--color-gray-850) 71%);    /* ~14.5% - Elevated panels */
   --surface-higher: var(--color-gray-850);                                                       /* 16% - Prominent elements */
   --surface-highest: color-mix(in oklch, var(--color-gray-850) 71%, var(--color-gray-800) 29%); /* ~18% - Most elevated (modals, tooltips) */
+
+  /* Section card hierarchy — the header reads as a raised lip, the body recedes into a dark well.
+     Body sits below --surface-lowest so the inputs/benchmark chips (which use --surface-lowest) read
+     as raised against it rather than blending in. */
+  --section-header-bg: var(--surface-higher);  /* lifted header strip */
+  --section-body-bg: var(--empty);             /* recessed content well */
   
   /* Semi-Transparent Overlays - 7-point scale */
   --overlay-lowest: rgba(0, 0, 0, 0.05);    /* Barely visible tint */

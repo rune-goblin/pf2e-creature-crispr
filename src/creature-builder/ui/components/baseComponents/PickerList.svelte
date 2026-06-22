@@ -104,6 +104,10 @@
     align-items: center;
     gap: var(--space-12);
     padding: var(--space-8) var(--space-12);
+    // Skip layout/paint for off-screen rows so the full bestiary (thousands of entries)
+    // scrolls smoothly without virtual-scroll bookkeeping (mirrors pf2e-encounter-builder).
+    content-visibility: auto;
+    contain-intrinsic-size: auto 36px;
     background: transparent;
     border: none;
     border-bottom: 1px solid var(--border-faint);

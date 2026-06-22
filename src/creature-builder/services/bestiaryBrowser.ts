@@ -78,7 +78,7 @@ async function loadAllNPCEntries(): Promise<BestiaryEntry[]> {
 
 export async function searchBestiary(
   options: BestiaryFilterOptions = {},
-  limit: number = 200
+  limit?: number
 ): Promise<BestiaryEntry[]> {
   await initializeBestiaryTab();
   if (!cachedEntries) return [];
@@ -91,7 +91,7 @@ export async function searchBestiary(
     const searchTerm = options.search.trim().toLowerCase();
     results = results.filter((entry) => entry.name.toLowerCase().includes(searchTerm));
   }
-  return results.slice(0, limit);
+  return limit && limit > 0 ? results.slice(0, limit) : results;
 }
 
 export async function getBestiaryStats(): Promise<{ total: number; remaster: number; legacy: number }> {

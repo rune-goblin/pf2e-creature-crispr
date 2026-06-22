@@ -1,13 +1,22 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type {
+  CreatureSense,
   CreatureStats,
   CreatureStrike,
   DamageModifier,
   Immunity,
+  SenseType,
   SpecialAbility,
   TroopSize
 } from '../logic/models';
-import { getDefaultBenchmarks, createDefaultStrike, CREATURE_PRESETS, BENCHMARK_VALUES_4 } from '../logic/models';
+import {
+  getDefaultBenchmarks,
+  createDefaultStrike,
+  createBlankAbility,
+  createDefaultSense,
+  CREATURE_PRESETS,
+  BENCHMARK_VALUES_4
+} from '../logic/models';
 import { calculateCreatureStats } from '../logic/creatureStatTables';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
@@ -66,6 +75,8 @@ class CreatureEditorStore {
       traits: [],
       benchmarks: getDefaultBenchmarks(),
       speeds: { land: 25 },
+      languages: ['common'],
+      senses: [],
       strikes: [createDefaultStrike('Melee Strike')],
       specialAbilities: [],
       immunities: [],
@@ -136,9 +147,10 @@ class CreatureEditorStore {
   // ── Sections ───────────────────────────────────────────────────────────
 
   toggleSection(section: EditorSection): void {
-    // Abilities and defenses render side-by-side, so they toggle together.
+    // Abilities and skills render side-by-side, so they toggle together —
+    // collapsing one alone would stretch to its sibling's height and leave a blank gap.
     const linked: EditorSection[] =
-      section === 'abilities' || section === 'defenses' ? ['abilities', 'defenses'] : [section];
+      section === 'abilities' || section === 'skills' ? ['abilities', 'skills'] : [section];
     const isExpanded = this.expandedSections.has(section);
     for (const s of linked) {
       if (isExpanded) this.expandedSections.delete(s);
@@ -338,6 +350,13 @@ class CreatureEditorStore {
     });
   }
 
+  /** Append a fresh, blank action or passive for the user to fill in. */
+  addBlankAbility(kind: 'action' | 'passive'): void {
+    this.mutateCreature((c) => {
+      c.specialAbilities.push(createBlankAbility(kind));
+    });
+  }
+
   removeSpecialAbility(index: number): void {
     this.mutateCreature((c) => {
       c.specialAbilities.splice(index, 1);
@@ -448,6 +467,58 @@ class CreatureEditorStore {
     if (!this.creature || index < 0 || index >= this.creature.immunities.length) return;
     this.mutateCreature((c) => {
       c.immunities[index] = { ...c.immunities[index], ...updates };
+    });
+  }
+
+  // ── Movement ─────────────────────────────────────────────────────────────────
+
+  /** Set a movement speed in feet; pass undefined to remove a non-land speed (land always stays). */
+  updateSpeed(type: keyof EditableCreature['speeds'], value: number | undefined): void {
+    this.mutateCreature((c) => {
+      if (value === undefined && type !== 'land') {
+        delete c.speeds[type];
+      } else {
+        c.speeds = { ...c.speeds, [type]: Math.max(0, value ?? 0) };
+      }
+    });
+  }
+
+  // ── Languages ────────────────────────────────────────────────────────────────
+
+  addLanguage(language: string): void {
+    this.mutateCreature((c) => {
+      if (!c.languages.includes(language)) c.languages.push(language);
+    });
+  }
+
+  removeLanguage(language: string): void {
+    this.mutateCreature((c) => {
+      c.languages = c.languages.filter((l) => l !== language);
+    });
+  }
+
+  // ── Senses ─────────────────────────────────────────────────────────────────
+
+  addSense(type: SenseType): void {
+    this.mutateCreature((c) => {
+      if (c.senses.some((s) => s.type === type)) return;
+      c.senses.push(createDefaultSense(type));
+    });
+  }
+
+  removeSense(index: number): void {
+    this.mutateCreature((c) => {
+      c.senses.splice(index, 1);
+    });
+  }
+
+  updateSense(index: number, updates: Partial<CreatureSense>): void {
+    if (!this.creature || index < 0 || index >= this.creature.senses.length) return;
+    this.mutateCreature((c) => {
+      const sense = { ...c.senses[index], ...updates };
+      // An explicit `range: undefined` clears the range (precise senses don't need one).
+      if ('range' in updates && updates.range === undefined) delete sense.range;
+      c.senses[index] = sense;
     });
   }
 

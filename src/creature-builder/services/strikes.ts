@@ -20,7 +20,7 @@ import {
   composeFastHealingName
 } from '../logic/abilityScaling';
 import { composeStrikeItemData } from './strikeItemBuilder';
-import { composeAbilityItemData } from './abilityItemBuilder';
+import { composeAbilityItemData, ACTION_ICONS, STANDARD_ACTION_ICONS } from './abilityItemBuilder';
 import {
   CREATURE_FLAG,
   CREATURE_DATA_KEY,
@@ -220,10 +220,19 @@ export async function updateAbilityItems(
     throw new Error(`Actor not found: ${actorId}`);
   }
 
-  // First pass: abilities whose synthetic id isn't on the actor yet (e.g.
-  // those seeded by Convert to Troop in edit mode) need to be created. Their
-  // scalable values get stamped at creation time by composeAbilityItemData,
-  // so subsequent level changes will rescale them via syncAbilityItemsForLevel.
+  // Removed in the editor → delete from the actor. Diff over `action` items only: the editor loads
+  // every action item, so one missing from the list is a genuine removal. Creature feats are left
+  // untouched (more heterogeneous, riskier to auto-delete). Done before create so freshly-created
+  // items — whose Foundry-assigned ids aren't in the editor list yet — aren't swept up as removals.
+  const keepIds = new Set(specialAbilities.map((a) => a.id).filter((id): id is string => !!id));
+  const toDelete = actor.items.contents.filter((i) => i.type === 'action' && !keepIds.has(i.id)).map((i) => i.id);
+  if (toDelete.length > 0) {
+    await actor.deleteEmbeddedDocuments('Item', toDelete);
+  }
+
+  // Abilities whose synthetic id isn't on the actor yet (freshly added in the editor, or seeded by
+  // Convert to Troop in edit mode) need to be created. composeAbilityItemData stamps scalable values
+  // at create time so subsequent level changes rescale them via syncAbilityItemsForLevel.
   const newAbilities = specialAbilities.filter(a => !a.id || !actor.items.get(a.id));
   if (newAbilities.length > 0) {
     const itemsToCreate = newAbilities.map(a => composeAbilityItemData(a, level));
@@ -245,6 +254,22 @@ export async function updateAbilityItems(
     // Find the corresponding embedded item
     const item = actor.items.get(ability.id);
     if (!item) continue;
+
+    const update: EmbeddedDocumentUpdateData = { _id: item.id };
+
+    // Core editable fields for CRISPR-managed action items: name, action cost (and the matching
+    // glyph icon, unless the item carries a custom one), and traits. Creature feats keep their own
+    // fields; only their scalable description is re-rendered below.
+    if (item.type === 'action') {
+      update.name = ability.name;
+      update['system.actionType.value'] = ability.actionType;
+      update['system.actions.value'] = ability.actionType === 'action' ? (ability.actions ?? 1) : null;
+      update['system.traits.value'] = ability.traits ?? [];
+      const currentImg = (item as { img?: string }).img ?? '';
+      if (!currentImg || STANDARD_ACTION_ICONS.has(currentImg)) {
+        update.img = ACTION_ICONS[ability.actionType](ability.actions);
+      }
+    }
 
     const healingSV = ability.scalableValues?.find((v) => v.type === 'healing');
 
@@ -270,14 +295,8 @@ export async function updateAbilityItems(
         });
         template = parsed.template;
         scalableValues = healingSV ? [...merged, healingSV] : merged;
-      } else if (!ability.fastHealing) {
-        // Nothing scalable to persist and no fast healing — leave the item alone.
-        continue;
       }
-      // else: fast-healing-only ability — no description template, handled below.
     }
-
-    const update: EmbeddedDocumentUpdateData = { _id: item.id };
 
     // Fast healing / regeneration: rewrite the rule amount + the item name from the (possibly
     // edited) healing scalable value. Done here rather than via the description because the amount
@@ -291,7 +310,7 @@ export async function updateAbilityItems(
           ability.fastHealing.kind,
           ability.fastHealing.deactivatedBy
         );
-        update.name = composeFastHealingName(item.name ?? ability.name, amount);
+        update.name = composeFastHealingName(ability.name, amount);
       }
     }
 
@@ -324,6 +343,10 @@ export async function updateAbilityItems(
         originalDescription: (item.getFlag(CREATURE_FLAG, ABILITY_BENCHMARK_KEY) as AbilityBenchmarkData | undefined)?.originalDescription
           ?? rawDescription
       } satisfies AbilityBenchmarkData;
+    } else if (item.type === 'action') {
+      // Plain action/passive (no scalables, no fast healing): persist the edited prose verbatim,
+      // honouring a freeform template override if the user set one.
+      update['system.description.value'] = ability.customDescriptionTemplate ?? ability.description;
     }
 
     // Only persist if we actually have a change beyond the _id.

@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { EditableCreature, CreatureStats } from '@/creature-builder/editor';
   import { getStatRangesForLevel, type SkillStatRange } from '@/creature-builder/logic/creatureStatTables';
-  import { SKILLS } from '@/creature-builder/editor/creatureEditorUtils';
+  import { getSkillGroups } from '@/creature-builder/ui/vocab';
   import BenchmarkSelector from '../widgets/BenchmarkSelector.svelte';
   import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
+  import TypeFilterMenu from '../widgets/TypeFilterMenu.svelte';
 
   let {
     creature,
@@ -27,19 +28,7 @@
     onUpdateSkillBenchmark?: (d: { skill: string; benchmark: number }) => void;
   } = $props();
 
-  let newSkillName = $state('');
-  let skillSelectRef = $state<HTMLSelectElement>();
-
-  function handleAddSkill(): void {
-    if (newSkillName.trim()) {
-      onAddSkill?.(newSkillName.trim());
-      newSkillName = '';
-    }
-  }
-
-  function openSkillSelect(): void {
-    skillSelectRef?.showPicker();
-  }
+  const skillGroups = getSkillGroups();
 
   const skillLowRangeSubtext = $derived.by(() => {
     if (!creature) return undefined;
@@ -50,7 +39,12 @@
 </script>
 
 <section class="editor-section">
-  <CollapsibleSection label="Skills" {expanded} ontoggle={() => onToggle?.()} />
+  <CollapsibleSection label="Skills" {expanded} ontoggle={() => onToggle?.()}>
+    {#snippet summary()}
+      <span class="sum-stat"><span class="sum-key">Per</span><strong>{computedStats?.perception !== undefined ? (computedStats.perception >= 0 ? `+${computedStats.perception}` : computedStats.perception) : '—'}</strong></span>
+      {#if creature.benchmarks.skills.length}<strong>{creature.benchmarks.skills.length}</strong> skill{creature.benchmarks.skills.length === 1 ? '' : 's'}{/if}
+    {/snippet}
+  </CollapsibleSection>
   {#if expanded}
     <div class="section-body">
       <div class="benchmark-grid">
@@ -66,20 +60,6 @@
       <div class="skills-editor">
         <div class="skills-header">
           <span>Skills</span>
-          <button class="add-skill-btn" aria-label="Add skill" title="Add skill" onclick={openSkillSelect}>
-            <i class="fas fa-plus"></i>
-          </button>
-          <select
-            class="skill-add-hidden"
-            bind:this={skillSelectRef}
-            bind:value={newSkillName}
-            onchange={handleAddSkill}
-          >
-            <option value="">Select skill...</option>
-            {#each SKILLS.filter(s => !creature.benchmarks.skills.find(sk => sk.skill === s)) as skill (skill)}
-              <option value={skill}>{skill}</option>
-            {/each}
-          </select>
         </div>
         {#each creature.benchmarks.skills as skill (skill.skill)}
           <BenchmarkSelector
@@ -96,6 +76,17 @@
             onremove={() => onRemoveSkill?.(skill.skill)}
           />
         {/each}
+        <div class="skills-add">
+          <TypeFilterMenu
+            variant="button"
+            groups={skillGroups}
+            disabledValues={creature.benchmarks.skills.map((s) => s.skill)}
+            label={creature.benchmarks.skills.length ? 'add' : 'add a skill'}
+            searchPlaceholder="Filter skills…"
+            triggerTitle="Add a skill"
+            onSelect={(value) => onAddSkill?.(value)}
+          />
+        </div>
       </div>
     </div>
   {/if}
@@ -103,7 +94,7 @@
 
 <style lang="scss">
   .editor-section {
-    background: var(--surface-low);
+    background: var(--section-body-bg);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     overflow: hidden;
@@ -130,45 +121,17 @@
     border-top: 1px solid var(--border-subtle);
 
     .skills-header {
-      display: flex;
-      align-items: center;
-      gap: var(--space-8);
       margin-bottom: var(--space-10);
 
       span {
-        font-size: var(--font-sm);
+        font-size: var(--font-md);
         font-weight: var(--font-weight-semibold);
         color: var(--text-secondary);
-      }
-
-      .skill-add-hidden {
-        position: absolute;
-        opacity: 0;
-        width: 0;
-        height: 0;
-        pointer-events: none;
       }
     }
   }
 
-  .add-skill-btn {
-    all: unset;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    background: var(--surface-low);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    color: var(--text-muted);
-    font-size: var(--font-xs);
-    cursor: pointer;
-
-    &:hover {
-      background: var(--surface-medium);
-      color: var(--text-primary);
-    }
+  .skills-add {
+    margin-top: var(--space-8);
   }
 </style>

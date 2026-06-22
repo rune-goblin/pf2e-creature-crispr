@@ -33,13 +33,13 @@ describe('CreatureEditorStore', () => {
     expect(editorStore.computedStats!.hp).toBeGreaterThan(hp1);
   });
 
-  it('toggleSection mutates the reactive SvelteSet; abilities+defenses move together', () => {
+  it('toggleSection mutates the reactive SvelteSet; abilities+skills move together', () => {
     editorStore.startCreate();
     expect(editorStore.expandedSections.has('abilities')).toBe(true);
-    expect(editorStore.expandedSections.has('defenses')).toBe(true);
-    editorStore.toggleSection('abilities');
+    expect(editorStore.expandedSections.has('skills')).toBe(true);
+    editorStore.toggleSection('skills');
     expect(editorStore.expandedSections.has('abilities')).toBe(false);
-    expect(editorStore.expandedSections.has('defenses')).toBe(false);
+    expect(editorStore.expandedSections.has('skills')).toBe(false);
   });
 
   it('validate records and clears errors in the reactive SvelteMap', () => {

@@ -13,9 +13,11 @@ export type EditorSection =
   | 'abilities'
   | 'defenses'
   | 'skills'
+  | 'details'
   | 'offense'
   | 'spellcasting'
-  | 'specialAbilities'
+  | 'actions'
+  | 'passives'
   | 'summary';
 
 export const ALL_SECTIONS: EditorSection[] = [
@@ -23,8 +25,10 @@ export const ALL_SECTIONS: EditorSection[] = [
   'abilities',
   'defenses',
   'skills',
+  'details',
   'offense',
   'spellcasting',
-  'specialAbilities',
+  'actions',
+  'passives',
   'summary'
 ];

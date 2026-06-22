@@ -1,7 +1,11 @@
 <script lang="ts">
    import type { EditableCreature, EditorEnvironment } from '@/creature-builder/editor';
    import { CREATURE_PRESETS } from '@/creature-builder/logic/models';
+   import { CREATURE_SIZES } from '@/creature-builder/logic/sizes';
+   import { humanizeIwrType } from '@/creature-builder/logic/iwrTypes';
+   import { getTraitGroups } from '@/creature-builder/ui/vocab';
    import Dialog from '../baseComponents/Dialog.svelte';
+   import TypeFilterMenu from '../widgets/TypeFilterMenu.svelte';
 
    let {
       creature,
@@ -12,7 +16,9 @@
       onUpdateLevel,
       onApplyPreset,
       onOpenActorSheet,
-      onOpenOrCreateActor
+      onOpenOrCreateActor,
+      onAddTrait,
+      onRemoveTrait
    }: {
       creature: EditableCreature;
       env: EditorEnvironment;
@@ -23,7 +29,11 @@
       onApplyPreset?: (presetKey: string) => void;
       onOpenActorSheet?: () => void;
       onOpenOrCreateActor?: () => void;
+      onAddTrait?: (trait: string) => void;
+      onRemoveTrait?: (trait: string) => void;
    } = $props();
+
+   const traitGroups = getTraitGroups();
 
    // Order: baseline → martial → hybrid → caster → skill-flex
    const TEMPLATE_OPTIONS = [
@@ -250,6 +260,39 @@
             </div>
 
          </div>
+
+         <div class="identity-row">
+            <label class="identity-size">
+               <span>Size</span>
+               <select class="cc-select" value={creature.size} onchange={(e) => onUpdateCreature?.({ size: e.currentTarget.value })}>
+                  {#each CREATURE_SIZES as s (s.value)}
+                     <option value={s.value}>{s.label}</option>
+                  {/each}
+               </select>
+            </label>
+            <div class="identity-traits">
+               <span class="identity-label">Traits</span>
+               <div class="trait-cloud">
+                  {#each creature.traits as trait (trait)}
+                     <span class="trait-chip">
+                        {humanizeIwrType(trait)}
+                        <button class="chip-x" title="Remove trait" aria-label={`Remove ${humanizeIwrType(trait)}`} onclick={() => onRemoveTrait?.(trait)}>
+                           <i class="fas fa-times"></i>
+                        </button>
+                     </span>
+                  {/each}
+                  <TypeFilterMenu
+                     variant="button"
+                     groups={traitGroups}
+                     disabledValues={creature.traits}
+                     label={creature.traits.length ? 'add' : 'add a trait'}
+                     searchPlaceholder="Filter traits…"
+                     triggerTitle="Add a trait"
+                     onSelect={(value) => onAddTrait?.(value)}
+                  />
+               </div>
+            </div>
+         </div>
       </div>
    {/if}
 </section>
@@ -268,7 +311,7 @@
 
 <style lang="scss">
    .editor-section {
-      background: var(--surface-low);
+      background: var(--section-body-bg);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-lg);
       overflow: hidden;
@@ -283,6 +326,7 @@
       align-items: center;
       gap: var(--space-12);
       padding: var(--space-4) var(--space-8);
+      background: var(--section-header-bg);
       cursor: pointer;
    }
 
@@ -295,7 +339,7 @@
       background: transparent;
       border: none;
       color: var(--text-primary);
-      font-size: var(--font-md);
+      font-size: var(--font-lg);
       font-weight: var(--font-weight-semibold);
       cursor: pointer;
       text-align: left;
@@ -303,6 +347,10 @@
 
       &:hover {
          background: var(--hover-low);
+      }
+
+      span {
+         font-family: var(--font-sans);
       }
 
       .toggle-icon {
@@ -324,7 +372,7 @@
       align-items: center;
       gap: var(--space-6);
       font-family: var(--font-sans);
-      font-size: var(--font-md);
+      font-size: var(--font-lg);
       font-weight: var(--font-weight-semibold);
       color: var(--text-primary);
       text-decoration: underline;
@@ -380,6 +428,7 @@
       color: var(--text-primary);
       min-width: 3rem;
       text-align: center;
+      font-variant-numeric: tabular-nums;
    }
 
    .section-body {
@@ -396,6 +445,83 @@
       grid-template-columns: auto 1fr auto;
       gap: var(--space-16);
       align-items: stretch;
+   }
+
+   .identity-row {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: var(--space-16);
+      align-items: flex-start;
+      padding-top: var(--space-12);
+      border-top: 1px solid var(--border-subtle);
+   }
+
+   .identity-size {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+
+      span {
+         font-size: var(--font-sm);
+         color: var(--text-secondary);
+         font-weight: var(--font-weight-medium);
+      }
+
+      :global(.cc-select) {
+         min-width: 8rem;
+      }
+   }
+
+   .identity-traits {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-8);
+   }
+
+   .identity-label {
+      font-size: var(--font-sm);
+      color: var(--text-secondary);
+      font-weight: var(--font-weight-medium);
+   }
+
+   .trait-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-6);
+   }
+
+   .trait-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-4);
+      padding: var(--space-2) var(--space-4) var(--space-2) var(--space-10);
+      background: var(--surface-high);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      font-size: var(--font-sm);
+      color: var(--text-primary);
+      text-transform: capitalize;
+   }
+
+   .chip-x {
+      all: unset;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.2rem;
+      height: 1.2rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.75rem;
+      border-radius: var(--radius-sm);
+
+      &:hover {
+         color: var(--text-danger);
+      }
    }
 
    .portrait-column {
@@ -499,6 +625,11 @@
          :global(.cc-input), :global(.cc-select) {
             width: 100%;
          }
+
+         :global(.cc-input) {
+            font-family: var(--font-sans);
+            font-size: var(--font-lg);
+         }
       }
 
       .token-row {
@@ -598,6 +729,7 @@
             border-radius: var(--radius-md);
             font-size: var(--font-md);
             font-weight: var(--font-weight-bold);
+            font-variant-numeric: tabular-nums;
             color: var(--text-primary);
          }
       }

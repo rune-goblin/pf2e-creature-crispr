@@ -61,7 +61,7 @@ function applyFastHealingToItem(itemData: AbilityItemData, ability: SpecialAbili
   return healingSV;
 }
 
-const ACTION_ICONS: Record<SpecialAbility['actionType'], (actions?: 1 | 2 | 3) => string> = {
+export const ACTION_ICONS: Record<SpecialAbility['actionType'], (actions?: 1 | 2 | 3) => string> = {
   action: (actions) =>
     actions === 3 ? 'systems/pf2e/icons/actions/ThreeActions.webp'
     : actions === 2 ? 'systems/pf2e/icons/actions/TwoActions.webp'
@@ -70,6 +70,16 @@ const ACTION_ICONS: Record<SpecialAbility['actionType'], (actions?: 1 | 2 | 3) =
   free: () => 'systems/pf2e/icons/actions/FreeAction.webp',
   passive: () => 'systems/pf2e/icons/actions/Passive.webp'
 };
+
+/** The generic PF2e action-glyph icons. The sync only re-derives these on cost change — a custom item icon is left alone. */
+export const STANDARD_ACTION_ICONS = new Set<string>([
+  'systems/pf2e/icons/actions/OneAction.webp',
+  'systems/pf2e/icons/actions/TwoActions.webp',
+  'systems/pf2e/icons/actions/ThreeActions.webp',
+  'systems/pf2e/icons/actions/Reaction.webp',
+  'systems/pf2e/icons/actions/FreeAction.webp',
+  'systems/pf2e/icons/actions/Passive.webp'
+]);
 
 export function composeAbilityItemData(ability: SpecialAbility, level: number): AbilityItemData {
   const itemData: AbilityItemData = {

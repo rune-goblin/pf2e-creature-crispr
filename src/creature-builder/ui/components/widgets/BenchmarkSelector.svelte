@@ -111,14 +111,15 @@
   }
 
   .label {
-    width: 5.5rem;
-    font-size: var(--font-sm);
+    width: 6.5rem;
+    font-size: var(--font-md);
     font-weight: var(--font-weight-semibold);
     color: var(--text-primary);
     flex-shrink: 0;
+    white-space: nowrap;
 
     .compact & {
-      width: 5rem;
+      width: 6.5rem;
     }
   }
 
@@ -133,17 +134,19 @@
     font-size: var(--font-xs);
     color: var(--text-muted);
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
 
   .value {
-    width: 5rem;
-    height: 2.375rem;
-    padding: 0 var(--space-8);
+    width: 3.25rem;
+    height: 2.125rem;
+    padding: 0 var(--space-6);
     background: var(--surface-lowest);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     font-size: var(--font-md);
     font-weight: var(--font-weight-bold);
+    font-variant-numeric: tabular-nums;
     color: var(--text-primary);
     display: flex;
     align-items: center;
@@ -155,8 +158,7 @@
     }
 
     .compact & {
-      width: 4rem;
-      font-size: var(--font-sm);
+      width: 3rem;
     }
 
     .inline-input {

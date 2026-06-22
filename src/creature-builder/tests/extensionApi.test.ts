@@ -29,7 +29,9 @@ const sampleCreature = (): EditableCreature => ({
   immunities: [],
   resistances: [],
   weaknesses: [],
-  speeds: { land: 25 }
+  speeds: { land: 25 },
+  languages: ['common'],
+  senses: []
 });
 
 function makeFixtureTarget() {

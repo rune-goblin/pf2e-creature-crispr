@@ -107,6 +107,7 @@
           {#if !has(entry, 'exceptions')}
             <TypeFilterMenu
               groups={exceptionGroups}
+              label="exception"
               searchPlaceholder="Filter qualities…"
               triggerClass="add-first except"
               triggerTitle={`Add an exception to ${humanizeIwrType(entry.type)}`}
@@ -118,6 +119,7 @@
             <TypeFilterMenu
               groups={exceptionGroups}
               icon="fa-angles-up"
+              label="double"
               searchPlaceholder="Filter qualities…"
               triggerClass="add-first double"
               triggerTitle={`Add a ‘double vs’ quality to ${humanizeIwrType(entry.type)}`}
@@ -237,18 +239,6 @@
     }
   }
 
-  /* The add-first "+" / "⇈" triggers live in a child component (TypeFilterMenu); keep them
-     quiet until the row is hovered/focused so the rare exception/double-vs actions don't shout. */
-  .iwr-chip :global(.tfm-trigger.add-first) {
-    opacity: 0.28;
-    transition: opacity var(--transition-fast), color var(--transition-fast);
-  }
-
-  .iwr-chip:hover :global(.tfm-trigger.add-first),
-  .iwr-chip:focus-within :global(.tfm-trigger.add-first) {
-    opacity: 1;
-  }
-
   .chip-qual {
     display: flex;
     flex-wrap: wrap;
@@ -268,8 +258,6 @@
 
   .qual-label {
     font-size: var(--font-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     margin-right: var(--space-2);
   }
 

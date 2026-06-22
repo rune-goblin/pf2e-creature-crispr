@@ -13,6 +13,7 @@
     type BenchmarkLabel3,
     type SpellBenchmarkLabel
   } from '@/creature-builder/logic/models';
+  import BenchmarkBadge from './BenchmarkBadge.svelte';
 
   let {
     value,
@@ -21,7 +22,8 @@
     use3Benchmark = false,
     useSpellBenchmark = false,
     compact = false,
-    onselect
+    onselect,
+    onedit
   }: {
     value: number;
     benchmarks?: BenchmarkLabel[] | BenchmarkLabel4[] | BenchmarkLabel3[] | SpellBenchmarkLabel[];
@@ -30,32 +32,33 @@
     useSpellBenchmark?: boolean;
     compact?: boolean;
     onselect?: (detail: { value: number }) => void;
+    onedit?: () => void;
   } = $props();
 
   const BENCHMARK_DATA_5: Record<BenchmarkLabel, { label: string; abbrev: string; value: number }> = {
-    terrible: { label: 'Terrible', abbrev: 'Ter', value: BENCHMARK_VALUES.terrible },
+    terrible: { label: 'Terrible', abbrev: 'Terr', value: BENCHMARK_VALUES.terrible },
     low: { label: 'Low', abbrev: 'Low', value: BENCHMARK_VALUES.low },
     moderate: { label: 'Moderate', abbrev: 'Mod', value: BENCHMARK_VALUES.moderate },
-    high: { label: 'High', abbrev: 'Hig', value: BENCHMARK_VALUES.high },
+    high: { label: 'High', abbrev: 'High', value: BENCHMARK_VALUES.high },
     extreme: { label: 'Extreme', abbrev: 'Ext', value: BENCHMARK_VALUES.extreme }
   };
 
   const BENCHMARK_DATA_4: Record<BenchmarkLabel4, { label: string; abbrev: string; value: number }> = {
     low: { label: 'Low', abbrev: 'Low', value: BENCHMARK_VALUES_4.low },
     moderate: { label: 'Moderate', abbrev: 'Mod', value: BENCHMARK_VALUES_4.moderate },
-    high: { label: 'High', abbrev: 'Hig', value: BENCHMARK_VALUES_4.high },
+    high: { label: 'High', abbrev: 'High', value: BENCHMARK_VALUES_4.high },
     extreme: { label: 'Extreme', abbrev: 'Ext', value: BENCHMARK_VALUES_4.extreme }
   };
 
   const BENCHMARK_DATA_3: Record<BenchmarkLabel3, { label: string; abbrev: string; value: number }> = {
     low: { label: 'Low', abbrev: 'Low', value: BENCHMARK_VALUES_3.low },
     moderate: { label: 'Moderate', abbrev: 'Mod', value: BENCHMARK_VALUES_3.moderate },
-    high: { label: 'High', abbrev: 'Hig', value: BENCHMARK_VALUES_3.high }
+    high: { label: 'High', abbrev: 'High', value: BENCHMARK_VALUES_3.high }
   };
 
   const BENCHMARK_DATA_SPELL: Record<SpellBenchmarkLabel, { label: string; abbrev: string; value: number }> = {
     moderate: { label: 'Moderate', abbrev: 'Mod', value: SPELL_BENCHMARK_VALUES.moderate },
-    high: { label: 'High', abbrev: 'Hig', value: SPELL_BENCHMARK_VALUES.high },
+    high: { label: 'High', abbrev: 'High', value: SPELL_BENCHMARK_VALUES.high },
     extreme: { label: 'Extreme', abbrev: 'Ext', value: SPELL_BENCHMARK_VALUES.extreme }
   };
 
@@ -92,21 +95,28 @@
 <div class="buttons" class:compact>
   {#each benchmarks as bm}
     {@const data = getBenchmarkData(bm)}
-    <button
-      type="button"
-      class="cc-benchmark-btn"
-      class:active={activeBenchmark === bm}
-      onclick={() => onselect?.({ value: data.value })}
+    <BenchmarkBadge
+      tier={bm}
+      label={data.abbrev}
+      active={activeBenchmark === bm}
+      approximate={!isExactMatch}
+      interactive={true}
+      {compact}
       title={data.label}
-    >
-      {#if activeBenchmark === bm && !isExactMatch}~{/if}{data.abbrev}
-    </button>
+      onclick={() => onselect?.({ value: data.value })}
+    />
   {/each}
+  {#if onedit}
+    <button type="button" class="edit-btn" class:compact title="Edit" aria-label="Edit" onclick={() => onedit?.()}>
+      <i class="fas fa-pen"></i>
+    </button>
+  {/if}
 </div>
 
 <style lang="scss">
   .buttons {
     display: flex;
+    align-items: center;
     gap: var(--space-4);
 
     &.compact {
@@ -114,39 +124,35 @@
     }
   }
 
-  .cc-benchmark-btn {
+  /* Matches the benchmark badge box metrics so it sits flush with the tabs; the pencil
+     keeps it from reading as a fifth tier. */
+  .edit-btn {
     box-sizing: border-box;
-    display: inline-block;
-    padding: var(--space-4) 0;
-    width: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4) var(--space-8);
     background: var(--surface-lowest);
-    border: 1px solid rgba(128, 128, 128, 0.3);
+    border: 1px solid var(--border-faint);
     border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: var(--font-sm);
-    font-weight: var(--font-weight-medium);
     cursor: pointer;
-    text-align: center;
     outline: none;
+    transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
     -webkit-appearance: none;
     -moz-appearance: none;
     appearance: none;
 
-    .compact & {
-      width: 2.25rem;
-      font-size: var(--font-xs);
-      padding: var(--space-2) 0;
-    }
-
     &:hover {
       background: var(--surface-low);
+      border-color: var(--border-default);
       color: var(--text-secondary);
     }
 
-    &.active {
-      background: var(--surface-highest);
-      border-color: rgba(128, 128, 128, 0.5);
-      color: var(--text-primary);
+    &.compact {
+      font-size: var(--font-xs);
+      padding: var(--space-2) var(--space-6);
     }
   }
 </style>
