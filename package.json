@@ -1,6 +1,6 @@
 {
   "name": "pf2e-creature-crispr",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "PF2e Foundry VTT module template (hybrid content + scripted Svelte UI).",

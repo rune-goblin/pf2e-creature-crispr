@@ -3,6 +3,14 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] — 2026-06-27
+
+### Documentation
+
+- Clarified the editor extension API reference and the matching source comments: the built-in
+  default `saveTargetId` (`'pf2e-creature-crispr'`), that an omitted `exportActor` makes the
+  editor's "Export" button a no-op, and that `abilityProviderIds: []` surfaces no providers.
+
 ## [0.2.0] — 2026-06-22
 
 First public release. (Earlier `0.1.x` tags never published — their release build failed.)
