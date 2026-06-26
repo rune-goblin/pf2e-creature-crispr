@@ -56,7 +56,7 @@ Reached at `game.modules.get('pf2e-creature-crispr').api` after CRISPR's `ready`
 ```ts
 interface EditCreatureOptions {
   actorId?: string;              // edit this actor; omitted → start a new creature
-  saveTargetId?: string;         // persistence backend; omitted → CRISPR's built-in default
+  saveTargetId?: string;         // persistence backend; omitted → CRISPR's built-in default ('pf2e-creature-crispr')
   abilityProviderIds?: string[]; // providers to surface; omitted → all registered, [] → none
 }
 ```
@@ -114,7 +114,7 @@ interface CreatureSaveTarget {
   createActor(creature: EditableCreature): Promise<string>;           // create + stamp your flag; returns actorId
   updateActor(actorId: string, creature: EditableCreature): Promise<void>;
   cloneActor(sourceActorId: string, newName: string, creature: EditableCreature): Promise<string>; // "Save As"
-  exportActor?(actorId: string): Promise<void>;
+  exportActor?(actorId: string): Promise<void>;                       // powers the editor's "Export" button; omit and the button no-ops
   onAfterSave?(actorId: string, creature: EditableCreature, mode: 'create' | 'update' | 'clone'): Promise<void>;
 }
 ```

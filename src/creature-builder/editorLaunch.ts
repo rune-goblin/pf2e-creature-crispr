@@ -5,7 +5,7 @@ import { defaultSaveTarget, setActiveSaveTarget, setActiveProviderFilter, loadCr
 export interface EditCreatureOptions {
   actorId?: string; // edit this actor; omitted → start a new creature
   saveTargetId?: string; // persistence backend; omitted → CRISPR's built-in default
-  abilityProviderIds?: string[]; // providers to surface in the picker; omitted → all registered
+  abilityProviderIds?: string[]; // providers to surface in the picker; omitted → all registered, [] → none
 }
 
 /**
