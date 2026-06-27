@@ -3,6 +3,16 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] — 2026-06-27
+
+### Added
+
+- **Ability value scaling.** Special-ability scalable values now cover conditions (e.g.
+  `Drained N`) alongside damage, persistent damage, DCs, and healing. Roll-type values
+  (damage/persistent) show a recommended-vs-calculated comparison with min/mean/max spread,
+  DCs that don't scale with level surface level-based guidance, and save-typed DCs are labelled
+  by save (e.g. "Fortitude DC").
+
 ## [0.2.1] — 2026-06-27
 
 ### Documentation
