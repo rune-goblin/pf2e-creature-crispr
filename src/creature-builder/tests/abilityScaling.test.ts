@@ -7,6 +7,10 @@ import {
   scaleHealing,
   getEffectiveValue,
   getScaledRecommendation,
+  getRecommendedTierFormulas,
+  getActiveTierFormula,
+  scalesWithLevel,
+  getLevelGuidance,
   getDisplayBenchmark,
   getFastHealingRange,
   readFastHealingRule,
@@ -15,7 +19,7 @@ import {
   composeFastHealingName
 } from '@/creature-builder/logic/abilityScaling';
 import type { ScalableValue } from '@/creature-builder/logic/models';
-import { BENCHMARK_VALUES_3 } from '@/creature-builder/logic/models';
+import { BENCHMARK_VALUES_3, BENCHMARK_VALUES_4 } from '@/creature-builder/logic/models';
 
 const wrap = (s: string) => `<p>${s}</p>`;
 const parse = (s: string, level = 15) => parseAbilityDescription(wrap(s), level);
@@ -98,15 +102,140 @@ describe('@Damage flat damage scales as an integer, not dice', () => {
 
 describe('@Damage forms deliberately LEFT UNTOUCHED', () => {
   it.each([
-    '@Damage[floor(1 + @actor.level/2)d6[void]|options:area-damage]',
-    '@Damage[(max(1,@actor.level))[healing]]',
-    '@Damage[(2d6 + 4 + (2d6[precision]))[slashing]]',
-    '@Damage[(2*2d12)[persistent,force]]'
+    '@Damage[(max(1,@actor.level))[healing]]',           // level-derived flat amount, no dice term
+    '@Damage[(2d6 + 4 + (2d6[precision]))[slashing]]',   // compound sum
+    '@Damage[(2*2d12)[persistent,force]]',               // literal multiplication
+    '@Damage[(@item.level)d6[fire]]'                     // non-@actor variable can't be resolved
   ])('does not scale and renders unchanged: %s', (macro) => {
     const p = parse(macro);
     expect(p.scalableValues.filter(v => v.type !== 'dc')).toHaveLength(0);
     // round-trips verbatim at any level (no placeholder was inserted)
     expect(renderAbilityDescription(p.template, p.scalableValues, 5)).toContain(macro);
+  });
+});
+
+describe('@Damage with a level-derived dice count is extracted as a scalable value', () => {
+  // Strigoi Progenitor's Domain of Dusk: floor(1 + 13/2) = 7 → 7d6 at its native level 13.
+  it('evaluates the count at base level and templates the whole expression', () => {
+    const p = parse('@Damage[floor(1 + @actor.level/2)d6[void]|options:area-damage]', 13);
+    const d = p.scalableValues.filter(v => v.type === 'damage');
+    expect(d).toHaveLength(1);
+    expect(d[0]).toMatchObject({ type: 'damage', originalValue: '7d6', damageType: 'void', baseLevel: 13 });
+    expect(p.template).toContain('@Damage[{0}[void]|options:area-damage]');
+    // At its base level it renders the concrete dice, not the raw macro (which would read 1d6 in-editor).
+    expect(renderAbilityDescription(p.template, p.scalableValues, 13))
+      .toContain('@Damage[7d6[void]|options:area-damage]');
+  });
+
+  it('adjusts the number of dice when the creature is rescaled up', () => {
+    const p = parse('@Damage[floor(1 + @actor.level/2)d6[void]|options:area-damage]', 13);
+    const scaled = renderAbilityDescription(p.template, p.scalableValues, 20);
+    const m = scaled.match(/@Damage\[(\d+)d6(?:[+-]\d+)?\[void\]\|options:area-damage\]/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThan(7);
+  });
+
+  // A clean NdM (area damage) recommendation stays clean — no insignificant ±1 residual bonus.
+  it('recommends a clean NdM at every level (no flat ±1 tail)', () => {
+    const dmg = parse('@Damage[floor(1 + @actor.level/2)d6[void]]', 13).scalableValues.find(v => v.type === 'damage')!;
+    for (const L of [14, 15, 17, 18, 20, 22]) {
+      expect(getScaledRecommendation(dmg, L)).toMatch(/^\d+d6$/);
+    }
+  });
+
+  it('exposes a clean NdM recommendation for each benchmark tier', () => {
+    const dmg = parse('@Damage[floor(1 + @actor.level/2)d6[void]]', 13).scalableValues.find(v => v.type === 'damage')!;
+    const tiers = getRecommendedTierFormulas(dmg, 16);
+    expect(tiers.map(t => t.label)).toEqual(['low', 'moderate', 'high', 'extreme']);
+    for (const t of tiers) expect(t.formula).toMatch(/^\d+d6$/);             // clean, in the value's own die
+    const counts = tiers.map(t => parseInt(t.formula, 10));
+    expect(counts).toEqual([...counts].sort((a, b) => a - b));               // low ≤ mod ≤ high ≤ ext
+  });
+
+  it('persistent damage gets 3 tiers; DC/non-roll values get none', () => {
+    const persistent = parse('@Damage[2d6[persistent,fire]]', 13).scalableValues.find(v => v.type === 'persistent')!;
+    expect(getRecommendedTierFormulas(persistent, 16).map(t => t.label)).toEqual(['low', 'moderate', 'high']);
+    const dc = parse('@Check[fortitude|dc:25]', 13).scalableValues.find(v => v.type === 'dc')!;
+    expect(getRecommendedTierFormulas(dc, 16)).toEqual([]);
+  });
+
+  it('selecting a benchmark drives the active recommendation AND the value to the same clean NdM', () => {
+    const dmg = parse('@Damage[floor(1 + @actor.level/2)d6[void]]', 13).scalableValues.find(v => v.type === 'damage')!;
+    const high = { ...dmg, override: BENCHMARK_VALUES_4.high };
+    const active = getActiveTierFormula(high, 16);
+    expect(active?.label).toBe('high');
+    expect(active?.formula).toMatch(/^\d+d6$/);                       // clean, in the value's own die
+    expect(getEffectiveValue(high, 16)).toBe(active!.formula);        // value mirrors the recommendation
+    // a manual dice edit (customValue) diverges the value while the recommendation stays pinned to the tier
+    const edited = { ...high, customValue: '8d6' };
+    expect(getEffectiveValue(edited, 16)).toBe('8d6');
+    expect(getActiveTierFormula(edited, 16)?.label).toBe('high');
+  });
+
+  it.each([
+    ['@Damage[(@actor.level)d6[fire]]', 12, '12d6', '@Damage[{0}[fire]]'],
+    ['@Damage[(ceil(@actor.level/2))d8[cold]]', 9, '5d8', '@Damage[{0}[cold]]'],   // dice outside the wrap parens
+    ['@Damage[(floor(@actor.level/2)d6)[acid]]', 10, '5d6', '@Damage[({0})[acid]]'] // dice inside the wrap parens
+  ])('handles %s', (macro, level, formula, template) => {
+    const p = parse(macro, level);
+    const d = p.scalableValues.filter(v => v.type === 'damage');
+    expect(d[0]?.originalValue).toBe(formula);
+    expect(p.template).toContain(template);
+  });
+});
+
+describe('@Damage[N[healing]] is healing, not damage', () => {
+  it('files a self-heal as a healing value with no damage type', () => {
+    const sv = parse('the strigoi regains @Damage[18[healing]] HP', 13).scalableValues;
+    expect(sv).toHaveLength(1);
+    expect(sv[0]).toMatchObject({ type: 'healing', originalValue: '18' });
+    expect(sv[0].damageType).toBeUndefined();
+  });
+
+  it('scales the heal amount with level (fast-healing curve), exact at base level', () => {
+    const p = parse('regains @Damage[18[healing]] HP', 13);
+    expect(renderAbilityDescription(p.template, p.scalableValues, 13)).toContain('@Damage[18[healing]]');
+    const up = renderAbilityDescription(p.template, p.scalableValues, 20);
+    const m = up.match(/@Damage\[(\d+)\[healing\]\]/);
+    expect(Number(m![1])).toBeGreaterThan(18);
+  });
+});
+
+describe('valued condition links are exposed and scaled', () => {
+  const COND = '@UUID[Compendium.pf2e.conditionitems.Item.Drained]{Drained 2}';
+
+  it('extracts the condition value, slug and label; templates only the number', () => {
+    const p = parse(`The creature becomes ${COND}.`, 13);
+    const c = p.scalableValues.find(v => v.type === 'condition')!;
+    expect(c).toMatchObject({ type: 'condition', originalValue: '2', conditionSlug: 'Drained', conditionLabel: 'Drained' });
+    expect(p.template).toContain('{Drained {0}}');
+    expect(renderAbilityDescription(p.template, p.scalableValues, 13)).toContain('{Drained 2}');
+  });
+
+  it('is flat — surfaced for editing, never auto-scaled', () => {
+    const c = parse(`becomes ${COND}.`, 13).scalableValues.find(v => v.type === 'condition')!;
+    expect(scalesWithLevel(c)).toBe(false);
+    for (const L of [1, 7, 13, 19, 25]) expect(getScaledRecommendation(c, L)).toBe('2');
+  });
+
+  it('offers level-appropriate guidance (advisory, coarse steps) without changing the flat value', () => {
+    const c = parse(`becomes ${COND}.`, 13).scalableValues.find(v => v.type === 'condition')!;
+    expect(getLevelGuidance(c, 13)).toBe('2');
+    expect(getLevelGuidance(c, 7)).toBe('1');
+    expect(getLevelGuidance(c, 19)).toBe('3');
+    expect(getLevelGuidance(c, 1)).toBe('1');     // clamped ≥1
+    // a skill DC's guidance reports the Level-Based DCs table value, but the value itself stays flat
+    const dc = parse('a @Check[medicine|dc:20] check', 13).scalableValues.find(v => v.type === 'dc')!;
+    expect(getScaledRecommendation(dc, 20)).toBe('20');
+    expect(getLevelGuidance(dc, 20)).toBe('40');
+    expect(getLevelGuidance(dc, 13)).toBe('31');
+  });
+
+  it('ignores conditions with no value and unknown condition slugs', () => {
+    expect(parse('within reach @UUID[Compendium.pf2e.conditionitems.Item.Grabbed].', 13)
+      .scalableValues.filter(v => v.type === 'condition')).toHaveLength(0);
+    expect(parse('@UUID[Compendium.pf2e.conditionitems.Item.Invisible]{Invisible 2}', 13)
+      .scalableValues.filter(v => v.type === 'condition')).toHaveLength(0);
   });
 });
 
@@ -124,6 +253,26 @@ describe('@Check DC in any position / lore types', () => {
   it('tolerates a trailing space after the DC', () => {
     const dcs = parse('@Check[fortitude|dc:31 |name:Greater Disrupting]').scalableValues.filter(v => v.type === 'dc');
     expect(dcs[0]?.originalValue).toBe('31');
+  });
+});
+
+describe('skill-check DCs are surfaced but not scaled; save DCs scale', () => {
+  it('a mundane medicine DC is captured but flat', () => {
+    const dc = parse('a @Check[medicine|dc:20] check', 13).scalableValues.find(v => v.type === 'dc')!;
+    expect(dc).toMatchObject({ type: 'dc', originalValue: '20', checkType: 'medicine' });
+    expect(scalesWithLevel(dc)).toBe(false);
+    expect(getScaledRecommendation(dc, 20)).toBe('20');   // unchanged at any level
+  });
+
+  it('a save DC still scales with level', () => {
+    const dc = parse('@Check[fortitude|dc:30|basic]', 13).scalableValues.find(v => v.type === 'dc')!;
+    expect(scalesWithLevel(dc)).toBe(true);
+    expect(getScaledRecommendation(dc, 20)).not.toBe('30');
+  });
+
+  it('a plain "DC N" with no check type scales (it is the creature DC)', () => {
+    const dc = parse('DC 25 Reflex', 13).scalableValues.find(v => v.type === 'dc')!;
+    expect(scalesWithLevel(dc)).toBe(true);
   });
 });
 

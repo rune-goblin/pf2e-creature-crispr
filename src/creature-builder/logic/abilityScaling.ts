@@ -296,9 +296,70 @@ const AT_CHECK_MACRO = /@Check\[([^\]]+)\]/gi;
 // capture the whole macro and tokenise it in extractDamageInstance rather than match a fixed shape.
 const AT_DAMAGE_MACRO = /@Damage\[(?:[^\[\]]|\[[^\]]*\])*\]/gi;
 
-// A macro containing any of these is dynamic/level-derived (e.g. @Damage[floor(1 + @actor.level/2)d6])
-// and ALREADY rescales itself in Foundry — we must leave it untouched, not freeze it to a fixed value.
-const DAMAGE_EXPR_MARKERS = /@|resolve\(|floor\(|ceil\(|round\(|max\(|min\(|abs\(/i;
+// PF2e conditions that carry a numeric value (the only ones worth exposing/scaling).
+const VALUED_CONDITIONS = new Set([
+  'clumsy', 'doomed', 'drained', 'dying', 'enfeebled', 'frightened',
+  'sickened', 'slowed', 'stunned', 'stupefied', 'wounded'
+]);
+
+// A condition link with a value in its label, e.g. @UUID[…conditionitems.Item.Drained]{Drained 2}.
+// Groups: 1 = slug (Drained), 2 = label name, 3 = numeric value.
+const VALUED_CONDITION_LINK = /@UUID\[[^\]]*conditionitems\.Item\.([A-Za-z]+)\]\{([^}]*?)\s+(\d+)\}/gi;
+
+// A whole @UUID content link with its {label} (tolerating one nested {placeholder}). Used to keep a
+// condition's value placeholder a plain value — wrapping it in the inline <span> would break the link.
+const AT_UUID_LABEL = /@UUID\[[^\]]+\]\{(?:[^{}]|\{[^}]*\})*\}/gi;
+
+// The three saves whose @Check DC is the creature's own ability DC (and so scales with level). Any
+// other check type (medicine, athletics, a lore…) is a mundane skill DC — surfaced but left flat.
+const DC_SAVES = new Set(['fortitude', 'reflex', 'will']);
+
+// There's no PF2e benchmark for condition values; the level-appropriate *guidance* (shown, never
+// applied) nudges by 1 roughly every this-many levels from the base — a coarse, honest hint.
+const CONDITION_LEVELS_PER_STEP = 5;
+
+// Official PF2e "Level-Based DCs" table — the standard DC for a task of a given level. The skill-DC
+// guidance shifts the original by this table's level-to-level delta (a fixed medicine/athletics DC
+// is a level-keyed task, not a creature save), so it tracks the table GMs recognise.
+const DC_BY_LEVEL: Record<number, number> = {
+  0: 14, 1: 15, 2: 16, 3: 18, 4: 19, 5: 20, 6: 22, 7: 23, 8: 24, 9: 26, 10: 27, 11: 28, 12: 30,
+  13: 31, 14: 32, 15: 34, 16: 35, 17: 36, 18: 38, 19: 39, 20: 40, 21: 42, 22: 44, 23: 46, 24: 48
+};
+function dcByLevel(level: number): number {
+  const L = Math.round(level);
+  if (L <= 0) return DC_BY_LEVEL[0];
+  if (L >= 24) return DC_BY_LEVEL[24] + 2 * (L - 24); // extrapolate +2/level past the table
+  return DC_BY_LEVEL[L];
+}
+
+/**
+ * Whether a value's recommendation tracks creature level. False for conditions (no benchmark, and a
+ * flat value is what GMs want — they're exposed purely so they're editable) and for mundane
+ * skill-check DCs (a fixed medicine/athletics DC isn't the creature's DC). Those are surfaced with
+ * their original value as the starting point and never auto-scaled.
+ */
+export function scalesWithLevel(sv: ScalableValue): boolean {
+  if (sv.type === 'condition') return false;
+  if (sv.type === 'dc' && sv.checkType !== undefined && !DC_SAVES.has(sv.checkType)) return false;
+  return true;
+}
+
+/**
+ * The level-appropriate value a flat field *would* take if tied to level — shown as guidance beside
+ * conditions and skill-check DCs (which stay flat). Conditions shift ±1 per CONDITION_LEVELS_PER_STEP
+ * levels from base; a skill DC reports the Level-Based DCs table value for the level (the standard
+ * task DC GMs recognise). For values that already scale this is just their recommendation.
+ */
+export function getLevelGuidance(sv: ScalableValue, level: number): string {
+  if (sv.type === 'condition') {
+    const original = parseInt(sv.originalValue, 10) || 1;
+    if (sv.baseLevel === undefined) return String(original);
+    const step = Math.round((level - sv.baseLevel) / CONDITION_LEVELS_PER_STEP);
+    return String(Math.max(1, original + step));
+  }
+  if (sv.type === 'dc') return String(dcByLevel(level));
+  return getScaledRecommendation(sv, level);
+}
 
 // Extracts the leading dice/flat formula of a single damage instance, but only when it's a *clean*
 // value — a bare NdM[±B] or flat integer that ends at a `)`, `[`, `,`, `|`, or end. Compound sums
@@ -642,8 +703,12 @@ function buildFormulaForAverage(targetAvg: number, preferDie: number): string {
  * shape (e.g. compound formulas) or when baseLevel is missing.
  */
 export function scaleProportionally(sv: ScalableValue, level: number): string {
+  // Conditions are surfaced for editing only — flat, never scaled.
+  if (sv.type === 'condition') return sv.originalValue;
+
+  // Save DCs are the creature's own DC and scale; mundane skill-check DCs are surfaced but flat.
   if (sv.type === 'dc') {
-    return String(scaleDC(sv.benchmark, level));
+    return scalesWithLevel(sv) ? String(scaleDC(sv.benchmark, level)) : sv.originalValue;
   }
 
   // Flat numeric values — fast-healing/regeneration amounts, and flat damage like
@@ -667,6 +732,15 @@ export function scaleProportionally(sv: ScalableValue, level: number): string {
   const factor = computeLevelScaleFactor(sv.type, sv.baseLevel, level);
   const targetAverage = originalAverage * factor;
 
+  // A clean NdM original (no flat modifier — area/spell-like damage, the way PF2e notates it) stays
+  // clean: pick the closest whole dice count rather than emit an insignificant ±1 residual bonus.
+  // Stepwise and slightly approximate by design. Strikes (which carry a real "+mod") keep the
+  // flat-bonus fit below.
+  if (components.bonus === 0) {
+    const perDie = (components.die + 1) / 2;
+    return formatDiceFormula(Math.max(1, Math.round(targetAverage / perDie)), components.die, 0);
+  }
+
   return buildFormulaForAverage(targetAverage, components.die);
 }
 
@@ -682,6 +756,7 @@ export function getTierInfo(
   sv: ScalableValue,
   level: number
 ): { label: 'low' | 'moderate' | 'high' | 'extreme'; exact: boolean } | null {
+  if (sv.type === 'condition') return null; // conditions have no benchmark tiers
   // For customValue we classify by matching the averaged effective value against tier averages.
   if (sv.customValue !== undefined && sv.customValue.length > 0) {
     if (sv.type === 'dc') {
@@ -803,6 +878,61 @@ function classifyDcByValue(
     }
   }
   return { label: closest.label, exact: closestDiff < 0.5 };
+}
+
+/**
+ * The clean dice formula each benchmark tier maps to at `level`, in the value's own die face — so a
+ * GM tuning a damage ability sees what Low / Moderate / High / Extreme looks like as clean NdM
+ * rather than the strike table's mixed-dice formulas. Damage has 4 tiers, persistent 3; non-roll
+ * types (DC / healing) return [].
+ */
+export function getRecommendedTierFormulas(
+  sv: ScalableValue,
+  level: number
+): Array<{ label: 'low' | 'moderate' | 'high' | 'extreme'; formula: string }> {
+  if (sv.type !== 'damage' && sv.type !== 'persistent') return [];
+  const die = parseDiceComponents(sv.originalValue)?.die ?? 6;
+  const perDie = (die + 1) / 2;
+  const toFormula = (avg: number): string =>
+    formatDiceFormula(Math.max(1, Math.round(avg / perDie)), die, 0);
+
+  if (sv.type === 'damage') {
+    const t = getDamageTierAveragesForLevel(level);
+    return [
+      { label: 'low', formula: toFormula(t.low) },
+      { label: 'moderate', formula: toFormula(t.mod) },
+      { label: 'high', formula: toFormula(t.high) },
+      { label: 'extreme', formula: toFormula(t.extreme ?? t.high) }
+    ];
+  }
+  const t = getPersistentTierAveragesForLevel(level);
+  return [
+    { label: 'low', formula: toFormula(t.low) },
+    { label: 'moderate', formula: toFormula(t.mod) },
+    { label: 'high', formula: toFormula(t.high) }
+  ];
+}
+
+/** The clean tier formula a benchmark scalar maps to, for a roll-type value. Null for DC/healing. */
+function cleanTierFormula(sv: ScalableValue, level: number, scalar: number): string | null {
+  const tiers = getRecommendedTierFormulas(sv, level);
+  if (!tiers.length) return null;
+  const { label } = classifyByBenchmarkScalar(sv.type, scalar);
+  return (tiers.find(t => t.label === label) ?? tiers[0]).formula;
+}
+
+/**
+ * The single tier recommendation that matches the value's currently-selected benchmark (the one the
+ * BenchmarkButtons highlight) — what the editor shows on the "recommended" line. Null for DC/healing.
+ */
+export function getActiveTierFormula(
+  sv: ScalableValue,
+  level: number
+): { label: 'low' | 'moderate' | 'high' | 'extreme'; formula: string } | null {
+  const tiers = getRecommendedTierFormulas(sv, level);
+  if (!tiers.length) return null;
+  const { label } = classifyByBenchmarkScalar(sv.type, getDisplayBenchmark(sv, level));
+  return tiers.find(t => t.label === label) ?? tiers[0];
 }
 
 /**
@@ -934,6 +1064,7 @@ interface DamageInstance {
   formula: string;        // the exact substring to swap for a placeholder (e.g. "2d10+10", "7")
   damageType?: string;
   persistent: boolean;
+  healing: boolean;       // @Damage[N[healing]] is self-healing, not damage
 }
 
 /**
@@ -950,8 +1081,190 @@ function extractDamageInstance(instance: string): DamageInstance | null {
   return {
     formula: m[1],
     persistent: tokens.includes('persistent'),
+    healing: tokens.includes('healing'),
     damageType: tokens.find(t => DAMAGE_TYPES.includes(t))
   };
+}
+
+// ============================================================================
+// LEVEL-EXPRESSION EVALUATOR
+// PF2e writes many @Damage dice counts as level-derived expressions —
+// floor(1 + @actor.level/2)d6, ceil(@actor.level/2)d4, (@actor.level)d6. Foundry resolves these
+// against the actor at render time, but the editor has no actor (so @actor.level reads 0 →
+// floor(1) → 1d6) and the count never surfaces as an editable value. We instead evaluate the
+// count at the creature's base level into a concrete NdM. This is a small total arithmetic
+// evaluator: it returns null on anything it doesn't recognise (other @-variables, resolve(),
+// unknown functions), so unhandled forms fall back to being left verbatim — the prior behaviour.
+// ============================================================================
+
+type ExprToken =
+  | { t: 'num'; v: number }
+  | { t: 'level' }
+  | { t: 'ident'; v: string }
+  | { t: 'sym'; v: string };
+
+function tokenizeLevelExpr(expr: string): ExprToken[] | null {
+  const tokens: ExprToken[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (expr.startsWith('@actor.level', i)) { tokens.push({ t: 'level' }); i += '@actor.level'.length; continue; }
+    if (c === '@') return null; // any other @-variable can't be resolved without Foundry
+    if (/[0-9.]/.test(c)) {
+      let j = i + 1;
+      while (j < expr.length && /[0-9.]/.test(expr[j])) j++;
+      const num = Number(expr.slice(i, j));
+      if (!Number.isFinite(num)) return null;
+      tokens.push({ t: 'num', v: num }); i = j; continue;
+    }
+    if (/[a-zA-Z]/.test(c)) {
+      let j = i + 1;
+      while (j < expr.length && /[a-zA-Z]/.test(expr[j])) j++;
+      tokens.push({ t: 'ident', v: expr.slice(i, j).toLowerCase() }); i = j; continue;
+    }
+    if ('+-*/(),'.includes(c)) { tokens.push({ t: 'sym', v: c }); i++; continue; }
+    return null;
+  }
+  return tokens;
+}
+
+const UNARY_FNS: Record<string, (x: number) => number> = {
+  floor: Math.floor, ceil: Math.ceil, round: Math.round, abs: Math.abs
+};
+const COMPARE_FNS: Record<string, (a: number, b: number) => number> = {
+  gte: (a, b) => (a >= b ? 1 : 0), gt: (a, b) => (a > b ? 1 : 0),
+  lte: (a, b) => (a <= b ? 1 : 0), lt: (a, b) => (a < b ? 1 : 0),
+  eq: (a, b) => (a === b ? 1 : 0), ne: (a, b) => (a !== b ? 1 : 0)
+};
+
+/**
+ * Evaluate a PF2e level-derived count expression at a concrete level. Supports + - * /,
+ * parentheses, @actor.level, the floor/ceil/round/abs unary fns, variadic max/min, the
+ * gte/gt/lte/lt/eq/ne comparators, and ternary(cond, then, else). Returns null on any token,
+ * function, or arity it doesn't recognise so callers can leave the macro untouched.
+ */
+export function evalLevelExpression(expr: string, level: number): number | null {
+  const tokens = tokenizeLevelExpr(expr);
+  if (!tokens) return null;
+  let pos = 0;
+  const fail = Symbol('parse-fail');
+  const peek = (): ExprToken | undefined => tokens[pos];
+  const isSym = (tk: ExprToken | undefined, v: string): boolean => !!tk && tk.t === 'sym' && tk.v === v;
+
+  const applyFn = (name: string, args: number[]): number => {
+    if (name in UNARY_FNS) { if (args.length !== 1) throw fail; return UNARY_FNS[name](args[0]); }
+    if (name in COMPARE_FNS) { if (args.length !== 2) throw fail; return COMPARE_FNS[name](args[0], args[1]); }
+    if (name === 'max') { if (!args.length) throw fail; return Math.max(...args); }
+    if (name === 'min') { if (!args.length) throw fail; return Math.min(...args); }
+    if (name === 'ternary') { if (args.length !== 3) throw fail; return args[0] ? args[1] : args[2]; }
+    throw fail;
+  };
+  const parsePrimary = (): number => {
+    const tk = peek();
+    if (!tk) throw fail;
+    if (tk.t === 'num') { pos++; return tk.v; }
+    if (tk.t === 'level') { pos++; return level; }
+    if (isSym(tk, '-')) { pos++; return -parsePrimary(); }
+    if (isSym(tk, '+')) { pos++; return parsePrimary(); }
+    if (isSym(tk, '(')) {
+      pos++; const v = parseExpr();
+      if (!isSym(peek(), ')')) throw fail;
+      pos++; return v;
+    }
+    if (tk.t === 'ident') {
+      pos++;
+      if (!isSym(peek(), '(')) throw fail;
+      pos++;
+      const args = [parseExpr()];
+      while (isSym(peek(), ',')) { pos++; args.push(parseExpr()); }
+      if (!isSym(peek(), ')')) throw fail;
+      pos++;
+      return applyFn(tk.v, args);
+    }
+    throw fail;
+  };
+  const parseTerm = (): number => {
+    let v = parsePrimary();
+    while (isSym(peek(), '*') || isSym(peek(), '/')) {
+      const op = (peek() as { v: string }).v; pos++;
+      const r = parsePrimary();
+      v = op === '*' ? v * r : v / r;
+    }
+    return v;
+  };
+  function parseExpr(): number {
+    let v = parseTerm();
+    while (isSym(peek(), '+') || isSym(peek(), '-')) {
+      const op = (peek() as { v: string }).v; pos++;
+      const r = parseTerm();
+      v = op === '+' ? v + r : v - r;
+    }
+    return v;
+  }
+
+  try {
+    const v = parseExpr();
+    if (pos !== tokens.length) return null; // trailing tokens — malformed
+    return Number.isFinite(v) ? v : null;
+  } catch (e) {
+    if (e === fail) return null;
+    throw e;
+  }
+}
+
+/**
+ * Extract a damage instance whose dice COUNT is a level-derived expression
+ * (e.g. "floor(1 + @actor.level/2)d6[void]"). The count is evaluated at `level` to a concrete
+ * NdM so it becomes an ordinary, editable, scalable damage value. `matchText` is the exact
+ * "<countExpr>dM" substring to swap for the placeholder, leaving any wrapping parens and
+ * [type] brackets in the template. Returns null for anything not of this shape.
+ */
+function extractLevelDerivedDiceInstance(
+  instance: string,
+  level: number
+): (DamageInstance & { matchText: string }) | null {
+  if (!instance.includes('@actor.level')) return null;
+  const tokens = [...instance.matchAll(/\[([^\]]+)\]/g)].flatMap(b =>
+    b[1].split(',').map(t => t.trim().toLowerCase())
+  );
+
+  const diceRe = /d(\d+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = diceRe.exec(instance)) !== null) {
+    const diceEnd = m.index + m[0].length;
+    const pre = instance.slice(0, m.index);
+    const post = instance.slice(diceEnd);
+    if (!pre.includes('@actor.level')) continue;
+    // The dice must be the whole damage term — only wrap-closing parens and [type] brackets may follow.
+    if (!/^\)*\s*(?:\[[^\]]*\]\s*)*$/.test(post)) continue;
+
+    // Strip the leading wrap parens (those left unclosed within `pre`) so the count alone remains.
+    let depth = 0;
+    for (const c of pre) { if (c === '(') depth++; else if (c === ')') depth--; }
+    if (depth < 0) continue;
+    let start = 0;
+    for (let removed = 0; removed < depth; start++) {
+      if (start >= pre.length) return null;
+      if (pre[start] === '(') removed++;
+      else if (!/\s/.test(pre[start])) return null; // a non-paren before the wrap → not our shape
+    }
+
+    const countExpr = pre.slice(start).trim();
+    if (!countExpr.includes('@actor.level')) continue;
+    const value = evalLevelExpression(countExpr, level);
+    if (value === null) continue;
+
+    const count = Math.max(1, Math.round(value));
+    return {
+      matchText: instance.slice(start, diceEnd),
+      formula: `${count}d${m[1]}`,
+      persistent: tokens.includes('persistent'),
+      healing: tokens.includes('healing'),
+      damageType: tokens.find(t => DAMAGE_TYPES.includes(t))
+    };
+  }
+  return null;
 }
 
 /**
@@ -982,28 +1295,34 @@ export function parseAbilityDescription(description: string, level: number): Par
     const macro = atDamageMatch[0];
     const macroStart = atDamageMatch.index;
     const inner = macro.slice('@Damage['.length, -1);
-    if (DAMAGE_EXPR_MARKERS.test(inner)) continue; // @actor.level / floor() etc. self-scale in Foundry
-
     const instances = splitTopLevel(splitTopLevel(inner, '|')[0], ',');
 
     let templatedMacro = macro;
     let matched = false;
     for (const instance of instances) {
-      const extracted = extractDamageInstance(instance);
-      if (!extracted) continue; // compound/expression instance — leave it as-is
+      // A clean static instance replaces its own formula; a level-derived dice count
+      // (floor(1 + @actor.level/2)d6) is evaluated at this level to a concrete NdM and swaps the
+      // whole count expression. Anything else (compound sums, @item expressions) is left verbatim.
+      const stat = extractDamageInstance(instance);
+      const extracted = stat
+        ? { ...stat, matchText: stat.formula }
+        : extractLevelDerivedDiceInstance(instance, level);
+      if (!extracted) continue;
 
       const avgDamage = formulaAverage(extracted.formula);
       const value: ScalableValue = {
-        type: extracted.persistent ? 'persistent' : 'damage',
-        benchmark: extracted.persistent
-          ? persistentDamageToBenchmark(avgDamage, level)
-          : damageToBenchmark(avgDamage, level),
+        type: extracted.healing ? 'healing' : extracted.persistent ? 'persistent' : 'damage',
+        benchmark: extracted.healing
+          ? healingToBenchmark(avgDamage, level)
+          : extracted.persistent
+            ? persistentDamageToBenchmark(avgDamage, level)
+            : damageToBenchmark(avgDamage, level),
         originalValue: extracted.formula,
         baseLevel: level,
-        damageType: extracted.damageType
+        damageType: extracted.healing ? undefined : extracted.damageType
       };
 
-      templatedMacro = templatedMacro.replace(extracted.formula, `{${placeholderIndex}}`);
+      templatedMacro = templatedMacro.replace(extracted.matchText, `{${placeholderIndex}}`);
       processedFormulas.add(extracted.formula);
       scalableValues.push(value);
       placeholderIndex++;
@@ -1150,6 +1469,38 @@ export function parseAbilityDescription(description: string, level: number): Par
     placeholderIndex++;
   }
 
+  // Find valued-condition links: @UUID[…conditionitems.Item.<Slug>]{<Name> <N>}. The numeric value is
+  // exposed as a 'condition' scalable so it can be edited/scaled; only known valued conditions match,
+  // and only the trailing number (not the link target or name) is swapped for the placeholder.
+  let conditionMatch;
+  const conditionRegex = new RegExp(VALUED_CONDITION_LINK.source, 'gi');
+  while ((conditionMatch = conditionRegex.exec(description)) !== null) {
+    const slug = conditionMatch[1];
+    const labelName = conditionMatch[2].trim();
+    const condValue = parseInt(conditionMatch[3], 10);
+    if (!VALUED_CONDITIONS.has(slug.toLowerCase()) || isNaN(condValue)) continue;
+
+    const value: ScalableValue = {
+      type: 'condition',
+      benchmark: 0,
+      originalValue: String(condValue),
+      baseLevel: level,
+      conditionSlug: slug,
+      conditionLabel: labelName
+    };
+
+    const macro = conditionMatch[0];
+    const valueLen = conditionMatch[3].length;
+    replacements.push({
+      start: conditionMatch.index,
+      end: conditionMatch.index + macro.length,
+      text: macro.slice(0, macro.length - 1 - valueLen) + `{${placeholderIndex}}}`
+    });
+
+    scalableValues.push(value);
+    placeholderIndex++;
+  }
+
   // Apply right-to-left so each splice leaves earlier offsets valid.
   replacements.sort((a, b) => b.start - a.start);
   for (const r of replacements) {
@@ -1194,10 +1545,15 @@ export function getEffectiveValue(sv: ScalableValue, level: number): string {
     return sv.customValue;
   }
   if (sv.override !== undefined) {
-    if (sv.type === 'damage') return scaleDamage(sv.override, level);
-    if (sv.type === 'persistent') return scalePersistentDamage(sv.override, level);
+    // Damage/persistent resolve to the same clean NdM the recommendation shows for that tier, so
+    // selecting a benchmark sets clean dice rather than the strike table's mixed-dice formula.
+    if (sv.type === 'damage' || sv.type === 'persistent') {
+      return cleanTierFormula(sv, level, sv.override)
+        ?? (sv.type === 'damage' ? scaleDamage(sv.override, level) : scalePersistentDamage(sv.override, level));
+    }
     if (sv.type === 'healing') return String(scaleHealing(sv.override, level));
-    return String(scaleDC(sv.override, level));
+    if (sv.type === 'dc') return String(scaleDC(sv.override, level));
+    // condition: no tier override — fall through to the recommendation
   }
   return getScaledRecommendation(sv, level);
 }
@@ -1240,7 +1596,7 @@ export function renderAbilityDescriptionHtml(
   // "@Check[…]" text leaks into the rendered description. Only free-text placeholders get the
   // cross-highlightable tag; in-macro values stay editable via the stepper list instead.
   const macroRanges: Array<[number, number]> = [];
-  for (const pattern of [AT_CHECK_MACRO, AT_DAMAGE_MACRO]) {
+  for (const pattern of [AT_CHECK_MACRO, AT_DAMAGE_MACRO, AT_UUID_LABEL]) {
     const re = new RegExp(pattern.source, pattern.flags);
     let m: RegExpExecArray | null;
     while ((m = re.exec(template)) !== null) macroRanges.push([m.index, m.index + m[0].length]);

@@ -187,12 +187,14 @@ export interface CreatureStats {
  * placeholder in `descriptionTemplate` — the editor surfaces it directly from `scalableValues`.
  */
 export interface ScalableValue {
-  type: 'damage' | 'dc' | 'persistent' | 'healing';
+  type: 'damage' | 'dc' | 'persistent' | 'healing' | 'condition';
   benchmark: number;           // Scalar 0-1 representing the benchmark level (immutable after parse)
   originalValue: string;       // Original value from import (e.g., "2d6+4" or "25")
   baseLevel?: number;          // Creature level at which this value was parsed. When the current level matches, the recommendation is the literal `originalValue` instead of the (lossy) benchmark-scaled form.
   damageType?: string;         // For damage/persistent: fire, cold, poison, etc.
   checkType?: string;          // For dc: the save type (will, fortitude, reflex) from @Check format
+  conditionSlug?: string;      // For condition: the conditionitems slug, e.g. "Drained"
+  conditionLabel?: string;     // For condition: the display name from the link label, e.g. "Drained"
   override?: number;           // Tier-based override (benchmark scalar 0-1). Scales with level. Replaces `benchmark`.
   customValue?: string;        // Absolute override (raw formula or integer string, e.g. "1d10" / "27"). Takes precedence over override and does NOT auto-scale on level change.
 }

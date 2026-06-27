@@ -9,6 +9,9 @@
       getEffectiveValue,
       getScaledRecommendation,
       getDisplayBenchmark,
+      getActiveTierFormula,
+      scalesWithLevel,
+      getLevelGuidance,
       hasOverride,
       parseDiceComponents,
       formatDiceFormula
@@ -185,7 +188,8 @@
    }
 
    function healingLabel(ability: SpecialAbility): string {
-      return ability.fastHealing?.kind === 'regeneration' ? 'Regeneration' : 'Fast Healing';
+      if (!ability.fastHealing) return 'Healing'; // an in-prose heal, not a fast-healing/regen rule
+      return ability.fastHealing.kind === 'regeneration' ? 'Regeneration' : 'Fast Healing';
    }
 
    function handleBenchmarkSelect(abilityIndex: number, valueIndex: number, benchmark: number): void {
@@ -210,6 +214,25 @@
       const raw = getEffectiveValue(sv, level);
       return parseDiceComponents(raw) ?? { count: 1, die: 6, bonus: 0 };
    }
+
+   const isRollType = (sv: ScalableValue): boolean => sv.type === 'damage' || sv.type === 'persistent';
+
+   // min/mean/max for a dice formula (NdM±B) or a flat integer; null when the formula isn't a simple
+   // shape (e.g. a compound "2d6+1d4"), in which case the spread is just omitted.
+   function rollStats(formula: string): { min: number; mean: number; max: number } | null {
+      const c = parseDiceComponents(formula);
+      if (c) {
+         return {
+            min: c.count + c.bonus,
+            mean: (c.count * (c.die + 1)) / 2 + c.bonus,
+            max: c.count * c.die + c.bonus
+         };
+      }
+      const flat = Number(formula);
+      return Number.isFinite(flat) ? { min: flat, mean: flat, max: flat } : null;
+   }
+
+   const fmtMean = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
    function handleDiceEdit(
       abilityIndex: number,
@@ -241,6 +264,16 @@
    function handleHealingEdit(abilityIndex: number, valueIndex: number, rawValue: number): void {
       if (!Number.isFinite(rawValue)) return;
       const clamped = Math.max(1, Math.round(rawValue));
+      onUpdateAbilityScalableCustomValue?.({
+         abilityIndex,
+         valueIndex,
+         customValue: String(clamped)
+      });
+   }
+
+   function handleConditionEdit(abilityIndex: number, valueIndex: number, rawValue: number): void {
+      if (!Number.isFinite(rawValue)) return;
+      const clamped = Math.max(0, Math.round(rawValue));
       onUpdateAbilityScalableCustomValue?.({
          abilityIndex,
          valueIndex,
@@ -507,7 +540,7 @@
                                        <div
                                           class="scalable-row"
                                           role="group"
-                                          aria-label="{sv.type === 'dc' ? 'DC' : sv.type === 'persistent' ? 'Persistent' : sv.type === 'healing' ? healingLabel(ability) : 'Damage'} editor"
+                                          aria-label="{sv.type === 'dc' ? 'DC' : sv.type === 'persistent' ? 'Persistent' : sv.type === 'healing' ? healingLabel(ability) : sv.type === 'condition' ? (sv.conditionLabel ?? 'Condition') : 'Damage'} editor"
                                        >
                                           <span class="scalable-type">
                                              {#if sv.type === 'damage'}
@@ -516,8 +549,10 @@
                                                 Persistent{sv.damageType ? ` ${sv.damageType}` : ''}
                                              {:else if sv.type === 'healing'}
                                                 {healingLabel(ability)}
+                                             {:else if sv.type === 'condition'}
+                                                {sv.conditionLabel ?? 'Condition'}
                                              {:else}
-                                                DC
+                                                {sv.checkType ? `${sv.checkType[0].toUpperCase()}${sv.checkType.slice(1)} DC` : 'DC'}
                                              {/if}
                                           </span>
                                           <div class="scalable-controls">
@@ -533,15 +568,17 @@
                                                       oninput={(e) => handleDcEdit(abilityIndex, valueIndex, e.currentTarget.valueAsNumber)}
                                                    />
                                                 </div>
-                                                <div class="scalable-tiers">
-                                                   <BenchmarkButtons
-                                                      value={displayBenchmark}
-                                                      benchmarks={DC_BENCHMARKS}
-                                                      useSpellBenchmark={true}
-                                                      compact={true}
-                                                      onselect={(d) => handleBenchmarkSelect(abilityIndex, valueIndex, d.value)}
-                                                   />
-                                                </div>
+                                                {#if scalesWithLevel(sv)}
+                                                   <div class="scalable-tiers">
+                                                      <BenchmarkButtons
+                                                         value={displayBenchmark}
+                                                         benchmarks={DC_BENCHMARKS}
+                                                         useSpellBenchmark={true}
+                                                         compact={true}
+                                                         onselect={(d) => handleBenchmarkSelect(abilityIndex, valueIndex, d.value)}
+                                                      />
+                                                   </div>
+                                                {/if}
                                              {:else if sv.type === 'healing'}
                                                 <div class="scalable-editor scalable-editor--healing" class:overridden>
                                                    <input
@@ -552,7 +589,7 @@
                                                       value={Number(effectiveValue)}
                                                       oninput={(e) => handleHealingEdit(abilityIndex, valueIndex, e.currentTarget.valueAsNumber)}
                                                    />
-                                                   <span class="dice-suffix">HP/round</span>
+                                                   <span class="dice-suffix">{ability.fastHealing ? 'HP/round' : 'HP'}</span>
                                                 </div>
                                                 <div class="scalable-tiers">
                                                    <BenchmarkButtons
@@ -562,6 +599,18 @@
                                                       compact={true}
                                                       onselect={(d) => handleBenchmarkSelect(abilityIndex, valueIndex, d.value)}
                                                    />
+                                                </div>
+                                             {:else if sv.type === 'condition'}
+                                                <div class="scalable-editor scalable-editor--condition" class:overridden>
+                                                   <input
+                                                      type="number"
+                                                      class="input-field condition-input"
+                                                      min="0"
+                                                      step="1"
+                                                      value={Number(effectiveValue)}
+                                                      oninput={(e) => handleConditionEdit(abilityIndex, valueIndex, e.currentTarget.valueAsNumber)}
+                                                   />
+                                                   <span class="dice-suffix">{sv.conditionLabel ?? 'value'}</span>
                                                 </div>
                                              {:else}
                                                 {@const components = getDiceEditorComponents(sv, creature.level)}
@@ -628,9 +677,29 @@
                                              ><i class="fas fa-rotate-left"></i></button>
                                           </div>
                                           <div class="scalable-hint">
-                                             {#if !atBaseLevel}
+                                             {#if isRollType(sv)}
+                                                {@const activeRec = getActiveTierFormula(sv, creature.level)}
+                                                {@const recStats = activeRec ? rollStats(activeRec.formula) : null}
+                                                {@const calcStats = rollStats(effectiveValue)}
+                                                <div class="scalable-stats">
+                                                   <span class="stat-tag">recommended</span>
+                                                   <strong class="stat-val stat-val--rec">{activeRec ? activeRec.formula : '—'}</strong>
+                                                   <span class="stat-spread">{#if recStats}min {recStats.min} · mean {fmtMean(recStats.mean)} · max {recStats.max}{/if}</span>
+                                                   <span class="stat-tag">calculated</span>
+                                                   <strong class="stat-val">{effectiveValue}</strong>
+                                                   <span class="stat-spread">{#if calcStats}min {calcStats.min} · mean {fmtMean(calcStats.mean)} · max {calcStats.max}{/if}</span>
+                                                </div>
+                                             {:else if sv.type === 'dc' && !scalesWithLevel(sv)}
+                                                <span class="scalable-guidance">
+                                                   level-based DC: <strong>{getLevelGuidance(sv, creature.level)}</strong>
+                                                </span>
+                                             {:else if !atBaseLevel && scalesWithLevel(sv)}
                                                 <span class="scalable-recommended">
                                                    recommended: <strong>{sv.type === 'dc' ? 'DC ' : ''}{recommendation}</strong>
+                                                </span>
+                                             {:else if !atBaseLevel}
+                                                <span class="scalable-guidance">
+                                                   if scaled to lvl {creature.level}: <strong>{getLevelGuidance(sv, creature.level)}</strong>
                                                 </span>
                                              {/if}
                                              <span class="scalable-original">
@@ -1361,6 +1430,7 @@
 
                .dc-input { width: 3rem; }
                .healing-input { width: 3rem; }
+               .condition-input { width: 3rem; }
                .dice-count { width: 2.5rem; }
                .dice-bonus { width: 2.75rem; }
 
@@ -1439,9 +1509,54 @@
                }
             }
 
+            /* Advisory only (the field stays flat) — quieter than the applied recommendation. */
+            .scalable-guidance {
+               color: var(--text-muted);
+
+               strong {
+                  color: var(--text-secondary);
+                  font-weight: var(--font-weight-semibold);
+               }
+            }
+
             .scalable-original {
                color: var(--text-muted);
                font-style: italic;
+            }
+
+            /* recommended (the selected benchmark tier) over calculated (the current dice), each with
+               its min/mean/max — three aligned columns so the values line up for quick comparison. */
+            .scalable-stats {
+               display: grid;
+               grid-template-columns: auto auto auto;
+               column-gap: var(--space-8);
+               row-gap: 1px;
+               align-items: baseline;
+
+               .stat-tag {
+                  text-align: right;
+                  color: var(--text-muted);
+                  text-transform: uppercase;
+                  letter-spacing: 0.03em;
+                  font-size: 0.625rem;
+               }
+
+               .stat-val {
+                  text-align: right;
+                  color: var(--text-primary);
+                  font-weight: var(--font-weight-semibold);
+                  font-variant-numeric: tabular-nums;
+               }
+
+               .stat-val--rec {
+                  color: var(--color-primary);
+               }
+
+               .stat-spread {
+                  text-align: left;
+                  color: var(--text-secondary);
+                  font-variant-numeric: tabular-nums;
+               }
             }
          }
       }

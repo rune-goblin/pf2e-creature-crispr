@@ -7,6 +7,7 @@
     getStatRangesForLevel,
     statToScalar,
     statToScalar4,
+    skillToScalar,
     hpToScalar,
     type StatRange
   } from '@/creature-builder/logic/creatureStatTables';
@@ -208,6 +209,11 @@
       editorStore.updateBenchmark(path, hpToScalar(computedValue, ranges.hp));
     } else if (statType === 'strikeAttack') {
       editorStore.updateBenchmark(path, statToScalar4(computedValue, ranges.strikeAttack));
+    } else if (statType === 'skill') {
+      // Skills carry a low *range* and a 4-benchmark scalar, so they invert with skillToScalar
+      // (not the generic statToScalar) and live behind updateSkillBenchmark — updateBenchmark
+      // has no "skills.*" path, so routing the edit there would silently drop it.
+      editorStore.updateSkillBenchmark(path.slice('skills.'.length), skillToScalar(computedValue, ranges.skills));
     } else {
       editorStore.updateBenchmark(path, statToScalar(computedValue, getStatRange(statType as StatType)));
     }
