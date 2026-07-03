@@ -2,19 +2,25 @@
    import type { EditableCreature, CreatureStrike, CreatureStats } from '@/creature-builder/editor';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
+   import EffectiveDamageBar from '../widgets/EffectiveDamageBar.svelte';
+   import { getDamageTypeGroups } from '@/creature-builder/ui/vocab';
    import { damageToBenchmark } from '@/creature-builder/logic/abilityScaling';
    import { getStatRangesForLevel, statToScalar4, getStrikeDamageForScalar } from '@/creature-builder/logic/creatureStatTables';
    import {
-      DAMAGE_TYPES,
       DICE_SIZES,
       parseDiceFormula,
       calculateAverageDamage,
       computeStrikeStats,
       formatDamageAverageDisplay,
-      persistentFormulaToScalar,
+      suggestPersistentFormula,
+      getStrikeEffectiveDamageBar,
       PERSISTENT_BENCHMARK_VALUES,
       type DiceSize
    } from '@/creature-builder/editor/creatureEditorUtils';
+
+   // Primary attack excludes bleed (persistent-only); the rider offers it.
+   const damageTypeGroups = getDamageTypeGroups();
+   const persistentTypeGroups = getDamageTypeGroups({ includeBleed: true });
 
    let {
       creature,
@@ -27,7 +33,6 @@
       onUpdateStrike,
       onUpdateStrikeAttackBenchmark,
       onUpdateStrikeDamageBenchmark,
-      onUpdateStrikePersistentBenchmark,
       onUpdateStrikePersistentType,
       onClearStrikePersistent
    }: {
@@ -41,7 +46,6 @@
       onUpdateStrike?: (d: { index: number; updates: Partial<CreatureStrike> }) => void;
       onUpdateStrikeAttackBenchmark?: (d: { index: number; benchmark: number }) => void;
       onUpdateStrikeDamageBenchmark?: (d: { index: number; benchmark: number }) => void;
-      onUpdateStrikePersistentBenchmark?: (d: { index: number; benchmark: number }) => void;
       onUpdateStrikePersistentType?: (d: { index: number; type: string }) => void;
       onClearStrikePersistent?: (index: number) => void;
    } = $props();
@@ -192,8 +196,12 @@
                            value={strike.damageType}
                            onchange={(e) => onUpdateStrike?.({ index, updates: { damageType: e.currentTarget.value } })}
                         >
-                           {#each DAMAGE_TYPES as dt}
-                              <option value={dt}>{dt}</option>
+                           {#each damageTypeGroups as group (group.label)}
+                              <optgroup label={group.label}>
+                                 {#each group.options as opt (opt.value)}
+                                    <option value={opt.value}>{opt.label}</option>
+                                 {/each}
+                              </optgroup>
                            {/each}
                         </select>
                      </div>
@@ -265,8 +273,11 @@
                                  checked={strike.persistentBenchmark !== undefined}
                                  onchange={(e) => {
                                     if (e.currentTarget.checked) {
-                                       onUpdateStrikePersistentBenchmark?.({ index, benchmark: PERSISTENT_BENCHMARK_VALUES.moderate });
-                                       onUpdateStrikePersistentType?.({ index, type: 'fire' });
+                                       onUpdateStrike?.({ index, updates: {
+                                          persistentBenchmark: PERSISTENT_BENCHMARK_VALUES.moderate,
+                                          customPersistentFormula: suggestPersistentFormula(creature.level, computedStrike.damageAverage),
+                                          persistentDamageType: 'fire'
+                                       } });
                                     } else {
                                        onClearStrikePersistent?.(index);
                                     }
@@ -279,20 +290,21 @@
                                  <input
                                     type="text"
                                     class="cc-input persistent-formula-compact"
-                                    value={computedStrike.persistentDamage || ''}
-                                    placeholder="1d6"
-                                    onchange={(e) => {
-                                       const benchmark = persistentFormulaToScalar(e.currentTarget.value, creature.level);
-                                       onUpdateStrikePersistentBenchmark?.({ index, benchmark });
-                                    }}
+                                    value={strike.customPersistentFormula ?? ''}
+                                    placeholder="1d6 or 6"
+                                    onchange={(e) => onUpdateStrike?.({ index, updates: { customPersistentFormula: e.currentTarget.value } })}
                                  />
                                  <select
                                     class="cc-select persistent-type-compact"
                                     value={strike.persistentDamageType || 'fire'}
                                     onchange={(e) => onUpdateStrikePersistentType?.({ index, type: e.currentTarget.value })}
                                  >
-                                    {#each DAMAGE_TYPES as dt}
-                                       <option value={dt}>{dt}</option>
+                                    {#each persistentTypeGroups as group (group.label)}
+                                       <optgroup label={group.label}>
+                                          {#each group.options as opt (opt.value)}
+                                             <option value={opt.value}>{opt.label}</option>
+                                          {/each}
+                                       </optgroup>
                                     {/each}
                                  </select>
                                  {#if computedStrike.persistentAverage}
@@ -301,6 +313,8 @@
                               </div>
                            {/if}
                         </div>
+
+                        <EffectiveDamageBar row={getStrikeEffectiveDamageBar(creature.level, computedStrike.damageAverage, computedStrike.persistentDamage ?? '')} />
                      </div>
                      <div class="attack-footer" class:confirming={pendingDeleteIndex === index}>
                         {#if pendingDeleteIndex === index}

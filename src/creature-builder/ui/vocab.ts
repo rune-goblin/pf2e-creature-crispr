@@ -61,3 +61,23 @@ export function getSenseGroups(): IwrTypeGroup[] {
 export function getSkillGroups(): IwrTypeGroup[] {
   return [{ label: 'Skills', options: SKILLS.map((value) => ({ value, label: value })) }];
 }
+
+const DAMAGE_PHYSICAL = ['bludgeoning', 'piercing', 'slashing'];
+const DAMAGE_ENERGY = ['acid', 'cold', 'electricity', 'fire', 'force', 'sonic', 'vitality', 'void'];
+const DAMAGE_MENTAL = ['mental', 'spirit', 'poison'];
+
+/**
+ * Canonical Remaster damage types, grouped as {@link IwrTypeGroup}[] so they drop into the same
+ * grouped pickers as traits/IWR. Reused for both the primary attack type and the persistent rider.
+ * `bleed` is conventionally persistent-only, so it's offered only when `includeBleed` is set (the
+ * rider) — never on the primary attack.
+ */
+export function getDamageTypeGroups(opts: { includeBleed?: boolean } = {}): IwrTypeGroup[] {
+  const physical = opts.includeBleed ? [...DAMAGE_PHYSICAL, 'bleed'] : DAMAGE_PHYSICAL;
+  return [
+    { label: 'Physical', options: slugsToOptions(physical) },
+    { label: 'Energy & Other', options: slugsToOptions(DAMAGE_ENERGY) },
+    { label: 'Mental, Spirit & Poison', options: slugsToOptions(DAMAGE_MENTAL) },
+    { label: 'Untyped', options: slugsToOptions(['untyped']) }
+  ];
+}

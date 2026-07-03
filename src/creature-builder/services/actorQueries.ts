@@ -211,11 +211,13 @@ export function getStrikesFromActor(actorId: string): CreatureStrike[] {
     let damageType = 'slashing';
     let damage = '1d4';
     let persistentDamageType = '';
+    let persistentDamageFormula = '';
 
     const rollEntries = Object.values(damageRolls);
     for (const rollEntry of rollEntries) {
       if (rollEntry.category === 'persistent') {
         persistentDamageType = rollEntry.damageType || 'untyped';
+        if (rollEntry.damage) persistentDamageFormula = rollEntry.damage;
       } else {
         if (rollEntry.damage) {
           damage = rollEntry.damage;
@@ -246,9 +248,14 @@ export function getStrikesFromActor(actorId: string): CreatureStrike[] {
       traits: item.system?.traits?.value || []
     };
 
-    // Add persistent damage info if present
+    // Add persistent damage info if present. The formula (customPersistentFormula) is the source
+    // of truth; legacy creatures stored only a persistent scalar, so recover the formula from the
+    // saved roll to keep persistent damage from being dropped on the next re-save.
     if (benchmarks.customPersistentFormula) {
       strike.customPersistentFormula = benchmarks.customPersistentFormula;
+      strike.persistentDamageType = benchmarks.persistentDamageType || persistentDamageType;
+    } else if (benchmarks.persistentBenchmark !== undefined && persistentDamageFormula) {
+      strike.customPersistentFormula = persistentDamageFormula;
       strike.persistentDamageType = benchmarks.persistentDamageType || persistentDamageType;
     }
     if (benchmarks.persistentBenchmark !== undefined) {

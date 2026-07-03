@@ -11,14 +11,15 @@ import {
    getStrikeDamageBenchmarkLabel,
    calculateStrikeStats,
    parseDiceFormulaAverage,
-   calculateEffectiveDamage,
-   getPersistentDamageForLevel,
+   PERSISTENT_EXPECTED_ROUNDS,
    type StatRange,
    type StrikeDamageRange4
 } from '@/creature-builder/logic/creatureStatTables';
 import {
    BENCHMARK_VALUES,
+   getNearestBenchmarkLabel4,
    type BenchmarkLabel,
+   type BenchmarkLabel4,
    type SpellProgressionType,
    type SpellSlotLayout,
    type SpellFont
@@ -96,6 +97,20 @@ export function parseDiceFormula(formula: string): ParsedDiceFormula {
    // Validate dice size
    const validSize = DICE_SIZES.includes(size) ? size : 8;
    return { count, size: validSize, bonus };
+}
+
+/** Maximum roll of a dice formula ("1d4" → 4, "2d6+3" → 15, flat "6" → 6); 0 when empty/invalid. */
+export function parseDiceFormulaMax(formula: string): number {
+   const normalized = formula.replace(/\s+/g, '');
+   const match = normalized.match(/^(\d+)d(\d+)([+-]\d+)?$/);
+   if (match) {
+      const count = parseInt(match[1], 10);
+      const size = parseInt(match[2], 10);
+      const bonus = match[3] ? parseInt(match[3], 10) : 0;
+      return count * size + bonus;
+   }
+   if (/^\d+$/.test(normalized)) return parseInt(normalized, 10);
+   return 0;
 }
 
 /**
@@ -254,92 +269,149 @@ export function getStrikeDamageBenchmarkAverages(level: number): Record<DamageBe
 // Persistent Damage Functions
 // ============================================================================
 
-export type PersistentBenchmarkLabel = 'low' | 'moderate' | 'high';
-
 /**
- * Get the persistent damage formula and average for each benchmark at a given level.
- */
-export function getPersistentDamageBenchmarkInfo(level: number): Record<PersistentBenchmarkLabel, { formula: string; average: number }> {
-   const range = getPersistentDamageForLevel(level);
-   return {
-      low: { formula: range.low, average: parseDiceFormulaAverage(range.low) },
-      moderate: { formula: range.moderate, average: parseDiceFormulaAverage(range.moderate) },
-      high: { formula: range.high, average: parseDiceFormulaAverage(range.high) }
-   };
-}
-
-/**
- * Get just the averages for persistent damage benchmarks at a given level.
- */
-export function getPersistentDamageBenchmarkAverages(level: number): Record<PersistentBenchmarkLabel, number> {
-   const info = getPersistentDamageBenchmarkInfo(level);
-   return {
-      low: info.low.average,
-      moderate: info.moderate.average,
-      high: info.high.average
-   };
-}
-
-/**
- * Convert a persistent damage average to a benchmark scalar (0-1).
- * Uses 3-benchmark system: 0 = low, 0.5 = moderate, 1 = high
- */
-export function persistentDamageToScalar(avgDamage: number, level: number): number {
-   const info = getPersistentDamageBenchmarkInfo(level);
-   const lowAvg = info.low.average;
-   const modAvg = info.moderate.average;
-   const highAvg = info.high.average;
-
-   if (avgDamage <= lowAvg) return 0;
-   if (avgDamage >= highAvg) return 1;
-
-   if (avgDamage <= modAvg) {
-      // Between low and moderate
-      const t = (avgDamage - lowAvg) / (modAvg - lowAvg);
-      return t * 0.5;
-   } else {
-      // Between moderate and high
-      const t = (avgDamage - modAvg) / (highAvg - modAvg);
-      return 0.5 + t * 0.5;
-   }
-}
-
-/**
- * Get the persistent damage formula for a benchmark scalar at a given level.
- */
-export function getPersistentDamageForScalar(scalar: number, level: number): string {
-   const range = getPersistentDamageForLevel(level);
-   if (scalar < 0.33) return range.low;
-   if (scalar < 0.67) return range.moderate;
-   return range.high;
-}
-
-/**
- * Get the benchmark label for a persistent damage scalar.
- */
-export function getPersistentBenchmarkLabel(scalar: number): PersistentBenchmarkLabel {
-   if (scalar < 0.33) return 'low';
-   if (scalar < 0.67) return 'moderate';
-   return 'high';
-}
-
-/**
- * Get the default benchmark value for each persistent damage tier.
+ * Persistent rider "enabled" sentinel. The rider's actual dice live in `customPersistentFormula`
+ * (the source of truth); `persistentBenchmark` only records that the rider is on, so any defined
+ * scalar works. Kept at moderate for historical continuity with the persisted item flag.
  */
 export const PERSISTENT_BENCHMARK_VALUES = {
-   low: 0,
-   moderate: 0.5,
-   high: 1
+   moderate: 0.5
 } as const;
 
 /**
- * Convert a persistent damage formula string to a benchmark scalar.
- * Parses the formula, calculates the average, and converts to scalar.
+ * Seed a starting persistent-damage formula when the rider is first enabled. PF2e has no
+ * persistent-by-level table, so we target the next Strike Damage tier above the strike's current
+ * direct damage and express the per-round average it implies (direct + persistent ×
+ * PERSISTENT_EXPECTED_ROUNDS = tier) as a plain NdX — persistent riders are conventionally
+ * bonus-free dice. Only a suggestion; the user pushes past it freely.
  */
-export function persistentFormulaToScalar(formula: string, level: number): number {
-   const avg = parseDiceFormulaAverage(formula);
-   if (avg <= 0) return PERSISTENT_BENCHMARK_VALUES.moderate; // Default if invalid
-   return persistentDamageToScalar(avg, level);
+export function suggestPersistentFormula(level: number, directAverage = 0): string {
+   const sd = getStatRangesForLevel(level).strikeDamage;
+   const tierAverages = [sd.low.average, sd.moderate.average, sd.high.average, sd.extreme.average];
+   const target = tierAverages.find((a) => a > directAverage) ?? sd.extreme.average;
+   const perRound = Math.max(2.5, (target - directAverage) / PERSISTENT_EXPECTED_ROUNDS);
+   return diceForAverage(perRound);
+}
+
+/** Nearest plain NdX (no flat bonus) whose average is closest to the target. */
+function diceForAverage(targetAverage: number): string {
+   let best = '1d4';
+   let bestDiff = Infinity;
+   for (const die of DICE_SIZES) {
+      const count = Math.max(1, Math.round(targetAverage / ((die + 1) / 2)));
+      const avg = (count * (die + 1)) / 2;
+      const diff = Math.abs(avg - targetAverage);
+      if (diff < bestDiff) {
+         bestDiff = diff;
+         best = `${count}d${die}`;
+      }
+   }
+   return best;
+}
+
+// ============================================================================
+// Effective-Damage Guidance Bar
+// ============================================================================
+
+export type DamageBarTone = 'below' | BenchmarkLabel4;
+
+export interface BenchmarkBarMarker {
+   label: string;
+   value: number;
+   position: number; // 0..1 along the track
+}
+
+export interface BenchmarkBarRow {
+   markers: BenchmarkBarMarker[];
+   basePosition: number;      // arrow — the base (direct) attack damage
+   effectivePosition: number; // end-cap — base + the persistent rider's max roll
+   midPosition: number;       // dot — base + the persistent rider's average addition
+   hasPersistent: boolean;    // whether the persistent span (line/cap) is drawn
+   showDot: boolean;          // whether to draw the average dot (false for flat values: avg == max)
+   verdict: string;           // where the dot lands ("HIGH", "above Extreme", …)
+   tone: DamageBarTone;
+   // Value label(s) pinned to an edge the graph had to extend past the tiers (empty in range).
+   overflowMarkers: { value: number; side: 'start' | 'end' }[];
+}
+
+/**
+ * Map a damage value onto a "tier unit" axis: low=0, moderate=1, high=2, extreme=3, interpolating
+ * linearly between tiers. Below low / above extreme it extrapolates past the ends at the adjacent
+ * tier segment's value-density, so an out-of-range value gets a unit < 0 or > 3 instead of clamping.
+ */
+function damageToTierUnit(value: number, tiers: [number, number, number, number]): number {
+   const [low, mod, high, extreme] = tiers;
+   if (value <= low) return (mod - low) > 0 ? (value - low) / (mod - low) : 0;
+   if (value <= mod) return (value - low) / (mod - low);
+   if (value <= high) return 1 + (value - mod) / (high - mod);
+   if (value <= extreme) return 2 + (value - high) / (extreme - high);
+   return (extreme - high) > 0 ? 3 + (value - extreme) / (extreme - high) : 3;
+}
+
+/**
+ * Build the guidance-bar row for a strike. The arrow marks the base (direct) attack. A persistent
+ * rider adds its own range on top of the base: a line runs from the arrow out to base + the rider's
+ * max roll (e.g. 1d4 → +4), with a dot at base + the rider's *average* addition and an end-cap at
+ * the max. A flat value (e.g. "6") has average = max, so its dot lands on the cap. The verdict/tone
+ * reflect the dot — where the persistent typically pushes the base.
+ *
+ * The track is laid out on a tier-unit axis (low=0…extreme=3) and normalized over the full visible
+ * range, so when a value falls outside low→extreme the whole graph rescales to show it — keeping
+ * ticks at the four tier breakpoints. In-range, the tiers sit at the usual even thirds.
+ * Informational only; the engine never trims to it. `persistentFormula` is the rider's dice/flat
+ * formula ("" = no rider).
+ */
+export function getStrikeEffectiveDamageBar(
+   level: number,
+   directAverage: number,
+   persistentFormula = ''
+): BenchmarkBarRow {
+   const sd = getStatRangesForLevel(level).strikeDamage;
+   const tiers: [number, number, number, number] = [
+      sd.low.average, sd.moderate.average, sd.high.average, sd.extreme.average
+   ];
+
+   const persistentAverage = parseDiceFormulaAverage(persistentFormula);
+   const persistentMax = parseDiceFormulaMax(persistentFormula);
+
+   const baseUnit = damageToTierUnit(directAverage, tiers);
+   const midUnit = damageToTierUnit(directAverage + persistentAverage, tiers);
+   const capUnit = damageToTierUnit(directAverage + persistentMax, tiers);
+
+   // Visible domain always spans at least the four tiers (0..3), widening to include any overflow.
+   const uMin = Math.min(0, baseUnit, midUnit, capUnit);
+   const uMax = Math.max(3, baseUnit, midUnit, capUnit);
+   const norm = (u: number) => (u - uMin) / (uMax - uMin);
+
+   const markers: BenchmarkBarMarker[] = [
+      { label: 'Low', value: sd.low.average, position: norm(0) },
+      { label: 'Mod', value: sd.moderate.average, position: norm(1) },
+      { label: 'High', value: sd.high.average, position: norm(2) },
+      { label: 'Extreme', value: sd.extreme.average, position: norm(3) }
+   ];
+
+   const label = getNearestBenchmarkLabel4(Math.max(0, Math.min(3, midUnit)) / 3);
+   const verdict = midUnit > 3 ? 'above Extreme' : midUnit < 0 ? 'below Low' : label.toUpperCase();
+   const tone: DamageBarTone = midUnit < 0 ? 'below' : label;
+
+   // Label the extended edge(s) with the value that pushed past the tiers: the cap on the right,
+   // the base on the left (cap ≥ dot ≥ base, so those are the extremes).
+   const overflowMarkers: { value: number; side: 'start' | 'end' }[] = [];
+   if (capUnit > 3) overflowMarkers.push({ value: Math.round(directAverage + persistentMax), side: 'end' });
+   if (baseUnit < 0) overflowMarkers.push({ value: Math.round(directAverage), side: 'start' });
+
+   return {
+      markers,
+      basePosition: norm(baseUnit),
+      effectivePosition: norm(capUnit),
+      midPosition: norm(midUnit),
+      hasPersistent: persistentMax > 0,
+      // A flat value adds the same amount every time (avg == max), so there is no average to mark.
+      showDot: persistentMax > 0 && persistentAverage < persistentMax,
+      verdict,
+      tone,
+      overflowMarkers
+   };
 }
 
 /**

@@ -327,7 +327,6 @@
           onUpdateStrike={(d) => editorStore.updateStrike(d.index, d.updates)}
           onUpdateStrikeAttackBenchmark={(d) => editorStore.updateStrikeAttackBenchmark(d.index, d.benchmark)}
           onUpdateStrikeDamageBenchmark={(d) => editorStore.updateStrikeDamageBenchmark(d.index, d.benchmark)}
-          onUpdateStrikePersistentBenchmark={(d) => editorStore.updateStrikePersistentBenchmark(d.index, d.benchmark)}
           onUpdateStrikePersistentType={(d) => editorStore.updateStrikePersistentType(d.index, d.type)}
           onClearStrikePersistent={(i) => editorStore.clearStrikePersistent(i)}
         />

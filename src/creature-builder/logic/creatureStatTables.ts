@@ -805,56 +805,6 @@ const SPELL_ATTACK_TABLE: Record<CreatureLevel, SpellStatRange> = {
 };
 
 // ============================================================================
-// PERSISTENT DAMAGE TABLE
-// Persistent damage scales more slowly than strike damage.
-// Values are dice formulas for low/moderate/high benchmarks.
-// Based on analysis of PF2e monsters across levels.
-// ============================================================================
-
-interface PersistentDamageRange {
-  low: string;      // Low persistent damage
-  moderate: string; // Moderate persistent damage
-  high: string;     // High persistent damage
-}
-
-const PERSISTENT_DAMAGE_TABLE: Record<CreatureLevel, PersistentDamageRange> = {
-  [-1]: { low: '1d4', moderate: '1d4', high: '1d6' },
-  [0]:  { low: '1d4', moderate: '1d4', high: '1d6' },
-  [1]:  { low: '1d4', moderate: '1d6', high: '1d6' },
-  [2]:  { low: '1d4', moderate: '1d6', high: '1d8' },
-  [3]:  { low: '1d6', moderate: '1d6', high: '2d4' },
-  [4]:  { low: '1d6', moderate: '1d8', high: '2d6' },
-  [5]:  { low: '1d6', moderate: '1d8', high: '2d6' },
-  [6]:  { low: '1d6', moderate: '2d4', high: '2d6' },
-  [7]:  { low: '1d6', moderate: '2d6', high: '2d8' },
-  [8]:  { low: '1d8', moderate: '2d6', high: '2d8' },
-  [9]:  { low: '1d8', moderate: '2d6', high: '3d6' },
-  [10]: { low: '2d4', moderate: '2d6', high: '3d6' },
-  [11]: { low: '2d6', moderate: '2d8', high: '3d6' },
-  [12]: { low: '2d6', moderate: '2d8', high: '3d8' },
-  [13]: { low: '2d6', moderate: '3d6', high: '3d8' },
-  [14]: { low: '2d6', moderate: '3d6', high: '4d6' },
-  [15]: { low: '2d8', moderate: '3d6', high: '4d6' },
-  [16]: { low: '2d8', moderate: '3d8', high: '4d6' },
-  [17]: { low: '3d6', moderate: '3d8', high: '4d8' },
-  [18]: { low: '3d6', moderate: '4d6', high: '4d8' },
-  [19]: { low: '3d6', moderate: '4d6', high: '5d6' },
-  [20]: { low: '3d8', moderate: '4d6', high: '5d6' },
-  [21]: { low: '3d8', moderate: '4d8', high: '5d8' },
-  [22]: { low: '4d6', moderate: '4d8', high: '5d8' },
-  [23]: { low: '4d6', moderate: '5d6', high: '6d6' },
-  [24]: { low: '4d8', moderate: '5d6', high: '6d6' }
-};
-
-/**
- * Get persistent damage ranges for a given level
- */
-export function getPersistentDamageForLevel(level: number): PersistentDamageRange {
-  const clampedLevel = Math.max(-1, Math.min(24, Math.round(level))) as CreatureLevel;
-  return PERSISTENT_DAMAGE_TABLE[clampedLevel];
-}
-
-// ============================================================================
 // RESISTANCE/WEAKNESS TABLE
 // ============================================================================
 
@@ -1287,14 +1237,17 @@ export function parseDiceFormulaAverage(formula: string): number {
   // Normalize: remove all spaces
   const normalized = formula.replace(/\s+/g, '');
   const match = normalized.match(/^(\d+)d(\d+)([+-]\d+)?$/);
-  if (!match) return 0;
+  if (match) {
+    const count = parseInt(match[1], 10);
+    const size = parseInt(match[2], 10);
+    const bonus = match[3] ? parseInt(match[3], 10) : 0;
+    const avgPerDie = (size + 1) / 2;
+    return count * avgPerDie + bonus;
+  }
 
-  const count = parseInt(match[1], 10);
-  const size = parseInt(match[2], 10);
-  const bonus = match[3] ? parseInt(match[3], 10) : 0;
-
-  const avgPerDie = (size + 1) / 2;
-  return count * avgPerDie + bonus;
+  // A flat value (e.g. "6") is a valid damage formula — its average is itself.
+  if (/^\d+$/.test(normalized)) return parseInt(normalized, 10);
+  return 0;
 }
 
 /**
@@ -1354,33 +1307,18 @@ export function calculateStrikeStats(
     damageAverage = damageEntry.average;
   }
 
-  // Calculate persistent damage if benchmark is provided
+  // Persistent damage is the user's explicit formula written verbatim — never generated from a
+  // benchmark. PF2e publishes no persistent-by-level table; the rider's weight is judged as
+  // effective damage in the editor (direct + persistent × PERSISTENT_EXPECTED_ROUNDS), not
+  // snapped to a tier here. `persistentBenchmark` survives only as the "rider enabled" flag.
   let persistentDamage: string | undefined;
   let persistentAverage: number | undefined;
 
-  if (persistentBenchmark !== undefined) {
-    if (customPersistentFormula) {
-      const avg = parseDiceFormulaAverage(customPersistentFormula);
-      if (avg > 0) {
-        persistentDamage = customPersistentFormula;
-        persistentAverage = avg;
-      }
-    }
-
-    // If no custom formula or invalid, use the scalePersistentDamage from abilityScaling
-    // We'll import the persistent damage table inline to avoid circular dependency
-    if (!persistentDamage) {
-      // Use simplified 3-benchmark persistent damage lookup
-      // This maps benchmark (0-1) to low/moderate/high formulas
-      const persistentFormulas = getPersistentDamageForLevel(level);
-      if (persistentBenchmark < 0.33) {
-        persistentDamage = persistentFormulas.low;
-      } else if (persistentBenchmark < 0.67) {
-        persistentDamage = persistentFormulas.moderate;
-      } else {
-        persistentDamage = persistentFormulas.high;
-      }
-      persistentAverage = parseDiceFormulaAverage(persistentDamage);
+  if (persistentBenchmark !== undefined && customPersistentFormula) {
+    const avg = parseDiceFormulaAverage(customPersistentFormula);
+    if (avg > 0) {
+      persistentDamage = customPersistentFormula;
+      persistentAverage = avg;
     }
   }
 

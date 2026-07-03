@@ -321,10 +321,6 @@ class CreatureEditorStore {
     this.updateStrike(index, { damageBenchmark: benchmark });
   }
 
-  updateStrikePersistentBenchmark(index: number, benchmark: number): void {
-    this.updateStrike(index, { persistentBenchmark: benchmark, customPersistentFormula: undefined });
-  }
-
   updateStrikePersistentType(index: number, type: string): void {
     this.updateStrike(index, { persistentDamageType: type });
   }
