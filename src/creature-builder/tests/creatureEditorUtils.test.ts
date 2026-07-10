@@ -6,8 +6,6 @@ import {
   buildDiceFormula,
   computeStrikeStats,
   formatDamageAverageDisplay,
-  getStrikeDamageBenchmarkInfo,
-  getStrikeDamageBenchmarkAverages,
   getStrikeDefaultDamageEntry,
   getStatRangeForType,
   formatSpellSlotSummary,
@@ -53,6 +51,11 @@ describe('parseDiceFormula', () => {
 
   it('defaults bonus to 0 when absent', () => {
     expect(parseDiceFormula('1d4')).toEqual({ count: 1, size: 4, bonus: 0 });
+  });
+
+  it('tolerates whitespace like its sibling parsers', () => {
+    expect(parseDiceFormula('2d6 + 3')).toEqual({ count: 2, size: 6, bonus: 3 });
+    expect(parseDiceFormula(' 1d10 -2 ')).toEqual({ count: 1, size: 10, bonus: -2 });
   });
 
   it('falls back to 1d8+0 for malformed input', () => {
@@ -142,64 +145,6 @@ describe('formatDamageAverageDisplay', () => {
   it('shows the simple form without persistent damage', () => {
     expect(formatDamageAverageDisplay(13)).toBe('13 avg');
     expect(formatDamageAverageDisplay(13, 0)).toBe('13 avg');
-  });
-});
-
-// L9 strike damage averages: low 16 / moderate 20 / high 24 / extreme 30.
-describe('getStrikeDamageBenchmarkInfo', () => {
-  it('a benchmark-exact moderate strike is moderate, exact, not upgraded', () => {
-    const info = getStrikeDamageBenchmarkInfo(9, makeStrike());
-    expect(info).toEqual({
-      baseLabel: 'moderate',
-      effectiveLabel: 'moderate',
-      isExact: true,
-      isUpgraded: false
-    });
-  });
-
-  it('a persistent rider upgrades the effective tier but not the base', () => {
-    const info = getStrikeDamageBenchmarkInfo(9, makeStrike({ customPersistentFormula: '2d6' }));
-    expect(info).toMatchObject({
-      baseLabel: 'moderate',
-      effectiveLabel: 'high',
-      isExact: true,
-      isUpgraded: true
-    });
-  });
-
-  it('editingDiceAvg overrides the benchmark-derived average and breaks exactness', () => {
-    const info = getStrikeDamageBenchmarkInfo(9, makeStrike(), 30);
-    expect(info).toMatchObject({ baseLabel: 'extreme', isExact: false, isUpgraded: false });
-  });
-
-  it('clamps below-low and above-extreme averages to the end tiers', () => {
-    expect(getStrikeDamageBenchmarkInfo(9, makeStrike(), 5)?.baseLabel).toBe('low');
-    expect(getStrikeDamageBenchmarkInfo(9, makeStrike(), 100)?.baseLabel).toBe('extreme');
-  });
-
-  it('splits the low/moderate boundary a sixth of the way up the range', () => {
-    expect(getStrikeDamageBenchmarkInfo(9, makeStrike(), 18)?.baseLabel).toBe('low');
-    expect(getStrikeDamageBenchmarkInfo(9, makeStrike(), 19)?.baseLabel).toBe('moderate');
-  });
-
-  it('splits the high/extreme boundary five sixths of the way up the range', () => {
-    expect(getStrikeDamageBenchmarkInfo(9, makeStrike(), 27)?.baseLabel).toBe('high');
-    expect(getStrikeDamageBenchmarkInfo(9, makeStrike(), 28)?.baseLabel).toBe('extreme');
-  });
-});
-
-describe('getStrikeDamageBenchmarkAverages', () => {
-  it('returns the GMG per-tier averages for level 9', () => {
-    expect(getStrikeDamageBenchmarkAverages(9)).toEqual({ low: 16, moderate: 20, high: 24, extreme: 30 });
-  });
-
-  it('returns the GMG per-tier averages for level 1', () => {
-    expect(getStrikeDamageBenchmarkAverages(1)).toEqual({ low: 4, moderate: 5, high: 6, extreme: 8 });
-  });
-
-  it('clamps out-of-range levels to the table bounds', () => {
-    expect(getStrikeDamageBenchmarkAverages(30)).toEqual(getStrikeDamageBenchmarkAverages(24));
-    expect(getStrikeDamageBenchmarkAverages(-5)).toEqual(getStrikeDamageBenchmarkAverages(-1));
   });
 });
 

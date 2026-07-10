@@ -566,3 +566,48 @@ describe('role presets', () => {
     expect(editorStore.creature!.speeds.fly).toBe(40);
   });
 });
+
+describe('no-op mutations keep the editor clean', () => {
+  beforeEach(() => editorStore.resetEditor());
+
+  it('duplicate adds change nothing and do not dirty', () => {
+    editorStore.startEdit(makeEditable({
+      resistances: [{ type: 'fire', value: 5 }],
+      weaknesses: [{ type: 'cold', value: 5 }],
+      immunities: [{ type: 'poison' }],
+      senses: [{ type: 'darkvision' }]
+    }));
+    editorStore.addResistance('fire');
+    editorStore.addWeakness('cold');
+    editorStore.addImmunity('poison');
+    editorStore.addSense('darkvision');
+    editorStore.addLanguage('common');
+    editorStore.addTrait('goblin');
+    expect(editorStore.creature!.resistances).toHaveLength(1);
+    expect(editorStore.creature!.languages).toEqual(['common']);
+    expect(editorStore.isDirty).toBe(false);
+  });
+
+  it('removing absent entries does not dirty', () => {
+    editorStore.startEdit(makeEditable());
+    editorStore.removeTrait('undead');
+    editorStore.removeLanguage('draconic');
+    editorStore.removeSkill('Stealth');
+    editorStore.updateSkillBenchmark('Stealth', BENCHMARK_VALUES_4.extreme);
+    expect(editorStore.isDirty).toBe(false);
+  });
+
+  it('out-of-range removes are ignored and do not dirty', () => {
+    editorStore.startEdit(makeEditable({
+      strikes: [createDefaultStrike('A'), createDefaultStrike('B')]
+    }));
+    editorStore.removeResistance(0);
+    editorStore.removeWeakness(-1);
+    editorStore.removeImmunity(5);
+    editorStore.removeSense(0);
+    editorStore.removeSpecialAbility(2);
+    editorStore.removeStrike(7);
+    expect(editorStore.creature!.strikes).toHaveLength(2);
+    expect(editorStore.isDirty).toBe(false);
+  });
+});

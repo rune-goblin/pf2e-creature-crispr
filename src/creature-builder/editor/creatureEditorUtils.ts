@@ -8,12 +8,10 @@
 import {
    getStatRangesForLevel,
    getStrikeDamageForScalar,
-   getStrikeDamageBenchmarkLabel,
    calculateStrikeStats,
    parseDiceFormulaAverage,
    PERSISTENT_EXPECTED_ROUNDS,
-   type StatRange,
-   type StrikeDamageRange4
+   type StatRange
 } from '@/creature-builder/logic/creatureStatTables';
 import {
    BENCHMARK_VALUES,
@@ -87,7 +85,7 @@ export interface ParsedDiceFormula {
  * Parse a dice formula like "2d8+6" into components
  */
 export function parseDiceFormula(formula: string): ParsedDiceFormula {
-   const match = formula.match(/^(\d+)d(\d+)([+-]\d+)?$/);
+   const match = formula.replace(/\s+/g, '').match(/^(\d+)d(\d+)([+-]\d+)?$/);
    if (!match) {
       return { count: 1, size: 8, bonus: 0 };
    }
@@ -188,81 +186,6 @@ export function formatDamageAverageDisplay(
       return `${damageAverage}+${persistentAverage} = ${combined} avg`;
    }
    return `${damageAverage} avg`;
-}
-
-export type DamageBenchmarkLabel = 'low' | 'moderate' | 'high' | 'extreme';
-
-export interface StrikeDamageBenchmarkInfo {
-   baseLabel: DamageBenchmarkLabel;      // Benchmark based on direct damage only
-   effectiveLabel: DamageBenchmarkLabel; // Benchmark based on combined (direct + persistent)
-   isExact: boolean;                     // Whether direct damage exactly matches benchmark
-   isUpgraded: boolean;                  // Whether persistent pushes to a higher tier
-}
-
-/** Benchmark tier order for comparison */
-const BENCHMARK_ORDER: DamageBenchmarkLabel[] = ['low', 'moderate', 'high', 'extreme'];
-
-/**
- * Get the damage benchmark info for a strike.
- * Returns both base (direct only) and effective (combined) benchmarks.
- */
-export function getStrikeDamageBenchmarkInfo(
-   level: number,
-   strike: CreatureStrike,
-   editingDiceAvg?: number
-): StrikeDamageBenchmarkInfo | null {
-   const ranges = getStatRangesForLevel(level);
-
-   // Get the direct damage average (from editing if provided, otherwise computed)
-   const directAvg = editingDiceAvg ?? calculateStrikeStats(
-      level,
-      strike.attackBenchmark,
-      strike.damageBenchmark
-   ).damageAverage;
-
-   // Helper: convert damage average to scalar (0-1) based on range
-   const damageToScalar = (avg: number, range: StrikeDamageRange4): number => {
-      const min = range.low.average;
-      const max = range.extreme.average;
-      return Math.max(0, Math.min(1, (avg - min) / (max - min)));
-   };
-
-   // Calculate base benchmark (direct damage only)
-   const baseScalar = damageToScalar(directAvg, ranges.strikeDamage);
-   const baseLabel = getStrikeDamageBenchmarkLabel(baseScalar);
-
-   // Include persistent damage for effective benchmark
-   const persistentAvg = strike.customPersistentFormula
-      ? parseDiceFormulaAverage(strike.customPersistentFormula)
-      : 0;
-   const combinedAvg = directAvg + persistentAvg;
-   const effectiveScalar = damageToScalar(combinedAvg, ranges.strikeDamage);
-   const effectiveLabel = getStrikeDamageBenchmarkLabel(effectiveScalar);
-
-   // Check if it's an exact benchmark match (based on direct damage only)
-   const entry = getStrikeDamageForScalar(strike.damageBenchmark, ranges.strikeDamage);
-   const isExact = Math.abs(directAvg - entry.average) < 0.01;
-
-   // Check if persistent damage upgrades the benchmark tier
-   const baseIndex = BENCHMARK_ORDER.indexOf(baseLabel);
-   const effectiveIndex = BENCHMARK_ORDER.indexOf(effectiveLabel);
-   const isUpgraded = effectiveIndex > baseIndex;
-
-   return { baseLabel, effectiveLabel, isExact, isUpgraded };
-}
-
-/**
- * Get the average damage values for each strike damage benchmark at a given level.
- * Returns an object with low/moderate/high/extreme averages.
- */
-export function getStrikeDamageBenchmarkAverages(level: number): Record<DamageBenchmarkLabel, number> {
-   const ranges = getStatRangesForLevel(level);
-   return {
-      low: ranges.strikeDamage.low.average,
-      moderate: ranges.strikeDamage.moderate.average,
-      high: ranges.strikeDamage.high.average,
-      extreme: ranges.strikeDamage.extreme.average
-   };
 }
 
 // ============================================================================

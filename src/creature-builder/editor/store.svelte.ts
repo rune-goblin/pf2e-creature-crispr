@@ -176,6 +176,7 @@ class CreatureEditorStore {
   }
 
   removeTrait(trait: string): void {
+    if (!this.creature?.traits.includes(trait)) return;
     this.mutateCreature((c) => {
       c.traits = c.traits.filter((t) => t !== trait);
     });
@@ -253,6 +254,7 @@ class CreatureEditorStore {
   }
 
   removeSkill(skill: string): void {
+    if (!this.creature?.benchmarks.skills.some((s) => s.skill === skill)) return;
     this.mutateCreature((c) => {
       c.benchmarks.skills = c.benchmarks.skills.filter((s) => s.skill !== skill);
       c.baseStats = undefined;
@@ -260,6 +262,7 @@ class CreatureEditorStore {
   }
 
   updateSkillBenchmark(skill: string, benchmark: number): void {
+    if (!this.creature?.benchmarks.skills.some((s) => s.skill === skill)) return;
     this.mutateCreature((c) => {
       c.benchmarks.skills = c.benchmarks.skills.map((s) => (s.skill === skill ? { ...s, benchmark } : s));
       c.baseStats = undefined;
@@ -296,6 +299,7 @@ class CreatureEditorStore {
 
   removeStrike(index: number): void {
     if (!this.creature || this.creature.strikes.length <= 1) return; // keep at least one
+    if (index < 0 || index >= this.creature.strikes.length) return;
     this.mutateCreature((c) => {
       c.strikes.splice(index, 1);
     });
@@ -354,6 +358,7 @@ class CreatureEditorStore {
   }
 
   removeSpecialAbility(index: number): void {
+    if (!this.creature || index < 0 || index >= this.creature.specialAbilities.length) return;
     this.mutateCreature((c) => {
       c.specialAbilities.splice(index, 1);
     });
@@ -405,13 +410,14 @@ class CreatureEditorStore {
   // ── Resistances / weaknesses ──────────────────────────────────────────────
 
   addResistance(type: string, value: number = 5): void {
+    if (this.creature?.resistances.some((r) => r.type === type)) return;
     this.mutateCreature((c) => {
-      if (c.resistances.some((r) => r.type === type)) return;
       c.resistances.push({ type, value });
     });
   }
 
   removeResistance(index: number): void {
+    if (!this.creature || index < 0 || index >= this.creature.resistances.length) return;
     this.mutateCreature((c) => {
       c.resistances.splice(index, 1);
     });
@@ -425,13 +431,14 @@ class CreatureEditorStore {
   }
 
   addWeakness(type: string, value: number = 5): void {
+    if (this.creature?.weaknesses.some((w) => w.type === type)) return;
     this.mutateCreature((c) => {
-      if (c.weaknesses.some((w) => w.type === type)) return;
       c.weaknesses.push({ type, value });
     });
   }
 
   removeWeakness(index: number): void {
+    if (!this.creature || index < 0 || index >= this.creature.weaknesses.length) return;
     this.mutateCreature((c) => {
       c.weaknesses.splice(index, 1);
     });
@@ -447,13 +454,14 @@ class CreatureEditorStore {
   // ── Immunities ─────────────────────────────────────────────────────────────
 
   addImmunity(type: string): void {
+    if (this.creature?.immunities.some((i) => i.type === type)) return;
     this.mutateCreature((c) => {
-      if (c.immunities.some((i) => i.type === type)) return;
       c.immunities.push({ type });
     });
   }
 
   removeImmunity(index: number): void {
+    if (!this.creature || index < 0 || index >= this.creature.immunities.length) return;
     this.mutateCreature((c) => {
       c.immunities.splice(index, 1);
     });
@@ -482,12 +490,14 @@ class CreatureEditorStore {
   // ── Languages ────────────────────────────────────────────────────────────────
 
   addLanguage(language: string): void {
+    if (this.creature?.languages.includes(language)) return;
     this.mutateCreature((c) => {
-      if (!c.languages.includes(language)) c.languages.push(language);
+      c.languages.push(language);
     });
   }
 
   removeLanguage(language: string): void {
+    if (!this.creature?.languages.includes(language)) return;
     this.mutateCreature((c) => {
       c.languages = c.languages.filter((l) => l !== language);
     });
@@ -496,13 +506,14 @@ class CreatureEditorStore {
   // ── Senses ─────────────────────────────────────────────────────────────────
 
   addSense(type: SenseType): void {
+    if (this.creature?.senses.some((s) => s.type === type)) return;
     this.mutateCreature((c) => {
-      if (c.senses.some((s) => s.type === type)) return;
       c.senses.push(createDefaultSense(type));
     });
   }
 
   removeSense(index: number): void {
+    if (!this.creature || index < 0 || index >= this.creature.senses.length) return;
     this.mutateCreature((c) => {
       c.senses.splice(index, 1);
     });

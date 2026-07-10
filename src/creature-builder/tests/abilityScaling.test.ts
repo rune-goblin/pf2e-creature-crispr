@@ -854,6 +854,13 @@ describe('getLevelGuidance edge behaviour', () => {
   it('for damage the guidance is exactly the scaled recommendation', () => {
     expect(getLevelGuidance(dmgSV(), 15)).toBe(getScaledRecommendation(dmgSV(), 15));
   });
+
+  it('scaling DCs (saves and untyped) get the scaled recommendation, not the level-based table', () => {
+    for (const sv of [dcSV({ checkType: 'fortitude' }), dcSV()]) {
+      expect(scalesWithLevel(sv)).toBe(true);
+      expect(getLevelGuidance(sv, 20)).toBe(getScaledRecommendation(sv, 20));
+    }
+  });
 });
 
 describe('evalLevelExpression', () => {

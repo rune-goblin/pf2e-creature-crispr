@@ -357,7 +357,7 @@ export function getLevelGuidance(sv: ScalableValue, level: number): string {
     const step = Math.round((level - sv.baseLevel) / CONDITION_LEVELS_PER_STEP);
     return String(Math.max(1, original + step));
   }
-  if (sv.type === 'dc') return String(dcByLevel(level));
+  if (sv.type === 'dc' && !scalesWithLevel(sv)) return String(dcByLevel(level));
   return getScaledRecommendation(sv, level);
 }
 
