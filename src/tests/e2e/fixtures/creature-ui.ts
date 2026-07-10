@@ -103,6 +103,8 @@ export async function isImportedCreature(page: Page, id: string): Promise<boolea
     const g = (window as any).game;
     const a = g.actors.get(actorId);
     const folder = g.folders.find((f: any) => f.type === 'Actor' && f.name === 'Creature CRISPR' && !f.folder);
-    return !!a && a.folder?.id === folder?.id && !!a.getFlag(mod, 'creatureData');
+    // Require the folder to exist — `a.folder?.id === folder?.id` passed vacuously
+    // (undefined === undefined) in a fresh world, masking a missing move-to-folder.
+    return !!a && !!folder && a.folder?.id === folder.id && !!a.getFlag(mod, 'creatureData');
   }, { actorId: id, mod: MODULE_ID });
 }

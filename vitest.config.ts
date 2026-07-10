@@ -14,6 +14,13 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
-    globals: false
+    globals: false,
+    coverage: {
+      // Only the layers the unit suite owns: the pure kernel and the editor store.
+      // services/ and ui/ are Foundry-facing and covered by the Playwright e2e suite —
+      // including them here would dilute the number with files vitest can never reach.
+      include: ['src/creature-builder/logic/**', 'src/creature-builder/editor/**'],
+      reporter: ['text', 'json-summary']
+    }
   }
 });

@@ -55,6 +55,10 @@ describe('IWR type vocabularies', () => {
     expect(humanizeIwrType('fire')).toBe('Fire');
   });
 
+  it('leaves an empty split segment untouched instead of crashing on a trailing hyphen', () => {
+    expect(humanizeIwrType('foo-')).toBe('Foo ');
+  });
+
   it('groups partition into their flat list', () => {
     expect(RESISTANCE_TYPE_GROUPS.flatMap((g) => g.options.map((o) => o.value))).toEqual(RESISTANCE_TYPES);
     expect(IMMUNITY_TYPE_GROUPS.flatMap((g) => g.options.map((o) => o.value))).toEqual(IMMUNITY_TYPES);

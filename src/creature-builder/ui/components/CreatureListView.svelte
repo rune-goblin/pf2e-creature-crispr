@@ -212,7 +212,8 @@
 
   async function handleImportActor(actorId: string): Promise<void> {
     try {
-      await importCreatureFromActor(actorId);
+      // Unlike drag-drop linking, dialog import adopts the actor into the CRISPR folder.
+      await importCreatureFromActor(actorId, { moveToFolder: true });
       ui.notifications?.info('Creature imported successfully');
       refreshCreatures();
     } catch (error) {

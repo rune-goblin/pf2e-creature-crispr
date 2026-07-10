@@ -58,21 +58,15 @@
 
   let searchInputRef: HTMLInputElement | null = $state(null);
   let pickerListEl: ReturnType<typeof PickerList> | undefined = $state();
+  // Hover is transient preview state; a click locks selectedId, which then
+  // takes precedence in the preview pane until unlocked.
+  let hoveredId = $state('');
 
-  // Auto-select first item — but only when the LIST itself changes.
-  // Tracking by signature prevents resetting selection when the user hovers
-  // or clicks a row (which only mutates selectedId, not items).
-  let lastListSig = '';
+  // A row that vanished (source switch, refetch, filter) can't stay locked
+  // or drive the preview.
   $effect(() => {
-    const sig = items.map((i) => i.id).join('|');
-    if (sig !== lastListSig) {
-      lastListSig = sig;
-      if (items.length === 0) {
-        selectedId = '';
-      } else if (!items.some((i) => i.id === selectedId)) {
-        selectedId = items[0].id;
-      }
-    }
+    if (selectedId && !items.some((i) => i.id === selectedId)) selectedId = '';
+    if (hoveredId && !items.some((i) => i.id === hoveredId)) hoveredId = '';
   });
 
   $effect(() => {
@@ -85,7 +79,7 @@
     show = false;
     searchTerm = '';
     selectedId = '';
-    lastListSig = '';
+    hoveredId = '';
     onClose?.();
   }
 
@@ -104,6 +98,8 @@
       pickerListEl?.navigate('up');
     } else if (event.key === 'Enter') {
       event.preventDefault();
+      // Nothing locked yet — Enter takes the first match (type-and-enter flow).
+      if (!selectedId) selectedId = items[0].id;
       confirm();
     }
   }
@@ -174,6 +170,7 @@
                   bind:this={pickerListEl}
                   {items}
                   bind:selectedId
+                  bind:hoveredId
                   {emptyMessage}
                   clickToCommit={false}
                   oncommit={(d) => {
@@ -189,7 +186,7 @@
 
           {#if preview}
             <div class="picker-preview-pane">
-              {@render preview(selectedId)}
+              {@render preview(selectedId || hoveredId)}
             </div>
           {/if}
         </div>

@@ -34,20 +34,21 @@
     }
 
     if (currentSource === 'bestiary') {
+      // The cached compendium index may carry a partial `system` (level/traits,
+      // from bestiaryBrowser's getIndex fields) but never attributes, so its
+      // presence can't signal a full document — always fetch. The index stub
+      // still paints name/img instantly while hp/ac load.
+      resolved = fromUuidSync(currentId) as ActorPreviewData | null;
       loading = true;
-      let entity = fromUuidSync(currentId) as ActorPreviewData | null;
-      // The index entry from fromUuidSync lacks system data; fetch the
-      // full document to get hp/ac/img.
-      if (!entity?.system) {
-        try {
-          entity = (await fromUuid(currentId)) as ActorPreviewData | null;
-        } catch {
-          entity = null;
-        }
+      let entity: ActorPreviewData | null = null;
+      try {
+        entity = (await fromUuid(currentId)) as ActorPreviewData | null;
+      } catch {
+        entity = null;
       }
       // Guard against stale async results from a previous selection.
       if (id === currentId && source === currentSource) {
-        resolved = entity;
+        resolved = entity ?? resolved;
         loading = false;
       }
     } else {
@@ -90,18 +91,28 @@
       <div class="preview-stat">
         <span class="preview-stat-label">HP</span>
         <span class="preview-stat-value">
-          {data.hpCurrent ?? '—'} / {data.hpMax ?? '—'}
+          {#if loading}
+            <i class="fas fa-spinner fa-spin"></i>
+          {:else}
+            {data.hpCurrent ?? '—'} / {data.hpMax ?? '—'}
+          {/if}
         </span>
       </div>
       <div class="preview-stat">
         <span class="preview-stat-label">AC</span>
-        <span class="preview-stat-value">{data.ac ?? '—'}</span>
+        <span class="preview-stat-value">
+          {#if loading}
+            <i class="fas fa-spinner fa-spin"></i>
+          {:else}
+            {data.ac ?? '—'}
+          {/if}
+        </span>
       </div>
     </div>
   {:else}
     <div class="preview-empty">
       <i class="fas fa-arrow-left"></i>
-      <p>Select an actor to preview</p>
+      <p>Hover or select an actor to preview</p>
     </div>
   {/if}
 </div>

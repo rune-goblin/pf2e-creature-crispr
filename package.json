@@ -30,13 +30,15 @@
     "pack": "fvtt package pack",
     "unpack": "fvtt package unpack",
     "build:adventure": "node scripts/build-adventure.ts",
-    "normalize": "node scripts/normalize-refs.ts"
+    "normalize": "node scripts/normalize-refs.ts",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@foundryvtt/foundryvtt-cli": "^3.0.3",
     "@playwright/test": "^1.61.0",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@types/node": "^22.12.0",
+    "@vitest/coverage-v8": "^4.1.9",
     "@vitest/ui": "^4.1.9",
     "foundry-pf2e": "github:7H3LaughingMan/foundry-pf2e#78aa843c39a59e06ede407a45ed1fd627169b5a3",
     "sass": "^1.83.0",

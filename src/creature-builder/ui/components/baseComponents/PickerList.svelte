@@ -4,6 +4,7 @@
   let {
     items = [],
     selectedId = $bindable(''),
+    hoveredId = $bindable(''),
     emptyMessage = 'No matches.',
     clickToCommit = false,
     onselect,
@@ -11,6 +12,7 @@
   }: {
     items?: Array<{ id: string; name: string; level?: number }>;
     selectedId?: string;
+    hoveredId?: string;
     emptyMessage?: string;
     clickToCommit?: boolean;
     onselect?: (detail: { id: string }) => void;
@@ -21,6 +23,12 @@
   const selectedIndex = $derived(items.findIndex((i) => i.id === selectedId));
 
   function handleClick(id: string) {
+    // Re-clicking the locked row unlocks it, handing the preview back to hover.
+    if (!clickToCommit && selectedId === id) {
+      selectedId = '';
+      onselect?.({ id: '' });
+      return;
+    }
     selectedId = id;
     onselect?.({ id });
     if (clickToCommit) oncommit?.({ id });
@@ -34,11 +42,14 @@
 
   export function navigate(direction: 'up' | 'down') {
     if (items.length === 0) return;
-    const idx = selectedIndex >= 0 ? selectedIndex : 0;
     const next =
-      direction === 'down'
-        ? (idx + 1) % items.length
-        : (idx - 1 + items.length) % items.length;
+      selectedIndex < 0
+        ? direction === 'down'
+          ? 0
+          : items.length - 1
+        : direction === 'down'
+          ? (selectedIndex + 1) % items.length
+          : (selectedIndex - 1 + items.length) % items.length;
     selectedId = items[next].id;
     onselect?.({ id: items[next].id });
     scrollSelectedIntoView();
@@ -55,17 +66,26 @@
   }
 </script>
 
-<div class="picker-list" bind:this={containerEl}>
+<!-- tabindex -1: the listbox role demands focusability, but the row buttons own keyboard focus -->
+<div
+  class="picker-list"
+  role="listbox"
+  tabindex="-1"
+  bind:this={containerEl}
+  onmouseleave={() => (hoveredId = '')}
+>
   {#if items.length === 0}
     <div class="picker-empty">{emptyMessage}</div>
   {:else}
     {#each items as item (item.id)}
       <button
         class="picker-item"
+        role="option"
+        aria-selected={selectedId === item.id}
         class:selected={selectedId === item.id}
         onclick={() => handleClick(item.id)}
         ondblclick={() => handleDblClick(item.id)}
-        onmousemove={() => (selectedId = item.id)}
+        onmouseenter={() => (hoveredId = item.id)}
       >
         <span class="picker-item-name">{item.name}</span>
         {#if item.level !== undefined}
@@ -126,7 +146,8 @@
     }
 
     &.selected {
-      background: var(--hover);
+      background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+      box-shadow: inset 2px 0 0 var(--color-primary);
     }
   }
 

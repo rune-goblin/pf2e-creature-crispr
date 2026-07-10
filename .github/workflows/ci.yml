@@ -26,7 +26,11 @@ jobs:
       - run: npm ci
 
       # Type-check (svelte-check + tsc across the app/node/logic projects), then the unit suite.
-      # The bestiary corpus tests self-skip here — `_pf2e-source` is a local-only dev symlink.
+      # The bestiary corpus tests self-skip here — `_pf2e-source` is a local-only dev symlink —
+      # so coverage reads slightly lower in CI than locally.
       # e2e is excluded by design: it needs a licensed Foundry install + world, not available in CI.
       - run: npm run check
-      - run: npm run test
+      - run: npm run test:coverage
+
+      - name: Coverage summary
+        run: node scripts/coverage-summary.ts >> "$GITHUB_STEP_SUMMARY"

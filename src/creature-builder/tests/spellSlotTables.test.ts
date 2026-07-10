@@ -91,6 +91,19 @@ describe('getBoundedSlots', () => {
   }
 });
 
+describe('getBoundedSlots at fractional sub-1 levels', () => {
+  // getBoundedSlots special-cases level<=-1 and level===0; anything in between (e.g. a
+  // fractional level) falls through to getBoundedHighestRank's own level<1 guard, which
+  // yields highestRank 0 and an early return of cantrips only.
+  it('grants only cantrips just below level 1', () => {
+    expect(getBoundedSlots(0.5)).toEqual({ 0: 5 });
+  });
+
+  it('grants only cantrips just above level -1', () => {
+    expect(getBoundedSlots(-0.5)).toEqual({ 0: 5 });
+  });
+});
+
 describe('divine font', () => {
   it('grants 4/5/6 slots across the level-4/14 boundaries', () => {
     expect([1, 4, 5, 14, 15, 20].map(getFontSlotCount)).toEqual([4, 4, 5, 5, 6, 6]);
@@ -157,5 +170,27 @@ describe('detectFont', () => {
 
   it('reports no font when the highest rank carries no excess', () => {
     expect(detectFont({ 1: 3, 2: 3, 3: 3 }, 6, [])).toBeUndefined();
+  });
+
+  it('reports no font when there are no active spell ranks at all', () => {
+    expect(detectFont({}, 5, [])).toBeUndefined();
+  });
+
+  it('reads a large excess as harm when Harm outnumbers Heal but neither alone reaches the excess', () => {
+    const spells = [{ name: 'Harm', rank: 3 }, { name: 'Harm', rank: 3 }, { name: 'Heal', rank: 3 }];
+    expect(detectFont({ 3: 6 }, 5, spells)).toBe('harm');
+  });
+
+  it('reads a large excess as heal when Heal is present and does not trail Harm, even below the excess threshold', () => {
+    const spells = [{ name: 'Heal', rank: 3 }];
+    expect(detectFont({ 3: 6 }, 5, spells)).toBe('heal');
+  });
+
+  it('reports no font for a large excess with no Heal or Harm spells at the highest rank', () => {
+    expect(detectFont({ 3: 6 }, 5, [])).toBeUndefined();
+  });
+
+  it('reports no font for a moderate (exactly 3) excess unexplained by Heal/Harm', () => {
+    expect(detectFont({ 3: 5 }, 5, [])).toBeUndefined();
   });
 });

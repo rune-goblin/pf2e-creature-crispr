@@ -16,9 +16,36 @@ import {
   readFastHealingRule,
   buildFastHealingRule,
   setFastHealingRuleValue,
-  composeFastHealingName
+  composeFastHealingName,
+  getAbilityBenchmarkLabel,
+  getPersistentBenchmarkLabel,
+  parseDiceFormulaAverage,
+  parseDiceComponents,
+  formatDiceFormula,
+  damageToBenchmark,
+  dcToBenchmark,
+  spellAttackToBenchmark,
+  persistentDamageToBenchmark,
+  scaleDamage,
+  scaleDC,
+  scaleSpellAttack,
+  scalePersistentDamage,
+  scaleProportionally,
+  getEffectiveBenchmark,
+  getTierInfo,
+  hasOverride,
+  stepBenchmarkTier,
+  isAtMaxTier,
+  isAtMinTier,
+  evalLevelExpression,
+  processAbilityForScaling,
+  processAbilitiesForScaling,
+  getAbilityDescription,
+  getSpellAttackRange,
+  getPersistentDamageRange
 } from '@/creature-builder/logic/abilityScaling';
-import type { ScalableValue } from '@/creature-builder/logic/models';
+import { getStatRangesForLevel } from '@/creature-builder/logic/creatureStatTables';
+import type { ScalableValue, SpecialAbility } from '@/creature-builder/logic/models';
 import { BENCHMARK_VALUES_3, BENCHMARK_VALUES_4 } from '@/creature-builder/logic/models';
 
 const wrap = (s: string) => `<p>${s}</p>`;
@@ -442,5 +469,537 @@ describe('fast healing / regeneration rule-element helpers', () => {
     );
     expect(composeFastHealingName('Fast Healing 5', 8)).toBe('Fast Healing 8');
     expect(composeFastHealingName('Regeneration', 15)).toBe('Regeneration 15');
+  });
+});
+
+// Level-10 damage/DC/persistent SVs, as parseAbilityDescription would produce them.
+const dmgSV = (o: Partial<ScalableValue> = {}): ScalableValue =>
+  ({ type: 'damage', benchmark: 1 / 3, originalValue: '2d10+11', baseLevel: 10, ...o });
+const dcSV = (o: Partial<ScalableValue> = {}): ScalableValue =>
+  ({ type: 'dc', benchmark: 0.5, originalValue: '29', baseLevel: 10, ...o });
+const persSV = (o: Partial<ScalableValue> = {}): ScalableValue =>
+  ({ type: 'persistent', benchmark: 0.5, originalValue: '2d6', baseLevel: 10, ...o });
+
+describe('dice formula primitives', () => {
+  it('parseDiceFormulaAverage computes NdM+B averages and tolerates whitespace', () => {
+    expect(parseDiceFormulaAverage('2d6+9')).toBe(16);
+    expect(parseDiceFormulaAverage('1d10 - 2')).toBe(3.5);
+    expect(parseDiceFormulaAverage('3d8')).toBe(13.5);
+  });
+
+  it('parseDiceFormulaAverage returns 0 for anything that is not a simple NdM[+B]', () => {
+    expect(parseDiceFormulaAverage('1d6+1d4')).toBe(0);
+    expect(parseDiceFormulaAverage('garbage')).toBe(0);
+    expect(parseDiceFormulaAverage('7')).toBe(0);
+  });
+
+  it('parseDiceComponents splits a simple formula and rejects compound ones', () => {
+    expect(parseDiceComponents('2d6 + 4')).toEqual({ count: 2, die: 6, bonus: 4 });
+    expect(parseDiceComponents('3d8-1')).toEqual({ count: 3, die: 8, bonus: -1 });
+    expect(parseDiceComponents('1d10')).toEqual({ count: 1, die: 10, bonus: 0 });
+    expect(parseDiceComponents('1d6+1d4')).toBeNull();
+    expect(parseDiceComponents('7')).toBeNull();
+  });
+
+  it('formatDiceFormula renders negative bonuses, omits +0, and clamps count/die', () => {
+    expect(formatDiceFormula(1, 10, -3)).toBe('1d10-3');
+    expect(formatDiceFormula(2, 6, 0)).toBe('2d6');
+    expect(formatDiceFormula(3, 8, 4)).toBe('3d8+4');
+    expect(formatDiceFormula(0, 1, 0)).toBe('1d2');
+  });
+});
+
+describe('benchmark labels', () => {
+  it.each([
+    [0, 'moderate'], [0.24, 'moderate'], [0.25, 'high'], [0.5, 'high'],
+    [0.74, 'high'], [0.75, 'extreme'], [1, 'extreme']
+  ] as const)('getAbilityBenchmarkLabel(%d) → %s', (scalar, label) => {
+    expect(getAbilityBenchmarkLabel(scalar)).toBe(label);
+  });
+
+  it.each([
+    [0, 'low'], [0.32, 'low'], [0.33, 'moderate'], [0.5, 'moderate'],
+    [0.66, 'moderate'], [0.67, 'high'], [1, 'high']
+  ] as const)('getPersistentBenchmarkLabel(%d) → %s', (scalar, label) => {
+    expect(getPersistentBenchmarkLabel(scalar)).toBe(label);
+  });
+});
+
+describe('spell attack benchmarks (level-10 row: 18/21/25)', () => {
+  it('maps the table values to the 0/0.5/1 scalars and clamps outside them', () => {
+    expect(spellAttackToBenchmark(18, 10)).toBe(0);
+    expect(spellAttackToBenchmark(21, 10)).toBe(0.5);
+    expect(spellAttackToBenchmark(25, 10)).toBe(1);
+    expect(spellAttackToBenchmark(10, 10)).toBe(0);
+    expect(spellAttackToBenchmark(30, 10)).toBe(1);
+  });
+
+  it('interpolates between benchmarks in both halves', () => {
+    expect(spellAttackToBenchmark(19, 10)).toBeCloseTo(1 / 6, 5);
+    expect(spellAttackToBenchmark(23, 10)).toBeCloseTo(0.75, 5);
+  });
+
+  it('scaleSpellAttack inverts the mapping, rounding interpolated values', () => {
+    expect(scaleSpellAttack(0, 10)).toBe(18);
+    expect(scaleSpellAttack(0.5, 10)).toBe(21);
+    expect(scaleSpellAttack(1, 10)).toBe(25);
+    expect(scaleSpellAttack(0.75, 10)).toBe(23);
+  });
+
+  it('a high spell attack stays high across a level change', () => {
+    const b = spellAttackToBenchmark(21, 10);
+    expect(scaleSpellAttack(b, 20)).toBe(getSpellAttackRange(20).high);
+  });
+
+  it('getSpellAttackRange clamps levels to the table bounds', () => {
+    expect(getSpellAttackRange(-5)).toEqual({ moderate: 5, high: 8, extreme: 11 });
+    expect(getSpellAttackRange(99)).toEqual({ moderate: 37, high: 40, extreme: 44 });
+  });
+});
+
+describe('DC benchmarks (level-10 row: 26/29/33)', () => {
+  it('dcToBenchmark maps table values exactly and clamps outside them', () => {
+    expect(dcToBenchmark(26, 10)).toBe(0);
+    expect(dcToBenchmark(29, 10)).toBe(0.5);
+    expect(dcToBenchmark(33, 10)).toBe(1);
+    expect(dcToBenchmark(20, 10)).toBe(0);
+    expect(dcToBenchmark(40, 10)).toBe(1);
+    expect(dcToBenchmark(31, 10)).toBeCloseTo(0.75, 5);
+  });
+
+  it('scaleDC interpolates in the upper (high→extreme) half', () => {
+    expect(scaleDC(1, 10)).toBe(33);
+    expect(scaleDC(0.75, 10)).toBe(31);
+  });
+
+  it('a moderate DC re-anchors to the moderate value of the new level', () => {
+    expect(scaleDC(dcToBenchmark(26, 10), 20)).toBe(39);
+    expect(scaleDC(0, 30)).toBe(45);
+    expect(scaleDC(0, -10)).toBe(13);
+  });
+});
+
+describe('scaleDamage (level-10 row: 2d6+10 / 2d10+11 / 2d12+13 / 2d12+20)', () => {
+  it('returns the exact table formula at each of the four tier scalars', () => {
+    expect(scaleDamage(0, 10)).toBe('2d6+10');
+    expect(scaleDamage(1 / 3, 10)).toBe('2d10+11');
+    expect(scaleDamage(2 / 3, 10)).toBe('2d12+13');
+    expect(scaleDamage(1, 10)).toBe('2d12+20');
+  });
+
+  it('adjusts the nearest tier formula to hit an interpolated average', () => {
+    expect(scaleDamage(0.5, 10)).toBe('2d12+11');
+    expect(parseDiceFormulaAverage('2d12+11')).toBe(24);
+  });
+
+  it('clamps benchmark and level to the table bounds', () => {
+    expect(scaleDamage(1, 30)).toBe('4d12+42');
+    expect(scaleDamage(0, -5)).toBe('1d4');
+  });
+
+  it('a benchmark from damageToBenchmark lands on the same tier at another level', () => {
+    const b = damageToBenchmark(26, 10);
+    expect(b).toBeCloseTo(2 / 3, 5);
+    expect(scaleDamage(b, 4)).toBe('2d8+5');
+  });
+
+  it('damageToBenchmark interpolates between tiers and clamps outside them', () => {
+    expect(damageToBenchmark(24, 10)).toBeCloseTo(0.5, 5);
+    expect(damageToBenchmark(1, 10)).toBe(0);
+    expect(damageToBenchmark(50, 10)).toBe(1);
+  });
+});
+
+describe('scalePersistentDamage (level-10 row: 2d4 / 2d6 / 3d6)', () => {
+  it('snaps the scalar to the tier formula with 0.33/0.67 boundaries', () => {
+    expect(scalePersistentDamage(0, 10)).toBe('2d4');
+    expect(scalePersistentDamage(0.32, 10)).toBe('2d4');
+    expect(scalePersistentDamage(0.33, 10)).toBe('2d6');
+    expect(scalePersistentDamage(0.66, 10)).toBe('2d6');
+    expect(scalePersistentDamage(0.67, 10)).toBe('3d6');
+    expect(scalePersistentDamage(1, 10)).toBe('3d6');
+  });
+
+  it('clamps the level to the table bounds', () => {
+    expect(scalePersistentDamage(1, 30)).toBe('6d6');
+    expect(scalePersistentDamage(0, -5)).toBe('1d4');
+  });
+
+  it('persistentDamageToBenchmark maps tier averages to 0/0.5/1 and interpolates', () => {
+    expect(persistentDamageToBenchmark(5, 10)).toBe(0);
+    expect(persistentDamageToBenchmark(7, 10)).toBe(0.5);
+    expect(persistentDamageToBenchmark(10.5, 10)).toBe(1);
+    expect(persistentDamageToBenchmark(6, 10)).toBeCloseTo(0.25, 5);
+    expect(persistentDamageToBenchmark(20, 10)).toBe(1);
+  });
+
+  it('getPersistentDamageRange clamps levels to the table bounds', () => {
+    expect(getPersistentDamageRange(-9)).toEqual({ low: '1d4', moderate: '1d4', high: '1d6' });
+    expect(getPersistentDamageRange(40)).toEqual({ low: '4d8', moderate: '5d6', high: '6d6' });
+  });
+});
+
+describe('scaleProportionally', () => {
+  it('rebuilds a bonus-carrying formula in its own die to match the level-scaled average', () => {
+    const sv = dmgSV({ originalValue: '2d6+4', benchmark: 0, baseLevel: 5 });
+    expect(scaleProportionally(sv, 10)).toBe('5d6+1');
+  });
+
+  it('keeps the scaled average within 0.5 of the exact moderate-spine target at every level', () => {
+    const sv = dmgSV({ originalValue: '2d6+4', benchmark: 0, baseLevel: 5 });
+    const baseMod = getStatRangesForLevel(5).strikeDamage.moderate.average;
+    for (const L of [1, 5, 8, 12, 16, 20, 24]) {
+      const result = scaleProportionally(sv, L);
+      expect(result).toMatch(/^\d+d6([+-]\d+)?$/);
+      const target = 11 * (getStatRangesForLevel(L).strikeDamage.moderate.average / baseMod);
+      expect(Math.abs(parseDiceFormulaAverage(result) - target)).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('emits a negative bonus when a big formula scales to a tiny level', () => {
+    const sv = dmgSV({ originalValue: '2d10+3' });
+    expect(scaleProportionally(sv, -1)).toBe('1d10-4');
+    expect(Math.abs(parseDiceFormulaAverage('1d10-4') - 14 * (3 / 22))).toBeLessThanOrEqual(0.5);
+  });
+
+  it('at the base level a clean NdM and a flat value pass through unchanged', () => {
+    expect(scaleProportionally(persSV(), 10)).toBe('2d6');
+    expect(scaleProportionally(persSV({ originalValue: '5', baseLevel: 15 }), 15)).toBe('5');
+  });
+
+  it('scales flat persistent damage as an integer on the persistent moderate spine', () => {
+    expect(scaleProportionally(persSV({ originalValue: '5', baseLevel: 15 }), 5)).toBe('2');
+  });
+
+  it('never scales a flat value below 1', () => {
+    expect(scaleProportionally(dmgSV({ originalValue: '2', baseLevel: 24 }), -1)).toBe('1');
+  });
+
+  it('falls back to tier-snap when the formula is compound', () => {
+    expect(scaleProportionally(dmgSV({ originalValue: '1d6+1d4' }), 15)).toBe('3d10+14');
+    expect(scaleProportionally(persSV({ originalValue: '1d6+1d4', benchmark: 1 }), 10)).toBe('3d6');
+  });
+
+  it('falls back to tier-snap healing when baseLevel is missing', () => {
+    const sv: ScalableValue = { type: 'healing', benchmark: 0.5, originalValue: '12' };
+    expect(scaleProportionally(sv, 10)).toBe('11');
+  });
+});
+
+describe('getEffectiveBenchmark', () => {
+  it('returns the benchmark when no override is set', () => {
+    expect(getEffectiveBenchmark(dmgSV())).toBeCloseTo(1 / 3, 5);
+  });
+
+  it('an override of 0 still wins over the benchmark', () => {
+    expect(getEffectiveBenchmark(dmgSV({ benchmark: 1, override: 0 }))).toBe(0);
+  });
+});
+
+describe('getTierInfo', () => {
+  it('classifies by benchmark scalar when there is no customValue', () => {
+    expect(getTierInfo(dmgSV({ benchmark: 0 }), 10)).toEqual({ label: 'low', exact: true });
+    expect(getTierInfo(dmgSV(), 10)).toEqual({ label: 'moderate', exact: true });
+    expect(getTierInfo(dmgSV({ benchmark: 0.55 }), 10)).toEqual({ label: 'high', exact: false });
+    expect(getTierInfo(dmgSV({ benchmark: 0, override: 2 / 3 }), 10)).toEqual({ label: 'high', exact: true });
+    expect(getTierInfo(dmgSV({ benchmark: 1 }), 10)).toEqual({ label: 'extreme', exact: true });
+    expect(getTierInfo(dcSV(), 10)).toEqual({ label: 'high', exact: true });
+    expect(getTierInfo(dcSV({ benchmark: 1 }), 10)).toEqual({ label: 'extreme', exact: true });
+    expect(getTierInfo(persSV({ benchmark: 1 }), 10)).toEqual({ label: 'high', exact: true });
+  });
+
+  it('classifies a damage customValue by its average against the level tiers', () => {
+    expect(getTierInfo(dmgSV({ customValue: '2d10+11' }), 10)).toEqual({ label: 'moderate', exact: true });
+    expect(getTierInfo(dmgSV({ customValue: '2d10+14' }), 10)).toEqual({ label: 'high', exact: false });
+    expect(getTierInfo(dmgSV({ customValue: '1d4' }), 10)).toEqual({ label: 'low', exact: false });
+    expect(getTierInfo(dmgSV({ customValue: '12d12+20' }), 10)).toEqual({ label: 'extreme', exact: false });
+  });
+
+  it('classifies a persistent customValue, with exactness under half a point', () => {
+    expect(getTierInfo(persSV({ customValue: '3d6' }), 10)).toEqual({ label: 'high', exact: true });
+    expect(getTierInfo(persSV({ customValue: '2d4' }), 10)).toEqual({ label: 'low', exact: true });
+    expect(getTierInfo(persSV({ customValue: '1d8+1' }), 10)).toEqual({ label: 'low', exact: false });
+  });
+
+  it('classifies healing and DC customValues against their level rows', () => {
+    const heal = healingSV({ baseLevel: 10 });
+    expect(getTierInfo({ ...heal, customValue: '11' }, 10)).toEqual({ label: 'moderate', exact: true });
+    expect(getTierInfo({ ...heal, customValue: '10' }, 10)).toEqual({ label: 'moderate', exact: false });
+    expect(getTierInfo({ ...heal, customValue: '100' }, 10)).toEqual({ label: 'high', exact: false });
+    expect(getTierInfo(dcSV({ customValue: '26' }), 10)).toEqual({ label: 'moderate', exact: true });
+    expect(getTierInfo(dcSV({ customValue: '32' }), 10)).toEqual({ label: 'extreme', exact: false });
+    expect(getTierInfo(dcSV({ customValue: '20' }), 10)).toEqual({ label: 'moderate', exact: false });
+  });
+
+  it('returns null for conditions and unparseable customValues', () => {
+    const cond: ScalableValue = { type: 'condition', benchmark: 0, originalValue: '2', baseLevel: 10 };
+    expect(getTierInfo(cond, 10)).toBeNull();
+    expect(getTierInfo(dmgSV({ customValue: '1d6+1d4' }), 10)).toBeNull();
+    expect(getTierInfo(dcSV({ customValue: 'DC' }), 10)).toBeNull();
+    expect(getTierInfo({ ...healingSV(), customValue: 'abc' }, 14)).toBeNull();
+  });
+});
+
+describe('hasOverride', () => {
+  it('is false with no override, an empty customValue, or an override equal to the benchmark', () => {
+    expect(hasOverride(dmgSV())).toBe(false);
+    expect(hasOverride(dmgSV({ customValue: '' }))).toBe(false);
+    expect(hasOverride(dmgSV({ override: 1 / 3 }))).toBe(false);
+  });
+
+  it('is true for a customValue or a tier override distinct from the parse-time benchmark', () => {
+    expect(hasOverride(dmgSV({ customValue: '3d6' }))).toBe(true);
+    expect(hasOverride(dmgSV({ override: 1 }))).toBe(true);
+  });
+});
+
+describe('getDisplayBenchmark reverse-maps customValues; override wins outright', () => {
+  it('override takes precedence over customValue', () => {
+    expect(getDisplayBenchmark(dmgSV({ override: 1, customValue: '2d6' }), 10)).toBe(1);
+  });
+
+  it('falls back to the parsed benchmark when nothing is overridden', () => {
+    expect(getDisplayBenchmark(dmgSV(), 10)).toBeCloseTo(1 / 3, 5);
+  });
+
+  it('maps a DC customValue through dcToBenchmark, falling back when unparseable', () => {
+    expect(getDisplayBenchmark(dcSV({ benchmark: 0, customValue: '29' }), 10)).toBe(0.5);
+    expect(getDisplayBenchmark(dcSV({ benchmark: 0, customValue: 'nope' }), 10)).toBe(0);
+  });
+
+  it('maps damage/persistent customValues through their benchmark curves', () => {
+    expect(getDisplayBenchmark(dmgSV({ customValue: '2d12+20' }), 10)).toBe(1);
+    expect(getDisplayBenchmark(persSV({ benchmark: 0, customValue: '3d6' }), 10)).toBe(1);
+    expect(getDisplayBenchmark(dmgSV({ customValue: 'xyz' }), 10)).toBeCloseTo(1 / 3, 5);
+  });
+});
+
+describe('stepBenchmarkTier / isAtMaxTier / isAtMinTier', () => {
+  it('steps damage through the 4-tier ladder', () => {
+    expect(stepBenchmarkTier(dmgSV(), 1)).toBeCloseTo(2 / 3, 5);
+    expect(stepBenchmarkTier(dmgSV(), -1)).toBe(0);
+  });
+
+  it('an interpolated value steps to the adjacent tier, not past it', () => {
+    expect(stepBenchmarkTier(dmgSV({ benchmark: 0.55 }), 1)).toBeCloseTo(2 / 3, 5);
+    expect(stepBenchmarkTier(dmgSV({ benchmark: 0.55 }), -1)).toBeCloseTo(1 / 3, 5);
+  });
+
+  it('clamps at the extremes, consistently with isAtMaxTier/isAtMinTier', () => {
+    const max = dmgSV({ benchmark: 1 });
+    expect(stepBenchmarkTier(max, 1)).toBe(1);
+    expect(isAtMaxTier(max)).toBe(true);
+    expect(isAtMinTier(max)).toBe(false);
+
+    const min = dmgSV({ benchmark: 0 });
+    expect(stepBenchmarkTier(min, -1)).toBe(0);
+    expect(isAtMinTier(min)).toBe(true);
+    expect(isAtMaxTier(min)).toBe(false);
+
+    expect(isAtMaxTier(dmgSV())).toBe(false);
+    expect(isAtMinTier(dmgSV())).toBe(false);
+  });
+
+  it('uses the effective benchmark, so an override drives the stepping', () => {
+    const overridden = dmgSV({ benchmark: 0, override: 1 });
+    expect(isAtMaxTier(overridden)).toBe(true);
+    expect(stepBenchmarkTier(overridden, 1)).toBe(1);
+    expect(stepBenchmarkTier(overridden, -1)).toBeCloseTo(2 / 3, 5);
+  });
+
+  it('DC, persistent and healing use the 3-tier ladder', () => {
+    expect(stepBenchmarkTier(dcSV(), 1)).toBe(1);
+    expect(stepBenchmarkTier(dcSV(), -1)).toBe(0);
+    expect(stepBenchmarkTier(persSV({ benchmark: 0 }), 1)).toBe(0.5);
+    expect(stepBenchmarkTier(healingSV({ benchmark: 1 }), -1)).toBe(0.5);
+    expect(isAtMaxTier(dcSV({ benchmark: 1 }))).toBe(true);
+    expect(isAtMinTier(healingSV({ benchmark: 0 }))).toBe(true);
+  });
+});
+
+describe('getActiveTierFormula for non-roll types', () => {
+  it('returns null for DC and healing values', () => {
+    expect(getActiveTierFormula(dcSV(), 16)).toBeNull();
+    expect(getActiveTierFormula(healingSV(), 16)).toBeNull();
+  });
+});
+
+describe('getEffectiveValue with a DC tier override', () => {
+  it('resolves the override through the DC table at the current level', () => {
+    expect(getEffectiveValue(dcSV({ benchmark: 0, override: 1 }), 10)).toBe('33');
+    expect(getEffectiveValue(dcSV({ benchmark: 0, override: 1 }), 20)).toBe('47');
+  });
+
+  it('a condition ignores tier overrides and keeps its flat value', () => {
+    const cond: ScalableValue = { type: 'condition', benchmark: 0, originalValue: '2', baseLevel: 10, override: 1 };
+    expect(getEffectiveValue(cond, 20)).toBe('2');
+  });
+});
+
+describe('getLevelGuidance edge behaviour', () => {
+  it('a condition without a baseLevel keeps its original value at any level', () => {
+    const cond: ScalableValue = { type: 'condition', benchmark: 0, originalValue: '3' };
+    expect(getLevelGuidance(cond, 1)).toBe('3');
+    expect(getLevelGuidance(cond, 24)).toBe('3');
+  });
+
+  it('skill-DC guidance follows the Level-Based DCs table at its extremes', () => {
+    const skill = dcSV({ checkType: 'medicine', originalValue: '20' });
+    expect(getLevelGuidance(skill, 0)).toBe('14');
+    expect(getLevelGuidance(skill, -1)).toBe('14');
+    expect(getLevelGuidance(skill, 24)).toBe('48');
+    expect(getLevelGuidance(skill, 26)).toBe('52');
+  });
+
+  it('for damage the guidance is exactly the scaled recommendation', () => {
+    expect(getLevelGuidance(dmgSV(), 15)).toBe(getScaledRecommendation(dmgSV(), 15));
+  });
+});
+
+describe('evalLevelExpression', () => {
+  it.each([
+    ['@actor.level', 13, 13],
+    ['2 + 3 * 4', 0, 14],
+    ['(2 + 3) * 4', 0, 20],
+    ['-2 + @actor.level', 5, 3],
+    ['+3', 0, 3],
+    ['max(1, @actor.level - 2)', 1, 1],
+    ['max(1, @actor.level - 2)', 9, 7],
+    ['min(@actor.level, 10)', 15, 10],
+    ['round(@actor.level / 2)', 5, 3],
+    ['abs(0 - @actor.level)', 4, 4],
+    ['ternary(gte(@actor.level, 10), 4, 2)', 12, 4],
+    ['ternary(gte(@actor.level, 10), 4, 2)', 9, 2],
+    ['ternary(lt(@actor.level, 5), 1, 0)', 3, 1],
+    ['eq(@actor.level, 5)', 5, 1],
+    ['ne(@actor.level, 5)', 5, 0],
+    ['lte(3, 3)', 0, 1],
+    ['gt(3, 3)', 0, 0]
+  ])('%s at level %d → %d', (expr, level, expected) => {
+    expect(evalLevelExpression(expr, level)).toBe(expected);
+  });
+
+  it.each([
+    '@item.level',
+    'foo(3)',
+    'floor(1, 2)',
+    'ternary(1, 2)',
+    'max()',
+    '2 +',
+    '(2',
+    '2 3',
+    '',
+    '1/0',
+    '2 % 3',
+    '1..5'
+  ])('returns null for unresolvable/malformed input: %s', (expr) => {
+    expect(evalLevelExpression(expr, 10)).toBeNull();
+  });
+});
+
+describe('level-derived dice counts using the full expression grammar', () => {
+  it('a ternary count evaluates differently per parse level', () => {
+    const at12 = damages('@Damage[ternary(gte(@actor.level,10),4,2)d8[fire]]', 12);
+    expect(at12[0]).toMatchObject({ type: 'damage', originalValue: '4d8', damageType: 'fire' });
+    const at5 = damages('@Damage[ternary(gte(@actor.level,10),4,2)d8[fire]]', 5);
+    expect(at5[0]).toMatchObject({ type: 'damage', originalValue: '2d8' });
+  });
+
+  it('a level-derived count followed by extra arithmetic is left verbatim', () => {
+    const macro = '@Damage[(@actor.level)d6 + 3[fire]]';
+    const p = parse(macro, 10);
+    expect(p.scalableValues.filter(v => v.type !== 'dc')).toHaveLength(0);
+    expect(renderAbilityDescription(p.template, p.scalableValues, 5)).toContain(macro);
+  });
+
+  it('dice nested inside a function call are left verbatim', () => {
+    const macro = '@Damage[max(1,(@actor.level)d6)[fire]]';
+    const p = parse(macro, 10);
+    expect(p.scalableValues.filter(v => v.type !== 'dc')).toHaveLength(0);
+    expect(renderAbilityDescription(p.template, p.scalableValues, 5)).toContain(macro);
+  });
+});
+
+describe('plain-text persistent damage', () => {
+  it('extracts and rescales "NdM persistent <type> damage"', () => {
+    const p = parse('plus 2d6 persistent fire damage', 13);
+    expect(p.scalableValues[0]).toMatchObject({ type: 'persistent', originalValue: '2d6', damageType: 'fire' });
+    expect(p.template).toContain('{0} persistent fire damage');
+    expect(renderAbilityDescription(p.template, p.scalableValues, 5)).toContain('1d6 persistent fire damage');
+  });
+
+  it('ignores persistent damage with an unknown damage type', () => {
+    expect(parse('deals 3d6 persistent radiation damage', 10).scalableValues).toHaveLength(0);
+  });
+});
+
+describe('renderAbilityDescriptionHtml with a placeholder beyond the value list', () => {
+  it('leaves the stray placeholder verbatim and renders the real one', () => {
+    const html = renderAbilityDescriptionHtml('deals {0} plus {7}', [dmgSV()], 10);
+    expect(html).toContain('>2d10+11</span>');
+    expect(html).toContain('{7}');
+  });
+});
+
+describe('processAbilityForScaling / getAbilityDescription end-to-end', () => {
+  const breath: SpecialAbility = {
+    id: 'a1',
+    name: 'Breath Weapon',
+    description: '<p>deals 2d10+11 fire damage (DC 29 Fortitude save)</p>',
+    actionType: 'action',
+    actions: 2
+  };
+  const flavor: SpecialAbility = {
+    id: 'a2',
+    name: 'Shimmering Aura',
+    description: '<p>A shimmering aura surrounds the creature.</p>',
+    actionType: 'passive'
+  };
+
+  it('templates the damage and DC into placeholders without mutating the input', () => {
+    const processed = processAbilityForScaling(breath, 10);
+    expect(processed).not.toBe(breath);
+    expect(processed.descriptionTemplate).toContain('deals {0} fire damage');
+    expect(processed.descriptionTemplate).toContain('DC {1} Fortitude');
+    expect(processed.scalableValues?.map(v => v.type)).toEqual(['damage', 'dc']);
+    expect(breath.descriptionTemplate).toBeUndefined();
+  });
+
+  it('returns the ability unchanged when nothing in it scales', () => {
+    expect(processAbilityForScaling(flavor, 10)).toBe(flavor);
+  });
+
+  it('round-trips the original text at the base level', () => {
+    const processed = processAbilityForScaling(breath, 10);
+    expect(getAbilityDescription(processed, 10)).toBe(breath.description);
+  });
+
+  it('rescales both values at a new level', () => {
+    const rendered = getAbilityDescription(processAbilityForScaling(breath, 10), 20);
+    expect(rendered).toContain('DC 42 Fortitude');
+    const m = rendered.match(/deals (\d+d10(?:[+-]\d+)?) fire damage/);
+    expect(m).not.toBeNull();
+    expect(parseDiceFormulaAverage(m![1])).toBeCloseTo(37, 0);
+  });
+
+  it('an unprocessed ability renders its raw description', () => {
+    expect(getAbilityDescription(flavor, 20)).toBe(flavor.description);
+  });
+
+  it('customDescriptionTemplate takes precedence and still substitutes placeholders', () => {
+    const processed = processAbilityForScaling(breath, 10);
+    const custom = { ...processed, customDescriptionTemplate: '<p>now {0} damage, DC {1}</p>' };
+    expect(getAbilityDescription(custom, 10)).toBe('<p>now 2d10+11 damage, DC 29</p>');
+  });
+
+  it('a freeform customDescriptionTemplate wins when there are no scalable values', () => {
+    const custom = { ...flavor, customDescriptionTemplate: '<p>Rewritten.</p>' };
+    expect(getAbilityDescription(custom, 10)).toBe('<p>Rewritten.</p>');
+  });
+
+  it('processAbilitiesForScaling maps every ability', () => {
+    const [first, second] = processAbilitiesForScaling([breath, flavor], 10);
+    expect(first.scalableValues).toHaveLength(2);
+    expect(second).toBe(flavor);
   });
 });
