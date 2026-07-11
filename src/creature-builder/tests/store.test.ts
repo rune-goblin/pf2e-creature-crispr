@@ -108,6 +108,15 @@ describe('CreatureEditorStore', () => {
     expect(editorStore.creature!.strikes.map((s) => s.name)).toEqual(['Bite']);
   });
 
+  it('addStrikeEntry appends a fully-formed strike and marks dirty', () => {
+    editorStore.startCreate();
+    editorStore.isDirty = false;
+    const strike = { ...createDefaultStrike('Tail'), attackBonus: 11, damage: '2d8+4', damageType: 'bludgeoning' };
+    editorStore.addStrikeEntry(strike);
+    expect(editorStore.creature!.strikes.at(-1)).toMatchObject({ name: 'Tail', attackBonus: 11, damage: '2d8+4' });
+    expect(editorStore.isDirty).toBe(true);
+  });
+
   it('updateBenchmark writes dotted ability and save paths through to computedStats', () => {
     editorStore.startCreate();
     const strBefore = editorStore.computedStats!.str;
@@ -385,6 +394,18 @@ describe('strikes', () => {
 
 describe('special abilities', () => {
   beforeEach(() => editorStore.resetEditor());
+
+  it('addSpecialAbility skips an ability whose id is already present and reports it', () => {
+    editorStore.startCreate();
+    expect(editorStore.addSpecialAbility(makeAbility())).toBe(true);
+    editorStore.isDirty = false;
+    expect(editorStore.addSpecialAbility(makeAbility({ name: 'Renamed Rend' }))).toBe(false);
+    expect(editorStore.creature!.specialAbilities).toHaveLength(1);
+    expect(editorStore.isDirty).toBe(false);
+    // Same name under a different id is a distinct ability (e.g. two creatures' "Bite").
+    expect(editorStore.addSpecialAbility(makeAbility({ id: 'ab2' }))).toBe(true);
+    expect(editorStore.creature!.specialAbilities).toHaveLength(2);
+  });
 
   it('add, update, and remove round-trip; out-of-range updates are ignored', () => {
     editorStore.startCreate();

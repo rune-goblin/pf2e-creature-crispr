@@ -16,6 +16,8 @@ export * from './defaultSaveTarget';
 export * from './saveTargetRegistry';
 export * from './defaultEditorEnvironment';
 export * from './editorHost';
+export * from './itemDropHandlers';
+export * from './dropDetection';
 export * from './abilityProviderRegistry';
 
 export type {

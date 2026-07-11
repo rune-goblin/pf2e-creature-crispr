@@ -1,6 +1,6 @@
 import { mount, unmount } from 'svelte';
-import { editorStore } from '@/creature-builder/editor';
-import { defaultEditorEnvironment } from '@/creature-builder/services';
+import { editorStore, dragDropState } from '@/creature-builder/editor';
+import { defaultEditorEnvironment, installDropDetection } from '@/creature-builder/services';
 import CreatureWorkspace from './components/CreatureWorkspace.svelte';
 
 const { ApplicationV2 } = foundry.applications.api;
@@ -16,6 +16,7 @@ export class CreatureCrisprApp extends ApplicationV2 {
 
   #component?: ReturnType<typeof mount>;
   #root?: HTMLElement;
+  #teardownDropDetection?: () => void;
 
   static open(): CreatureCrisprApp {
     const app = new CreatureCrisprApp();
@@ -30,6 +31,7 @@ export class CreatureCrisprApp extends ApplicationV2 {
       this.#root = document.createElement('div');
       this.#root.classList.add('creature-crispr-root');
       this.#component = mount(CreatureWorkspace, { target: this.#root, props: { app: this } });
+      this.#teardownDropDetection = installDropDetection(dragDropState);
     }
     return this.#root!;
   }
@@ -52,6 +54,9 @@ export class CreatureCrisprApp extends ApplicationV2 {
       this.#component = undefined;
       this.#root = undefined;
     }
+    this.#teardownDropDetection?.();
+    this.#teardownDropDetection = undefined;
+    dragDropState.end();
     // Closing is a cancel: clear editor state (the store outlives the app) so the next open shows the list.
     editorStore.resetEditor();
   }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ActorPF2e } from 'foundry-pf2e';
-  import { editorStore, type EditableCreature } from '@/creature-builder/editor';
+  import { editorStore, dragDropState, type EditableCreature } from '@/creature-builder/editor';
   import { getActiveSaveTarget, defaultEditorEnvironment, getActiveProviders } from '@/creature-builder/services';
   import { mergeSpecialAbilitiesByName } from '@/creature-builder/logic/customAbility';
   import {
@@ -198,6 +198,59 @@
     editorStore.updateBenchmark(path, benchmarkValue);
   }
 
+  // The whole editor frame is one drop target: the dropped item's type decides where it lands
+  // (Actions/Passives/Offense), not where it was dropped. Hover highlighting of the destination
+  // section comes from dragDropState, fed by the host's dragstart sniffer.
+  let isFrameDragOver = $state(false);
+
+  function handleFrameDragOver(event: DragEvent): void {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    isFrameDragOver = true;
+  }
+
+  function handleFrameDragLeave(event: DragEvent): void {
+    // Ignore leaves that merely cross into a child element.
+    const related = event.relatedTarget;
+    if (related instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(related)) return;
+    isFrameDragOver = false;
+  }
+
+  async function handleEditorDrop(event: DragEvent): Promise<void> {
+    event.preventDefault();
+    isFrameDragOver = false;
+    const c = editorStore.creature;
+    if (!c) return;
+    const raw = event.dataTransfer?.getData('text/plain');
+    if (!raw) return;
+    let data: { type?: string; crisprAbilityDrag?: boolean };
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    // A CRISPR ability dragged out and dropped back in — don't duplicate it.
+    if (data.crisprAbilityDrag) return;
+    const entity = await env.entityFromDrop(data, c.level);
+    if (!entity) {
+      env.notify.warn('Drop an action, creature feat, or melee attack here.');
+      return;
+    }
+    if (entity.kind === 'ability') {
+      if (!editorStore.addSpecialAbility(entity.ability)) {
+        env.notify.warn('Ability already exists.');
+        return;
+      }
+      const section = entity.ability.actionType === 'passive' ? 'passives' : 'actions';
+      editorStore.expandedSections.add(section);
+      env.notify.info(`Added "${entity.ability.name}" to ${section === 'passives' ? 'Passives' : 'Actions'}`);
+    } else {
+      editorStore.addStrikeEntry(entity.strike);
+      editorStore.expandedSections.add('offense');
+      env.notify.info(`Added strike "${entity.strike.name}"`);
+    }
+  }
+
   // Convert a typed display value back to a 0–1 benchmark scalar against the level's stat range.
   function handleBenchmarkEdit(path: string, computedValue: number, statType: string): void {
     const ranges = getStatRangesForLevel(editorStore.creature?.level ?? 1);
@@ -221,7 +274,15 @@
 </script>
 
 {#if creature}
-  <div class="creature-editor">
+  <div
+    class="creature-editor"
+    class:drag-over-frame={isFrameDragOver}
+    role="region"
+    aria-label="Creature editor — drop an ability or attack here to add it"
+    ondragover={handleFrameDragOver}
+    ondragleave={handleFrameDragLeave}
+    ondrop={handleEditorDrop}
+  >
     <header class="editor-header">
       <span class="header-title">
         {#if mode === 'create'}New Creature{:else if mode === 'import'}Import{:else}Edit{/if}
@@ -319,6 +380,7 @@
         <OffenseSection
           {creature}
           {computedStats}
+          highlightDrop={isFrameDragOver && dragDropState.destination === 'offense'}
           expanded={expandedSections.has('offense')}
           onToggle={() => editorStore.toggleSection('offense')}
           onUpdateBenchmark={(d) => editorStore.updateBenchmark(d.path, d.value)}
@@ -346,6 +408,7 @@
           {creature}
           {env}
           {abilityProviders}
+          highlightDrop={isFrameDragOver && dragDropState.destination === 'actions'}
           expanded={expandedSections.has('actions')}
           onToggle={() => editorStore.toggleSection('actions')}
           onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}
@@ -362,6 +425,7 @@
           {creature}
           {env}
           {abilityProviders}
+          highlightDrop={isFrameDragOver && dragDropState.destination === 'passives'}
           expanded={expandedSections.has('passives')}
           onToggle={() => editorStore.toggleSection('passives')}
           onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}
@@ -412,6 +476,14 @@
     min-height: 0;
     background: var(--empty);
     font-size: var(--font-md);
+    transition: background var(--transition-fast), outline-color var(--transition-fast);
+    outline: 2px dashed transparent;
+    outline-offset: -4px;
+
+    &.drag-over-frame {
+      outline-color: var(--color-primary);
+      background: color-mix(in srgb, var(--color-primary) 4%, var(--empty));
+    }
   }
 
   .save-as-body {

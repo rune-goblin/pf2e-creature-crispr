@@ -26,6 +26,7 @@
       creature,
       computedStats,
       expanded,
+      highlightDrop = false,
       onToggle,
       onUpdateBenchmark,
       onAddStrike,
@@ -39,6 +40,8 @@
       creature: EditableCreature;
       computedStats: CreatureStats | null;
       expanded: boolean;
+      /** True while a drag hovers the editor and this section is the detected destination. */
+      highlightDrop?: boolean;
       onToggle?: () => void;
       onUpdateBenchmark?: (d: { path: string; value: number }) => void;
       onAddStrike?: () => void;
@@ -152,7 +155,7 @@
    }
 </script>
 
-<section class="editor-section">
+<section class="editor-section" class:drag-over={highlightDrop}>
    <CollapsibleSection
       label="Offense"
       {expanded}
@@ -173,7 +176,12 @@
       {/snippet}
    </CollapsibleSection>
    {#if expanded}
-      <div class="section-body">
+      <div
+         class="section-body"
+         class:drag-over={highlightDrop}
+         role="group"
+         aria-label="Drop a melee attack here to add it"
+      >
          <div class="attacks-editor">
             <div class="attacks-header">
                <span>Attacks</span>
@@ -341,6 +349,14 @@
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-lg);
       overflow: hidden;
+      transition: border-color var(--transition-fast), background var(--transition-fast);
+
+      /* Section-level highlight too: the destination may be collapsed, so .section-body
+         (expanded-only) can't carry the cue alone. */
+      &.drag-over {
+         border-color: var(--color-primary);
+         background: color-mix(in srgb, var(--color-primary) 7%, var(--section-body-bg));
+      }
    }
 
    .section-body {
@@ -349,6 +365,14 @@
       display: flex;
       flex-direction: column;
       gap: var(--space-12);
+      transition: background var(--transition-fast), outline-color var(--transition-fast);
+      outline: 2px dashed transparent;
+      outline-offset: -4px;
+
+      &.drag-over {
+         outline-color: var(--color-primary);
+         background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+      }
    }
 
    /* Attacks Editor */

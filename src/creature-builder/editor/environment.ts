@@ -1,5 +1,12 @@
-import type { SpecialAbility } from '../logic/models';
+import type { CreatureStrike, SpecialAbility } from '../logic/models';
 import type { CustomAbilityDefinition } from '../logic/contracts';
+
+/** The editor section a detected drop will land in — drives the hover highlight. */
+export type DropDestination = 'actions' | 'passives' | 'offense';
+
+export type DropEntity =
+  | { kind: 'ability'; ability: SpecialAbility }
+  | { kind: 'strike'; strike: CreatureStrike };
 
 export interface EditorNotifier {
   info(message: string): void;
@@ -16,8 +23,8 @@ export interface EditorEnvironment {
   confirmDiscard(): Promise<boolean>;
   /** Open an image file picker; resolves to the chosen path. Mirrors FilePicker: a cancel never resolves. */
   pickImage(current: string): Promise<string>;
-  /** Parse a dropped Foundry Item payload into an ability (drag-in), or null if it isn't an action/ability. */
-  abilityFromDrop(data: unknown, level: number): Promise<SpecialAbility | null>;
+  /** Resolve a dropped Foundry Item payload into an editor entity (ability or strike), or null if unsupported. */
+  entityFromDrop(data: unknown, level: number): Promise<DropEntity | null>;
   /** Serialize an ability to the Foundry Item drop-payload string set on a drag-out onto an actor sheet. */
   abilityToDropPayload(ability: SpecialAbility, level: number): string;
   /** Instantiate a provider ability for the creature — the kernel mapping plus a host-assigned id. */

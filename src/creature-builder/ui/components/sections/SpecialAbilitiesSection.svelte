@@ -32,6 +32,7 @@
       expanded,
       kind,
       abilityProviders = [],
+      highlightDrop = false,
       onToggle,
       onUpdateAbilityScalableOverride,
       onUpdateAbilityScalableCustomValue,
@@ -46,11 +47,14 @@
       expanded: boolean;
       kind: 'action' | 'passive';
       abilityProviders?: AbilityProvider[];
+      /** True while a drag hovers the editor and this section is the detected destination. */
+      highlightDrop?: boolean;
       onToggle?: () => void;
       onUpdateAbilityScalableOverride?: (detail: { abilityIndex: number; valueIndex: number; override: number | undefined }) => void;
       onUpdateAbilityScalableCustomValue?: (detail: { abilityIndex: number; valueIndex: number; customValue: string | undefined }) => void;
       onUpdateAbilityCustomDescriptionTemplate?: (detail: { abilityIndex: number; customTemplate: string | undefined }) => void;
-      onAddAbility?: (ability: SpecialAbility) => void;
+      /** Returns false when the ability was rejected as a duplicate. */
+      onAddAbility?: (ability: SpecialAbility) => boolean;
       onUpdateAbility?: (detail: { index: number; updates: Partial<SpecialAbility> }) => void;
       onRemoveAbility?: (index: number) => void;
       onAddBlank?: () => void;
@@ -134,13 +138,15 @@
       onRemoveAbility?.(abilityIndex);
    }
 
-   let isDragOver = $state(false);
    let showAbilityPicker = $state(false);
 
    // Picked provider ability → host instantiates it (kernel mapping + id), then it's added like a drop.
    function handlePickerAdd(def: CustomAbilityDefinition): void {
       const ability = env.abilityFromDefinition(def, creature.level);
-      onAddAbility?.(ability);
+      if (onAddAbility?.(ability) === false) {
+         env.notify.warn('Ability already exists.');
+         return;
+      }
       env.notify.info(`Added "${ability.name}" to special abilities`);
    }
 
@@ -150,41 +156,6 @@
       if (!event.dataTransfer) return;
       event.dataTransfer.setData('text/plain', env.abilityToDropPayload(ability, creature.level));
       event.dataTransfer.effectAllowed = 'copy';
-   }
-
-   function handleSectionDragOver(event: DragEvent): void {
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-      isDragOver = true;
-   }
-
-   function handleSectionDragLeave(event: DragEvent): void {
-      // Ignore leaves that merely cross into a child element.
-      const related = event.relatedTarget;
-      if (related instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(related)) return;
-      isDragOver = false;
-   }
-
-   async function handleSectionDrop(event: DragEvent): Promise<void> {
-      event.preventDefault();
-      isDragOver = false;
-      const raw = event.dataTransfer?.getData('text/plain');
-      if (!raw) return;
-      let data: { type?: string; crisprAbilityDrag?: boolean };
-      try {
-         data = JSON.parse(raw);
-      } catch {
-         return;
-      }
-      // A CRISPR ability dragged out and dropped back in — don't duplicate it.
-      if (data.crisprAbilityDrag) return;
-      const ability = await env.abilityFromDrop(data, creature.level);
-      if (!ability) {
-         env.notify.warn('Drop an action or passive ability here.');
-         return;
-      }
-      onAddAbility?.(ability);
-      env.notify.info(`Added "${ability.name}" to special abilities`);
    }
 
    function healingLabel(ability: SpecialAbility): string {
@@ -357,7 +328,7 @@
    }
 </script>
 
-<section class="editor-section">
+<section class="editor-section" class:drag-over={highlightDrop}>
    <CollapsibleSection
       label="{sectionLabel} ({entries.length})"
       {expanded}
@@ -377,12 +348,9 @@
    {#if expanded}
       <div
          class="section-body"
-         class:drag-over={isDragOver}
+         class:drag-over={highlightDrop}
          role="group"
          aria-label="Drop an action or passive ability here to add it"
-         ondragover={handleSectionDragOver}
-         ondragleave={handleSectionDragLeave}
-         ondrop={handleSectionDrop}
       >
          {#if entries.length === 0}
             <p class="no-abilities-message">
@@ -746,6 +714,14 @@
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-lg);
       overflow: hidden;
+      transition: border-color var(--transition-fast), background var(--transition-fast);
+
+      /* Section-level highlight too: the destination may be collapsed, so .section-body
+         (expanded-only) can't carry the cue alone. */
+      &.drag-over {
+         border-color: var(--color-primary);
+         background: color-mix(in srgb, var(--color-primary) 7%, var(--section-body-bg));
+      }
    }
 
    .section-body {

@@ -297,6 +297,13 @@ class CreatureEditorStore {
     });
   }
 
+  /** Append a fully-formed strike (drop routing); addStrike stays the blank-strike path. */
+  addStrikeEntry(strike: CreatureStrike): void {
+    this.mutateCreature((c) => {
+      c.strikes.push(strike);
+    });
+  }
+
   removeStrike(index: number): void {
     if (!this.creature || this.creature.strikes.length <= 1) return; // keep at least one
     if (index < 0 || index >= this.creature.strikes.length) return;
@@ -344,10 +351,16 @@ class CreatureEditorStore {
 
   // ── Special abilities ────────────────────────────────────────────────────
 
-  addSpecialAbility(ability: SpecialAbility): void {
+  /** Append the ability unless the same identity is already present — dropped abilities keep their
+   *  source item id and picker abilities their slug, so a re-add carries the same id. Returns false
+   *  when the duplicate was skipped. */
+  addSpecialAbility(ability: SpecialAbility): boolean {
+    if (!this.creature) return false;
+    if (this.creature.specialAbilities.some((a) => a.id === ability.id)) return false;
     this.mutateCreature((c) => {
       c.specialAbilities.push(ability);
     });
+    return true;
   }
 
   /** Append a fresh, blank action or passive for the user to fill in. */

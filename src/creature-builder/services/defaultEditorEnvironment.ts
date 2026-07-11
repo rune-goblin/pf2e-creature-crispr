@@ -2,7 +2,7 @@ import type { EditorEnvironment } from '../editor/environment';
 import type { SpecialAbility } from '../logic/models';
 import { customAbilityToSpecialAbility } from '../logic/customAbility';
 import { pickFile } from './pickFile';
-import { specialAbilityFromDrop } from './actorQueries';
+import { entityFromDropData, type ItemDropData } from './itemDropHandlers';
 import { composeAbilityItemForExport } from './abilityItemBuilder';
 
 // CRISPR's default wiring of the editor's Foundry-touching UI ops: notifications via ui.notifications,
@@ -31,9 +31,10 @@ export const defaultEditorEnvironment: EditorEnvironment = {
     return confirmed === true;
   },
   pickImage: (current) => pickFile({ type: 'image', current }),
-  abilityFromDrop: (data, level) => specialAbilityFromDrop(data as Parameters<typeof specialAbilityFromDrop>[0], level),
+  entityFromDrop: (data, level) => entityFromDropData(data as ItemDropData, level),
   abilityToDropPayload: (ability: SpecialAbility, level) =>
     JSON.stringify({ type: 'Item', data: composeAbilityItemForExport(ability, level), crisprAbilityDrag: true }),
-  abilityFromDefinition: (def, level) => customAbilityToSpecialAbility(def, level, foundry.utils.randomID()),
+  // The slug is the definition's stable identity — picking the same library ability twice dedupes.
+  abilityFromDefinition: (def, level) => customAbilityToSpecialAbility(def, level, def.slug),
   enrichHtml: (html) => foundry.applications.ux.TextEditor.implementation.enrichHTML(html)
 };

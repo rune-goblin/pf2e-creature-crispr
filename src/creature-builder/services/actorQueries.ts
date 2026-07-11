@@ -7,7 +7,7 @@
 
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
 import type { CreatureStrike, SpecialAbility, ScalableValue, DamageModifier, Immunity } from '../logic/models';
-import { createDefaultStrike } from '../logic/models';
+import { createDefaultStrike, BENCHMARK_VALUES_3 } from '../logic/models';
 import { getStatRangesForLevel, statToScalar4 } from '../logic/creatureStatTables';
 import { logger } from './logger';
 import {
@@ -184,6 +184,101 @@ export function getImmunitiesFromActor(actorId: string): Immunity[] {
   });
 }
 
+/** The fields of a PF2e melee item we read — satisfied by embedded items and by the temporary
+ *  documents `Item.fromDropData` builds from a dropped payload alike. */
+export interface MeleeItemView {
+  id: string | null;
+  name: string | null;
+  type: string;
+  system: {
+    bonus?: { value?: number };
+    damageRolls?: Record<string, { damage?: string; damageType?: string; category?: string | null }>;
+    traits?: { value?: string[] };
+    range?: unknown;
+  };
+  getFlag(scope: string, key: string): unknown;
+}
+
+/** Convert one PF2e melee item into our CreatureStrike model, preferring stored benchmark data
+ *  and falling back to reverse-deriving benchmarks from the item's actual values at `level`. */
+export function meleeItemToStrike(
+  item: MeleeItemView,
+  level: number,
+  opts: { recoverUnflaggedPersistent?: boolean } = {}
+): CreatureStrike {
+  const ranges = getStatRangesForLevel(level);
+  const benchmarks: ItemBenchmarkData = (item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) as ItemBenchmarkData) || {};
+  const damageRolls = item.system?.damageRolls ?? {};
+
+  // Extract damage info from the item
+  let damageType = 'slashing';
+  let damage = '1d4';
+  let persistentDamageType = '';
+  let persistentDamageFormula = '';
+
+  const rollEntries = Object.values(damageRolls);
+  for (const rollEntry of rollEntries) {
+    if (rollEntry.category === 'persistent') {
+      persistentDamageType = rollEntry.damageType || 'untyped';
+      if (rollEntry.damage) persistentDamageFormula = rollEntry.damage;
+    } else {
+      if (rollEntry.damage) {
+        damage = rollEntry.damage;
+      }
+      if (rollEntry.damageType) {
+        damageType = rollEntry.damageType;
+      }
+    }
+  }
+
+  // Get attack bonus from the item
+  const attackBonus = item.system?.bonus?.value ?? 0;
+
+  // No flag (e.g. army NPC strikes) → reverse-engineer the benchmark from the
+  // item's actual attack/damage so a save preserves it instead of resetting.
+  const strike: CreatureStrike = {
+    id: item.id ?? undefined,  // Include item ID for updates
+    name: item.name || 'Strike',
+    attackBenchmark: benchmarks.attackBenchmark ?? statToScalar4(attackBonus, ranges.strikeAttack),
+    damageBenchmark: benchmarks.damageBenchmark ?? damageToBenchmark(parseDiceFormulaAverage(damage), level),
+    attackBonus,
+    damage,
+    damageType,
+    isRanged: item.system?.traits?.value?.includes('ranged') || false,
+    // Melee range is `{ increment, max }`, not `{ value }`; this read predates the typing
+    // pass and yields undefined at runtime — preserved verbatim to avoid a behavior change.
+    range: (item.system?.range as { value?: number } | undefined)?.value,
+    traits: item.system?.traits?.value || []
+  };
+
+  // Add persistent damage info if present. The formula (customPersistentFormula) is the source
+  // of truth; legacy creatures stored only a persistent scalar, so recover the formula from the
+  // saved roll to keep persistent damage from being dropped on the next re-save.
+  if (benchmarks.customPersistentFormula) {
+    strike.customPersistentFormula = benchmarks.customPersistentFormula;
+    strike.persistentDamageType = benchmarks.persistentDamageType || persistentDamageType;
+  } else if (benchmarks.persistentBenchmark !== undefined && persistentDamageFormula) {
+    strike.customPersistentFormula = persistentDamageFormula;
+    strike.persistentDamageType = benchmarks.persistentDamageType || persistentDamageType;
+  } else if (opts.recoverUnflaggedPersistent && persistentDamageFormula) {
+    // Foreign item (a drop) with no CRISPR flags: keep the persistent rider rather than dropping
+    // it. The benchmark is only the "rider enabled" flag — the formula is the source of truth.
+    strike.customPersistentFormula = persistentDamageFormula;
+    strike.persistentDamageType = persistentDamageType;
+    strike.persistentBenchmark = BENCHMARK_VALUES_3.moderate;
+  }
+  if (benchmarks.persistentBenchmark !== undefined) {
+    strike.persistentBenchmark = benchmarks.persistentBenchmark;
+  }
+
+  // Add custom damage formula if present
+  if (benchmarks.customDamageFormula) {
+    strike.customDamageFormula = benchmarks.customDamageFormula;
+  }
+
+  return strike;
+}
+
 /**
  * Get strikes from an actor's melee items, including their benchmark data.
  * This reads directly from the actor's embedded items and their flags.
@@ -201,80 +296,13 @@ export function getStrikesFromActor(actorId: string): CreatureStrike[] {
   }
 
   const level = actor.system?.details?.level?.value ?? 1;
-  const ranges = getStatRangesForLevel(level);
-
-  return meleeItems.map((item) => {
-    const benchmarks: ItemBenchmarkData = (item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) as ItemBenchmarkData) || {};
-    const damageRolls = item.system?.damageRolls ?? {};
-
-    // Extract damage info from the item
-    let damageType = 'slashing';
-    let damage = '1d4';
-    let persistentDamageType = '';
-    let persistentDamageFormula = '';
-
-    const rollEntries = Object.values(damageRolls);
-    for (const rollEntry of rollEntries) {
-      if (rollEntry.category === 'persistent') {
-        persistentDamageType = rollEntry.damageType || 'untyped';
-        if (rollEntry.damage) persistentDamageFormula = rollEntry.damage;
-      } else {
-        if (rollEntry.damage) {
-          damage = rollEntry.damage;
-        }
-        if (rollEntry.damageType) {
-          damageType = rollEntry.damageType;
-        }
-      }
-    }
-
-    // Get attack bonus from the item
-    const attackBonus = item.system?.bonus?.value ?? 0;
-
-    // No flag (e.g. army NPC strikes) → reverse-engineer the benchmark from the
-    // item's actual attack/damage so a save preserves it instead of resetting.
-    const strike: CreatureStrike = {
-      id: item.id,  // Include item ID for updates
-      name: item.name || 'Strike',
-      attackBenchmark: benchmarks.attackBenchmark ?? statToScalar4(attackBonus, ranges.strikeAttack),
-      damageBenchmark: benchmarks.damageBenchmark ?? damageToBenchmark(parseDiceFormulaAverage(damage), level),
-      attackBonus,
-      damage,
-      damageType,
-      isRanged: (item.system?.traits?.value as string[] | undefined)?.includes('ranged') || false,
-      // Melee range is `{ increment, max }`, not `{ value }`; this read predates the typing
-      // pass and yields undefined at runtime — preserved verbatim to avoid a behavior change.
-      range: (item.system?.range as { value?: number } | undefined)?.value,
-      traits: item.system?.traits?.value || []
-    };
-
-    // Add persistent damage info if present. The formula (customPersistentFormula) is the source
-    // of truth; legacy creatures stored only a persistent scalar, so recover the formula from the
-    // saved roll to keep persistent damage from being dropped on the next re-save.
-    if (benchmarks.customPersistentFormula) {
-      strike.customPersistentFormula = benchmarks.customPersistentFormula;
-      strike.persistentDamageType = benchmarks.persistentDamageType || persistentDamageType;
-    } else if (benchmarks.persistentBenchmark !== undefined && persistentDamageFormula) {
-      strike.customPersistentFormula = persistentDamageFormula;
-      strike.persistentDamageType = benchmarks.persistentDamageType || persistentDamageType;
-    }
-    if (benchmarks.persistentBenchmark !== undefined) {
-      strike.persistentBenchmark = benchmarks.persistentBenchmark;
-    }
-
-    // Add custom damage formula if present
-    if (benchmarks.customDamageFormula) {
-      strike.customDamageFormula = benchmarks.customDamageFormula;
-    }
-
-    return strike;
-  });
+  return meleeItems.map((item) => meleeItemToStrike(item as unknown as MeleeItemView, level));
 }
 
 /**
  * Map PF2e action types to our actionType enum
  */
-function mapActionType(pf2eType: string, actionCost?: number): 'action' | 'reaction' | 'free' | 'passive' {
+export function mapActionType(pf2eType: string, actionCost?: number): 'action' | 'reaction' | 'free' | 'passive' {
   switch (pf2eType) {
     case 'action':
       return 'action';
@@ -296,7 +324,7 @@ function mapActionType(pf2eType: string, actionCost?: number): 'action' | 'react
  * Includes benchmark data from flags if present, otherwise parses descriptions
  */
 /** Tolerant superset of the action/feat `system` fields read below — these item types are heterogeneous and read uniformly. */
-interface AbilityItemSystemView {
+export interface AbilityItemSystemView {
   description?: { value?: string };
   actionType?: { value?: string };
   actions?: { value?: number };
@@ -307,7 +335,7 @@ interface AbilityItemSystemView {
 
 /** The fields of a PF2e action/creature-feat item we read — satisfied by embedded items and by
  *  the temporary documents `Item.fromDropData` builds from a dropped payload alike. */
-interface AbilityItemView {
+export interface AbilityItemView {
   id: string | null;
   name: string | null;
   type: string;
@@ -399,38 +427,3 @@ export function getSpecialAbilitiesFromActor(actorId: string): SpecialAbility[] 
   return abilityItems.map((item) => actionItemToSpecialAbility(item as unknown as AbilityItemView, parseLevel));
 }
 
-interface ItemDropData {
-  type?: string;
-  uuid?: string;
-  data?: unknown;
-  crisprAbilityDrag?: boolean;
-}
-
-/**
- * Resolve a dropped Foundry Item payload into a SpecialAbility, or null if it isn't an action /
- * creature-ability item. Accepts both `{uuid}` (an item dragged off a sheet) and `{data}`
- * (synthetic source). When the item lives on an actor, its description is back-solved at that
- * actor's level rather than the target's, matching the import flow.
- */
-export async function specialAbilityFromDrop(data: ItemDropData, level: number): Promise<SpecialAbility | null> {
-  if (!data || data.type !== 'Item') return null;
-
-  type DroppedItem = AbilityItemView & { actor?: { system?: { details?: { level?: { value?: number } } } } };
-  let item: DroppedItem | null = null;
-  try {
-    item = (await Item.fromDropData(data as object)) as unknown as DroppedItem;
-  } catch {
-    return null;
-  }
-  if (!item) return null;
-
-  const isAction = item.type === 'action';
-  const isCreatureFeat = item.type === 'feat' && item.system?.category === 'creature';
-  if (!isAction && !isCreatureFeat) return null;
-
-  const parseLevel = item.actor?.system?.details?.level?.value ?? level;
-  const ability = actionItemToSpecialAbility(item, parseLevel);
-  // A dropped ability is new to this creature — never reuse the source item's id.
-  ability.id = foundry.utils.randomID();
-  return ability;
-}
