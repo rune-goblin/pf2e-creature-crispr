@@ -3,6 +3,18 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — 2026-07-12
+
+### Added
+
+- **Drag & drop to build.** Drop an action, creature feat, or melee attack onto the editor — from
+  an actor sheet or a compendium — and Creature CRISPR detects its type and routes it to the right
+  section (Actions, Passives, or Offense), highlighting the destination as you drag over it. The
+  item is converted to a strike or special ability and scaled to the creature's level on drop.
+- **Persistent-damage benchmarking.** Damage that includes persistent damage now shows its
+  *effective* value on the benchmark bar — a span from the base hit to the expected total with an
+  average marker — so you can see where the real damage output lands against the tier scale.
+
 ## [0.3.0] — 2026-06-27
 
 ### Added
