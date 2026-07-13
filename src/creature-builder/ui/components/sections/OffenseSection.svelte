@@ -2,6 +2,7 @@
    import type { EditableCreature, CreatureStrike, CreatureStats } from '@/creature-builder/editor';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
+   import DeleteBaseboard from '../widgets/DeleteBaseboard.svelte';
    import EffectiveDamageBar from '../widgets/EffectiveDamageBar.svelte';
    import { getDamageTypeGroups } from '@/creature-builder/ui/vocab';
    import { damageToBenchmark } from '@/creature-builder/logic/abilityScaling';
@@ -234,13 +235,15 @@
                            {:else}
                               <button class="stat-value editable" onclick={() => startEditStrikeAttack(index)}>{computedStrike.attackBonus >= 0 ? '+' : ''}{computedStrike.attackBonus}</button>
                            {/if}
-                           <BenchmarkButtons
-                              value={strike.attackBenchmark}
-                              benchmarks={BENCHMARK_LABELS_4}
-                              use4Benchmark={true}
-                              compact={true}
-                              onselect={(d) => onUpdateStrikeAttackBenchmark?.({ index, benchmark: d.value })}
-                           />
+                           <div class="attack-tiers">
+                              <BenchmarkButtons
+                                 value={strike.attackBenchmark}
+                                 benchmarks={BENCHMARK_LABELS_4}
+                                 use4Benchmark={true}
+                                 compact={true}
+                                 onselect={(d) => onUpdateStrikeAttackBenchmark?.({ index, benchmark: d.value })}
+                              />
+                           </div>
                         </div>
 
                         <div class="stat-line">
@@ -324,17 +327,14 @@
 
                         <EffectiveDamageBar row={getStrikeEffectiveDamageBar(creature.level, computedStrike.damageAverage, computedStrike.persistentDamage ?? '')} />
                      </div>
-                     <div class="attack-footer" class:confirming={pendingDeleteIndex === index}>
-                        {#if pendingDeleteIndex === index}
-                           <span class="delete-confirm-text">Delete this attack?</span>
-                           <button type="button" class="delete-confirm-btn" onclick={() => confirmRemoveStrike(index)}>Delete</button>
-                           <button type="button" class="delete-cancel-btn" onclick={cancelRemoveStrike}>Cancel</button>
-                        {:else}
-                           <button type="button" class="attack-delete-btn" title="Remove attack" onclick={() => requestRemoveStrike(index)}>
-                              <i class="fas fa-trash"></i> Delete attack
-                           </button>
-                        {/if}
-                     </div>
+                     <DeleteBaseboard
+                        bleed
+                        label="attack"
+                        confirming={pendingDeleteIndex === index}
+                        onRequest={() => requestRemoveStrike(index)}
+                        onConfirm={() => confirmRemoveStrike(index)}
+                        onCancel={cancelRemoveStrike}
+                     />
                   </div>
                {/each}
             </div>
@@ -437,81 +437,6 @@
 
    }
 
-   /* Destructive action is the card's full-width footer — bleeds past the card padding to sit
-      flush with the frame (clipped by the card's overflow:hidden), quiet until hovered. A
-      background tint (not a divider) separates it. Two-step confirm guards a stray click.
-      Mirrors the special-ability card footer. */
-   .attack-footer {
-      margin: var(--space-10) calc(-1 * var(--space-10)) calc(-1 * var(--space-10));
-      display: flex;
-      align-items: center;
-      gap: var(--space-8);
-
-      &.confirming {
-         padding: var(--space-8) var(--space-12);
-         background: var(--surface-danger-lowest);
-      }
-   }
-
-   .attack-delete-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: var(--space-6);
-      width: 100%;
-      padding: var(--space-8);
-      background: var(--surface-low);
-      border: none;
-      color: var(--text-muted);
-      cursor: pointer;
-      font-size: var(--font-xs);
-      font-weight: var(--font-weight-medium);
-      transition: background var(--transition-fast), color var(--transition-fast);
-
-      &:hover {
-         background: var(--surface-danger-lowest);
-         color: var(--text-danger);
-      }
-   }
-
-   .delete-confirm-text {
-      margin-right: auto;
-      font-size: var(--font-sm);
-      color: var(--text-secondary);
-   }
-
-   .delete-confirm-btn,
-   .delete-cancel-btn {
-      padding: var(--space-4) var(--space-12);
-      border-radius: var(--radius-sm);
-      font-size: var(--font-xs);
-      font-weight: var(--font-weight-semibold);
-      cursor: pointer;
-      transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-   }
-
-   .delete-confirm-btn {
-      background: var(--surface-danger-low);
-      border: 1px solid var(--border-danger);
-      color: var(--text-danger);
-
-      &:hover {
-         background: var(--surface-danger);
-         color: var(--text-primary);
-      }
-   }
-
-   .delete-cancel-btn {
-      background: var(--surface-low);
-      border: 1px solid var(--border-default);
-      color: var(--text-secondary);
-
-      &:hover {
-         background: var(--hover);
-         color: var(--text-primary);
-      }
-   }
-
    /* Grows to absorb the grid's equal-height stretch so the footer pins to the card's bottom edge
       and footers line up across a two-up row. */
    .attack-stats {
@@ -536,6 +461,13 @@
       font-size: var(--font-xs);
       font-weight: var(--font-weight-semibold);
       color: var(--text-muted);
+   }
+
+   /* Tier chips pin to the row's end so they read as right-aligned and any overflow pushes
+      inward (left) rather than off the card's right edge — otherwise the extreme tab clips. */
+   .attack-tiers,
+   .damage-tiers {
+      margin-left: auto;
    }
 
    /* While the dice editor is open the tier buttons drop to their own line and indent past
@@ -644,7 +576,7 @@
       align-items: center;
       gap: var(--space-6);
       cursor: pointer;
-      font-size: var(--font-xs);
+      font-size: var(--font-md);
       font-weight: var(--font-weight-semibold);
       color: var(--text-muted);
 

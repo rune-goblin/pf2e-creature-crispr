@@ -7,8 +7,13 @@
 <div class="bench tone-{row.tone}">
    <div class="bench-track">
       <div class="track-line"></div>
-      {#each row.markers as m (m.label)}
-         <div class="marker" style="left:{m.position * 100}%">
+      {#each row.markers as m, i (m.label)}
+         <div
+            class="marker"
+            class:edge-start={i === 0}
+            class:edge-end={i === row.markers.length - 1}
+            style="left:{m.position * 100}%"
+         >
             <span class="marker-value">{m.value}</span>
             <span class="marker-tick"></span>
             <span class="marker-label">{m.label}</span>
@@ -60,6 +65,19 @@
       flex-direction: column;
       align-items: center;
       white-space: nowrap;
+   }
+
+   /* First/last tier captions justify to their edge so the wide "Extreme" label (and "Low")
+      sit inside the frame instead of centering half past the bar's end. The tick still lands on
+      the marker's true position — it's the box's inner edge either way. */
+   .marker.edge-start {
+      transform: none;
+      align-items: flex-start;
+   }
+
+   .marker.edge-end {
+      transform: translateX(-100%);
+      align-items: flex-end;
    }
 
    .marker-value {

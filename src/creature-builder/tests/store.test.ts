@@ -490,8 +490,9 @@ describe('damage modifiers and immunities', () => {
     editorStore.addResistance('fire');
     editorStore.addResistance('fire', 10);
     editorStore.addResistance('cold', 10);
+    // 'fire' keeps the level-1 mid-range default (round of 2–3) — the second add is a no-op dedupe.
     expect(editorStore.creature!.resistances).toEqual([
-      { type: 'fire', value: 5 },
+      { type: 'fire', value: 3 },
       { type: 'cold', value: 10 }
     ]);
     editorStore.updateResistance(0, { value: 15, exceptions: ['adamantine'] });
@@ -505,13 +506,30 @@ describe('damage modifiers and immunities', () => {
     expect(editorStore.creature!.resistances).toEqual([{ type: 'cold', value: 10 }]);
   });
 
+  it('updateLevel rescales resistances/weaknesses to the new level range', () => {
+    // level 1 range 2–3; fire=3 sits at the top of the range (scalar 1.0).
+    editorStore.startEdit(makeEditable({ level: 1, resistances: [{ type: 'fire', value: 3 }], weaknesses: [{ type: 'cold', value: 2 }] }));
+    editorStore.updateLevel(10); // range 7–13
+    // scalar 1.0 → 13 (top of range), scalar 0.0 → 7 (bottom).
+    expect(editorStore.creature!.resistances[0].value).toBe(13);
+    expect(editorStore.creature!.weaknesses[0].value).toBe(7);
+  });
+
+  it('addResistance/addWeakness default to a mid-range value for the current level', () => {
+    editorStore.startEdit(makeEditable({ level: 10 })); // range 7–13, mid ≈ 10
+    editorStore.addResistance('fire');
+    editorStore.addWeakness('cold');
+    expect(editorStore.creature!.resistances[0].value).toBe(10);
+    expect(editorStore.creature!.weaknesses[0].value).toBe(10);
+  });
+
   it('addWeakness dedupes by type; updateWeakness merges; removeWeakness splices', () => {
     editorStore.startCreate();
     editorStore.addWeakness('slashing');
     editorStore.addWeakness('slashing', 10);
     editorStore.addWeakness('vitality', 7);
     expect(editorStore.creature!.weaknesses).toEqual([
-      { type: 'slashing', value: 5 },
+      { type: 'slashing', value: 3 },
       { type: 'vitality', value: 7 }
     ]);
     editorStore.updateWeakness(1, { value: 9 });

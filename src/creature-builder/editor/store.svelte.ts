@@ -17,7 +17,11 @@ import {
   CREATURE_PRESETS,
   BENCHMARK_VALUES_4
 } from '../logic/models';
-import { calculateCreatureStats } from '../logic/creatureStatTables';
+import {
+  calculateCreatureStats,
+  scaleResistanceWeakness,
+  scalarToResistanceWeakness
+} from '../logic/creatureStatTables';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
 import { ALL_SECTIONS } from './types';
@@ -119,7 +123,19 @@ class CreatureEditorStore {
   }
 
   updateLevel(level: number): void {
-    this.updateCreature({ level: Math.max(-1, Math.min(24, level)) });
+    const next = Math.max(-1, Math.min(24, level));
+    this.mutateCreature((c) => {
+      this.rescaleIwr(c, c.level, next);
+      c.level = next;
+    });
+  }
+
+  /** Resistances/weaknesses store raw numbers, not benchmarks, so unlike AC/HP/saves they don't
+   *  recompute on their own — keep them in step with the level's typical range on a level change. */
+  private rescaleIwr(c: EditableCreature, fromLevel: number, toLevel: number): void {
+    if (fromLevel === toLevel) return;
+    for (const r of c.resistances) r.value = scaleResistanceWeakness(r.value, fromLevel, toLevel);
+    for (const w of c.weaknesses) w.value = scaleResistanceWeakness(w.value, fromLevel, toLevel);
   }
 
   /**
@@ -422,10 +438,11 @@ class CreatureEditorStore {
 
   // ── Resistances / weaknesses ──────────────────────────────────────────────
 
-  addResistance(type: string, value: number = 5): void {
-    if (this.creature?.resistances.some((r) => r.type === type)) return;
+  addResistance(type: string, value?: number): void {
+    if (!this.creature || this.creature.resistances.some((r) => r.type === type)) return;
+    const v = value ?? scalarToResistanceWeakness(0.5, this.creature.level);
     this.mutateCreature((c) => {
-      c.resistances.push({ type, value });
+      c.resistances.push({ type, value: v });
     });
   }
 
@@ -443,10 +460,11 @@ class CreatureEditorStore {
     });
   }
 
-  addWeakness(type: string, value: number = 5): void {
-    if (this.creature?.weaknesses.some((w) => w.type === type)) return;
+  addWeakness(type: string, value?: number): void {
+    if (!this.creature || this.creature.weaknesses.some((w) => w.type === type)) return;
+    const v = value ?? scalarToResistanceWeakness(0.5, this.creature.level);
     this.mutateCreature((c) => {
-      c.weaknesses.push({ type, value });
+      c.weaknesses.push({ type, value: v });
     });
   }
 
@@ -567,7 +585,11 @@ class CreatureEditorStore {
       c.isTroop = true;
       c.troopSize = opts.troopSize ?? c.troopSize ?? 'gargantuan';
       c.size = c.troopSize;
-      if (opts.levelDelta) c.level = Math.max(-1, Math.min(24, c.level + opts.levelDelta));
+      if (opts.levelDelta) {
+        const next = Math.max(-1, Math.min(24, c.level + opts.levelDelta));
+        this.rescaleIwr(c, c.level, next);
+        c.level = next;
+      }
       if (opts.nameSuffix) c.name = `${c.name}${opts.nameSuffix}`;
     });
   }

@@ -57,6 +57,9 @@
   }
 
   const has = (entry: IwrEntry, field: IwrField): boolean => (entry[field]?.length ?? 0) > 0;
+
+  const outOfRange = (value: number): boolean =>
+    valueRange !== undefined && (value < valueRange.min || value > valueRange.max);
 </script>
 
 {#snippet qualLine(index: number, field: IwrField, label: string, lineClass: string)}
@@ -94,10 +97,15 @@
         {#if valued}
           <input
             class="cc-input iwr-value"
+            class:out-of-range={outOfRange(entry.value ?? 1)}
             type="number"
             min="1"
             value={entry.value ?? 1}
-            title={valueRange ? `Typical ${valueRange.min}–${valueRange.max} at this level` : undefined}
+            title={valueRange
+              ? outOfRange(entry.value ?? 1)
+                ? `Outside the typical ${valueRange.min}–${valueRange.max} range for this level`
+                : `Typical ${valueRange.min}–${valueRange.max} at this level`
+              : undefined}
             onchange={(e) => setValue(index, e.currentTarget.value)}
             aria-label={`${humanizeIwrType(entry.type)} value`}
           />
@@ -211,6 +219,12 @@
     &::-webkit-inner-spin-button {
       -webkit-appearance: none;
       margin: 0;
+    }
+
+    &.out-of-range {
+      border-color: var(--border-warning);
+      background: var(--surface-warning-lower);
+      color: var(--text-warning);
     }
   }
 

@@ -18,6 +18,7 @@
    } from '@/creature-builder/logic/abilityScaling';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
+   import DeleteBaseboard from '../widgets/DeleteBaseboard.svelte';
    import EnrichedHtml from '../baseComponents/EnrichedHtml.svelte';
    import AbilityPickerDialog from './AbilityPickerDialog.svelte';
 
@@ -679,17 +680,13 @@
                                  </div>
                               {/if}
                            </div>
-                           <div class="ability-footer" class:confirming={pendingDeleteId === ability.id}>
-                              {#if pendingDeleteId === ability.id}
-                                 <span class="delete-confirm-text">Delete this ability?</span>
-                                 <button type="button" class="delete-confirm-btn" onclick={() => confirmDelete(abilityIndex)}>Delete</button>
-                                 <button type="button" class="delete-cancel-btn" onclick={cancelDelete}>Cancel</button>
-                              {:else}
-                                 <button type="button" class="ability-delete-btn" title="Delete this ability" onclick={() => requestDelete(ability.id)}>
-                                    <i class="fas fa-trash"></i> Delete ability
-                                 </button>
-                              {/if}
-                           </div>
+                           <DeleteBaseboard
+                              label="ability"
+                              confirming={pendingDeleteId === ability.id}
+                              onRequest={() => requestDelete(ability.id)}
+                              onConfirm={() => confirmDelete(abilityIndex)}
+                              onCancel={cancelDelete}
+                           />
                         {/if}
                      </div>
                   </div>
@@ -773,10 +770,13 @@
       }
    }
 
-   /* Header row: the expand/edit toggle fills the width; the edit pencil sits flush right. */
+   /* Header row: the expand/edit toggle fills the width; the edit pencil sits flush right.
+      A raised surface lifts the title above the recessed body (--surface-lowest), so the
+      ability name — not the delete footer — anchors the card's visual hierarchy. */
    .ability-card-head {
       display: flex;
       align-items: stretch;
+      background: var(--surface);
    }
 
    .ability-card-head .ability-header {
@@ -1094,80 +1094,6 @@
             background: var(--hover);
             color: var(--text-primary);
             border-color: var(--border-medium);
-         }
-      }
-
-      /* Destructive action is the card's full-width footer — flush to the frame, clipped by the
-         card's rounded bottom, quiet until hovered. A background tint (not a divider rule) sets it
-         apart from the body, so the open card carries one fewer horizontal line. Two-step confirm
-         guards a stray click. */
-      .ability-footer {
-         display: flex;
-         align-items: center;
-         gap: var(--space-8);
-
-         &.confirming {
-            padding: var(--space-8) var(--space-12);
-            background: var(--surface-danger-lowest);
-         }
-      }
-
-      .ability-delete-btn {
-         display: flex;
-         align-items: center;
-         justify-content: center;
-         gap: var(--space-6);
-         width: 100%;
-         padding: var(--space-8);
-         background: var(--surface-low);
-         border: none;
-         color: var(--text-muted);
-         cursor: pointer;
-         font-size: var(--font-xs);
-         font-weight: var(--font-weight-medium);
-         transition: background var(--transition-fast), color var(--transition-fast);
-
-         &:hover {
-            background: var(--surface-danger-lowest);
-            color: var(--text-danger);
-         }
-      }
-
-      .delete-confirm-text {
-         margin-right: auto;
-         font-size: var(--font-sm);
-         color: var(--text-secondary);
-      }
-
-      .delete-confirm-btn,
-      .delete-cancel-btn {
-         padding: var(--space-4) var(--space-12);
-         border-radius: var(--radius-sm);
-         font-size: var(--font-xs);
-         font-weight: var(--font-weight-semibold);
-         cursor: pointer;
-         transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-      }
-
-      .delete-confirm-btn {
-         background: var(--surface-danger-low);
-         border: 1px solid var(--border-danger);
-         color: var(--text-danger);
-
-         &:hover {
-            background: var(--surface-danger);
-            color: var(--text-primary);
-         }
-      }
-
-      .delete-cancel-btn {
-         background: var(--surface-low);
-         border: 1px solid var(--border-default);
-         color: var(--text-secondary);
-
-         &:hover {
-            background: var(--hover);
-            color: var(--text-primary);
          }
       }
 
