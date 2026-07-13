@@ -1,15 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { editorStore } from '@/creature-builder/editor';
   import {
     getAllCreatures,
     deleteCreature,
+    deleteCreatures,
     duplicateCreature,
     openCreatureActorSheet,
     importCreatureFromActor,
     importCreatureFromCompendium,
     removeCreatureFromCrispr,
+    removeCreaturesFromCrispr,
     moveCreatureToCrisprFolder,
+    moveCreaturesToCrisprFolder,
     revealCreatureInSidebar,
     isCreatureMember,
     loadCreatureForEdit,
@@ -38,6 +42,69 @@
   let isDragOver = $state(false);
   let flashActorId = $state<string | null>(null);
 
+  const selectedIds = new SvelteSet<string>();
+  // Anchor row for shift+click range selection, indexed into `filteredCreatures` (visible order).
+  let anchorIndex = $state<number | null>(null);
+  let showBulkDeleteDialog = $state(false);
+  let showBulkRemoveDialog = $state(false);
+
+  const selectedCount = $derived(selectedIds.size);
+  const visibleIds = $derived(filteredCreatures.map((c) => c.actorId));
+  const allVisibleSelected = $derived(visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id)));
+  const someVisibleSelected = $derived(visibleIds.some((id) => selectedIds.has(id)));
+
+  let selectAllEl = $state<HTMLInputElement | null>(null);
+  $effect(() => {
+    if (selectAllEl) selectAllEl.indeterminate = someVisibleSelected && !allVisibleSelected;
+  });
+
+  const bulkActions = [
+    { label: 'Move to CRISPR folder', icon: 'fa-arrow-up-from-bracket', onSelect: () => void handleBulkMove() },
+    { label: 'Remove from CRISPR', icon: 'fa-minus-circle', onSelect: () => (showBulkRemoveDialog = true) },
+    {
+      label: 'Delete actors',
+      icon: 'fa-trash',
+      onSelect: () => (showBulkDeleteDialog = true),
+      danger: true,
+      dividerBefore: true
+    }
+  ];
+
+  function selectedIdList(): string[] {
+    return creatures.filter((c) => selectedIds.has(c.actorId)).map((c) => c.actorId);
+  }
+
+  function clearSelection(): void {
+    selectedIds.clear();
+    anchorIndex = null;
+  }
+
+  // preventDefault so the native checkbox toggle can't diverge from our controlled `checked`.
+  function toggleSelection(event: MouseEvent, index: number): void {
+    event.preventDefault();
+    const id = filteredCreatures[index]?.actorId;
+    if (!id) return;
+    if (event.shiftKey && anchorIndex !== null && anchorIndex < filteredCreatures.length) {
+      const lo = Math.min(anchorIndex, index);
+      const hi = Math.max(anchorIndex, index);
+      for (let i = lo; i <= hi; i++) selectedIds.add(filteredCreatures[i].actorId);
+    } else {
+      if (selectedIds.has(id)) selectedIds.delete(id);
+      else selectedIds.add(id);
+      anchorIndex = index;
+    }
+  }
+
+  function toggleSelectAll(event: MouseEvent): void {
+    event.preventDefault();
+    if (allVisibleSelected) {
+      for (const id of visibleIds) selectedIds.delete(id);
+    } else {
+      for (const id of visibleIds) selectedIds.add(id);
+    }
+    anchorIndex = null;
+  }
+
   function flashRow(actorId: string): void {
     flashActorId = actorId;
     requestAnimationFrame(() => {
@@ -52,6 +119,8 @@
 
   function refreshCreatures(): void {
     creatures = getAllCreatures();
+    const existing = new Set(creatures.map((c) => c.actorId));
+    for (const id of [...selectedIds]) if (!existing.has(id)) selectedIds.delete(id);
   }
 
   onMount(() => {
@@ -152,6 +221,55 @@
   function cancelRemove(): void {
     removingCreature = null;
     showRemoveDialog = false;
+  }
+
+  function plural(n: number): string {
+    return n === 1 ? '' : 's';
+  }
+
+  async function handleBulkMove(): Promise<void> {
+    const ids = selectedIdList();
+    if (!ids.length) return;
+    try {
+      await moveCreaturesToCrisprFolder(ids);
+      ui.notifications?.info(`Moved ${ids.length} creature${plural(ids.length)} to the Creature CRISPR folder`);
+    } catch (error) {
+      console.error('[Creature CRISPR] Failed to move creatures to folder:', error);
+      ui.notifications?.error('Failed to move creatures to folder');
+    }
+    clearSelection();
+  }
+
+  async function handleBulkRemove(): Promise<void> {
+    const ids = selectedIdList();
+    if (ids.length) {
+      try {
+        await removeCreaturesFromCrispr(ids);
+        ui.notifications?.info(`Removed ${ids.length} creature${plural(ids.length)} from Creature CRISPR`);
+        refreshCreatures();
+      } catch (error) {
+        console.error('[Creature CRISPR] Failed to remove creatures from CRISPR:', error);
+        ui.notifications?.error('Failed to remove creatures from CRISPR');
+      }
+    }
+    clearSelection();
+    showBulkRemoveDialog = false;
+  }
+
+  async function handleBulkDelete(): Promise<void> {
+    const ids = selectedIdList();
+    if (ids.length) {
+      try {
+        await deleteCreatures(ids);
+        ui.notifications?.info(`Deleted ${ids.length} creature${plural(ids.length)}`);
+        refreshCreatures();
+      } catch (error) {
+        console.error('[Creature CRISPR] Failed to delete creatures:', error);
+        ui.notifications?.error('Failed to delete creatures');
+      }
+    }
+    clearSelection();
+    showBulkDeleteDialog = false;
   }
 
   function handleDragOver(event: DragEvent): void {
@@ -291,6 +409,13 @@
           : `${filteredCreatures.length} of ${creatures.length}`}
       </span>
     </div>
+    {#if selectedCount > 0}
+      <div class="bulk-bar">
+        <span class="bulk-count">{selectedCount} selected</span>
+        <RowActionsMenu triggerLabel="Actions" triggerTitle="Bulk actions" align="left" actions={bulkActions} />
+        <button type="button" class="bulk-clear" onclick={clearSelection}>Clear selection</button>
+      </div>
+    {/if}
     <div
       class="creatures-table-container"
       class:drag-over={isDragOver}
@@ -303,6 +428,17 @@
       <table class="creatures-table">
         <thead>
           <tr>
+            <th class="select-col">
+              <input
+                bind:this={selectAllEl}
+                type="checkbox"
+                class="row-check"
+                checked={allVisibleSelected}
+                onclick={toggleSelectAll}
+                title="Select all"
+                aria-label="Select all creatures"
+              />
+            </th>
             <th class="thumb-col" aria-label="Portrait"></th>
             <th>Name</th>
             <th class="center">Level</th>
@@ -315,11 +451,24 @@
         <tbody>
           {#if filteredCreatures.length === 0}
             <tr class="no-matches-row">
-              <td colspan="7">No creatures match “{searchTerm.trim()}”.</td>
+              <td colspan="8">No creatures match “{searchTerm.trim()}”.</td>
             </tr>
           {/if}
-          {#each filteredCreatures as creature (creature.actorId)}
-            <tr data-actor-id={creature.actorId} class:flash={creature.actorId === flashActorId}>
+          {#each filteredCreatures as creature, index (creature.actorId)}
+            <tr
+              data-actor-id={creature.actorId}
+              class:flash={creature.actorId === flashActorId}
+              class:selected={selectedIds.has(creature.actorId)}
+            >
+              <td class="select-cell">
+                <input
+                  type="checkbox"
+                  class="row-check"
+                  checked={selectedIds.has(creature.actorId)}
+                  onclick={(e) => toggleSelection(e, index)}
+                  aria-label={`Select ${creature.name}`}
+                />
+              </td>
               <td class="thumb-cell">
                 <span class="thumb">
                   <img src={creature.img} alt="" loading="lazy" />
@@ -397,6 +546,32 @@
     <p>Remove <strong>{removingCreature.name}</strong> from Creature CRISPR?</p>
     <p class="hint-text">The actor stays in your world — this only takes it off the CRISPR list and discards its saved benchmarks.</p>
   {/if}
+</Dialog>
+
+<Dialog
+  bind:show={showBulkDeleteDialog}
+  title="Delete Creatures"
+  confirmLabel="Delete"
+  cancelLabel="Cancel"
+  width="400px"
+  onConfirm={handleBulkDelete}
+  onCancel={() => (showBulkDeleteDialog = false)}
+>
+  <p>Delete <strong>{selectedCount} creature{plural(selectedCount)}</strong>?</p>
+  <p class="warning-text">This will permanently delete the actors from your world.</p>
+</Dialog>
+
+<Dialog
+  bind:show={showBulkRemoveDialog}
+  title="Remove from Creature CRISPR"
+  confirmLabel="Remove"
+  cancelLabel="Cancel"
+  width="420px"
+  onConfirm={handleBulkRemove}
+  onCancel={() => (showBulkRemoveDialog = false)}
+>
+  <p>Remove <strong>{selectedCount} creature{plural(selectedCount)}</strong> from Creature CRISPR?</p>
+  <p class="hint-text">The actors stay in your world — this only takes them off the CRISPR list and discards their saved benchmarks.</p>
 </Dialog>
 
 <style lang="scss">
@@ -588,6 +763,45 @@
     white-space: nowrap;
   }
 
+  .bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    margin-bottom: var(--space-12);
+    padding: var(--space-8) var(--space-12);
+    background: color-mix(in srgb, var(--color-primary) 10%, var(--surface-lowest));
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+  }
+
+  .bulk-count {
+    color: var(--text-primary);
+    font-size: var(--font-sm);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+
+  .bulk-clear {
+    all: unset;
+    box-sizing: border-box;
+    padding: var(--space-6) var(--space-8);
+    color: var(--text-muted);
+    font-size: var(--font-sm);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+
+    &:hover {
+      color: var(--text-primary);
+      background: var(--hover);
+    }
+  }
+
+  .row-check {
+    cursor: pointer;
+    accent-color: var(--color-primary);
+    margin: 0;
+  }
+
   .creatures-table {
     width: 100%;
     border-collapse: separate;
@@ -621,9 +835,24 @@
         background: var(--hover);
       }
 
+      &.selected {
+        background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+
+        &:hover {
+          background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+        }
+      }
+
       &.flash {
         animation: crispr-row-flash 1.4s ease-out;
       }
+    }
+
+    .select-col,
+    .select-cell {
+      width: 1%;
+      text-align: center;
+      padding-right: var(--space-8);
     }
 
     .thumb-col {

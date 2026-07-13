@@ -164,6 +164,13 @@ export async function deleteCreature(actorId: string): Promise<void> {
   logger.info(`Deleted creature actor: ${actorId}`);
 }
 
+/** Batch counterpart of {@link deleteCreature}: one delete, one undo, one hook cycle. */
+export async function deleteCreatures(actorIds: string[]): Promise<void> {
+  if (!actorIds.length) return;
+  await Actor.deleteDocuments(actorIds);
+  logger.info(`Deleted ${actorIds.length} creature actor(s)`);
+}
+
 /**
  * Drop an actor from CRISPR without deleting it: clear our data flag and, if it lives in the
  * CRISPR folder, move it back to the root so the union query in {@link isCreatureMember} lets go.
@@ -179,6 +186,22 @@ export async function removeCreatureFromCrispr(actorId: string): Promise<void> {
   logger.info(`Removed creature from CRISPR: ${actor.name}`);
 }
 
+/** Batch counterpart of {@link removeCreatureFromCrispr}: unlink many actors in one write. */
+export async function removeCreaturesFromCrispr(actorIds: string[]): Promise<void> {
+  if (!actorIds.length) return;
+  const folderId = findCreaturesFolder()?.id ?? null;
+  const updates = actorIds.map((id) => {
+    const update: Record<string, unknown> = {
+      _id: id,
+      [`flags.${CREATURE_FLAG}.-=${CREATURE_DATA_KEY}`]: null
+    };
+    if (folderId && game.actors?.get(id)?.folder?.id === folderId) update.folder = null;
+    return update;
+  });
+  await Actor.updateDocuments(updates as any);
+  logger.info(`Removed ${actorIds.length} creature(s) from CRISPR`);
+}
+
 /** Relocate an actor into the canonical "Creature CRISPR" folder (the explicit tidy-up action). */
 export async function moveCreatureToCrisprFolder(actorId: string): Promise<void> {
   const actor = requireActor(actorId);
@@ -186,6 +209,18 @@ export async function moveCreatureToCrisprFolder(actorId: string): Promise<void>
   if (actor.folder?.id === folderId) return;
   await actor.update({ folder: folderId });
   logger.info(`Moved creature to CRISPR folder: ${actor.name}`);
+}
+
+/** Batch counterpart of {@link moveCreatureToCrisprFolder}: relocate many actors in one write. */
+export async function moveCreaturesToCrisprFolder(actorIds: string[]): Promise<void> {
+  if (!actorIds.length) return;
+  const folderId = await ensureCreatureFolder();
+  const updates = actorIds
+    .filter((id) => game.actors?.get(id)?.folder?.id !== folderId)
+    .map((id) => ({ _id: id, folder: folderId }));
+  if (!updates.length) return;
+  await Actor.updateDocuments(updates as any);
+  logger.info(`Moved ${updates.length} creature(s) to CRISPR folder`);
 }
 
 // Snapshot a source actor via toObject() (carries flags + embedded items), strip its id so

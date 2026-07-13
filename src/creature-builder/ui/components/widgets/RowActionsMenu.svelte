@@ -26,10 +26,14 @@
 
   let {
     actions,
-    triggerTitle = 'Actions'
+    triggerTitle = 'Actions',
+    triggerLabel,
+    align = 'right'
   }: {
     actions: RowAction[];
     triggerTitle?: string;
+    triggerLabel?: string;
+    align?: 'left' | 'right';
   } = $props();
 
   let open = $state(false);
@@ -47,8 +51,9 @@
     const below = window.innerHeight - r.bottom - margin;
     const above = r.top - margin;
     const estHeight = Math.min(360, actions.length * 34 + 8);
-    // Right-align the menu under the kebab, clamped to the viewport.
-    let left = r.right - MENU_W;
+    // Anchor the menu under the trigger (right-aligned for the kebab, left for a labeled
+    // button), clamped to the viewport.
+    let left = align === 'left' ? r.left : r.right - MENU_W;
     if (left + MENU_W > window.innerWidth - margin) left = window.innerWidth - MENU_W - margin;
     if (left < margin) left = margin;
     const openUp = below < estHeight && above > below;
@@ -117,13 +122,19 @@
   type="button"
   class="ram-trigger"
   class:open
+  class:labeled={triggerLabel}
   title={triggerTitle}
   aria-label={triggerTitle}
   aria-haspopup="menu"
   aria-expanded={open}
   onclick={() => (open ? closeMenu() : openMenu())}
 >
-  <i class="fas fa-ellipsis-vertical"></i>
+  {#if triggerLabel}
+    <span>{triggerLabel}</span>
+    <i class="fas fa-chevron-down caret"></i>
+  {:else}
+    <i class="fas fa-ellipsis-vertical"></i>
+  {/if}
 </button>
 
 {#if open}
@@ -174,6 +185,27 @@
     &:hover,
     &.open {
       background: var(--hover);
+    }
+
+    &.labeled {
+      width: auto;
+      gap: var(--space-8);
+      padding: var(--space-6) var(--space-12);
+      border: 1px solid var(--border-default);
+      background: var(--surface);
+      color: var(--text-primary);
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-semibold);
+
+      &:hover,
+      &.open {
+        background: var(--surface-lowest);
+      }
+
+      .caret {
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+      }
     }
   }
 
