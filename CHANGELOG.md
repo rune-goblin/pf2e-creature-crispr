@@ -3,6 +3,47 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] — 2026-07-15
+
+### Added
+
+- **Author inline elements, don't just import them.** The ability description editor gains an *Add
+  inline element* button: pick a saving throw, skill/Perception/flat check, damage, persistent
+  damage, healing, area template, condition, or raw roll, tune it against the creature's level with
+  tier chips that show the actual result up front ("Mod DC 30 / High DC 33 / Ext DC 36"), preview it
+  live, and insert it at the caret. An inserted element behaves exactly like one CRISPR parsed out of
+  an imported ability — checks, damage, and valued conditions land in the Editable Values panel,
+  scale with level, and round-trip on export. The literal ones (flat check, healing dice, template,
+  plain roll) insert as-is and don't scale, matching how the parser already treats them.
+- **Bulk actions on the creature list.** Rows now have checkboxes, with a select-all in the header
+  and shift+click to extend a range. Select anything and an Actions bar appears above the table:
+  move into the Creature CRISPR folder, remove from CRISPR (leaving the actors in your world), or
+  delete outright — the destructive two behind a confirmation naming the count. Select-all follows
+  the search filter, so you can filter, select all, and act. Each bulk operation is a single Foundry
+  write: one undo step, one refresh.
+- **Out-of-range resistances and weaknesses are flagged.** A value outside the typical range for the
+  creature's level highlights in a warning tone with a tooltip, instead of reading as normal beside a
+  "typical N–M" hint.
+
+### Changed
+
+- **Resistances and weaknesses follow the level.** They were stored as raw numbers and sat still
+  while AC, HP, and saves re-derived, so re-leveling left them behind. Changing the level — or the
+  level delta from *Convert to Troop* — now rescales them to the new level's typical range, keeping
+  each value's position within that range. **Note:** a resistance you hand-set to a deliberate number
+  will now move when you re-level; previously it stayed put. Adding a resistance or weakness also
+  defaults to the mid-range value for the current level rather than a flat `5`.
+- Description edits and inserted inline elements commit together when you press *Save*; Cancel or
+  Reset discards both. Save previously wrote only the template text.
+- The delete footer on attack and ability cards recedes to a faint divider at rest and tints danger
+  only on hover, so it no longer outweighs the card's own title. The two-step confirm is unchanged.
+
+### Fixed
+
+- The effective-damage bar's end captions ("Low", "Extreme") centered half past the ends of the bar
+  and clipped; they now justify inward while the tick still marks the true position. An attack's tier
+  chips right-align so "extreme" stops clipping off the card's right edge.
+
 ## [0.4.0] — 2026-07-12
 
 ### Added
