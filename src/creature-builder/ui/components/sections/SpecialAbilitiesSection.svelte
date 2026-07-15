@@ -1,4 +1,5 @@
 <script lang="ts">
+   import { tick } from 'svelte';
    import { SvelteSet } from 'svelte/reactivity';
    import type { EditableCreature, SpecialAbility, ScalableValue, EditorEnvironment } from '@/creature-builder/editor';
    import type { BenchmarkLabel4, BenchmarkLabel3, SpellBenchmarkLabel } from '@/creature-builder/logic/models';
@@ -21,6 +22,8 @@
    import DeleteBaseboard from '../widgets/DeleteBaseboard.svelte';
    import EnrichedHtml from '../baseComponents/EnrichedHtml.svelte';
    import AbilityPickerDialog from './AbilityPickerDialog.svelte';
+   import InlineElementInserter from './InlineElementInserter.svelte';
+   import { buildInlineElement, type InlineElementSpec } from '@/creature-builder/logic/inlineElements';
 
    const DAMAGE_BENCHMARKS: BenchmarkLabel4[] = ['low', 'moderate', 'high', 'extreme'];
    const PERSISTENT_BENCHMARKS: BenchmarkLabel3[] = ['low', 'moderate', 'high'];
@@ -38,6 +41,7 @@
       onUpdateAbilityScalableOverride,
       onUpdateAbilityScalableCustomValue,
       onUpdateAbilityCustomDescriptionTemplate,
+      onSaveAbilityDescription,
       onAddAbility,
       onUpdateAbility,
       onRemoveAbility,
@@ -54,6 +58,8 @@
       onUpdateAbilityScalableOverride?: (detail: { abilityIndex: number; valueIndex: number; override: number | undefined }) => void;
       onUpdateAbilityScalableCustomValue?: (detail: { abilityIndex: number; valueIndex: number; customValue: string | undefined }) => void;
       onUpdateAbilityCustomDescriptionTemplate?: (detail: { abilityIndex: number; customTemplate: string | undefined }) => void;
+      /** Commit an edited description plus any scalable values inserted via the inline-element inserter. */
+      onSaveAbilityDescription?: (detail: { abilityIndex: number; customTemplate: string | undefined; appendedScalables: ScalableValue[] }) => void;
       /** Returns false when the ability was rejected as a duplicate. */
       onAddAbility?: (ability: SpecialAbility) => boolean;
       onUpdateAbility?: (detail: { index: number; updates: Partial<SpecialAbility> }) => void;
@@ -255,6 +261,11 @@
 
    let editingAbilityIndex = $state<number | null>(null);
    let editingTemplate = $state('');
+   let templateTextarea = $state<HTMLTextAreaElement | null>(null);
+   // Scalable values inserted via the inline-element inserter this edit session; committed alongside
+   // the template on Save (their {N} placeholders were assigned against existing.length + staged.length),
+   // discarded on Cancel/Reset.
+   let stagedScalables = $state<ScalableValue[]>([]);
 
    function startEditTemplate(abilityIndex: number, ability: SpecialAbility): void {
       editingAbilityIndex = abilityIndex;
@@ -264,20 +275,24 @@
          ?? ability.descriptionTemplate
          ?? ability.description
          ?? '';
+      stagedScalables = [];
    }
 
    function cancelEditTemplate(): void {
       editingAbilityIndex = null;
       editingTemplate = '';
+      stagedScalables = [];
    }
 
    function saveEditTemplate(abilityIndex: number): void {
-      onUpdateAbilityCustomDescriptionTemplate?.({
+      onSaveAbilityDescription?.({
          abilityIndex,
-         customTemplate: editingTemplate
+         customTemplate: editingTemplate,
+         appendedScalables: stagedScalables
       });
       editingAbilityIndex = null;
       editingTemplate = '';
+      stagedScalables = [];
    }
 
    function resetEditTemplate(abilityIndex: number): void {
@@ -287,6 +302,25 @@
       });
       editingAbilityIndex = null;
       editingTemplate = '';
+      stagedScalables = [];
+   }
+
+   // Splice a configured inline element's macro into the description at the caret, staging its scalable
+   // value (if any). The {N} index is the next free scalableValues slot: existing + already-staged.
+   function insertInlineElement(ability: SpecialAbility, spec: InlineElementSpec): void {
+      const index = (ability.scalableValues?.length ?? 0) + stagedScalables.length;
+      const built = buildInlineElement(spec, creature.level, index);
+      const ta = templateTextarea;
+      const pos = ta ? ta.selectionStart : editingTemplate.length;
+      editingTemplate = editingTemplate.slice(0, pos) + built.templated + editingTemplate.slice(pos);
+      if (built.scalableValue) stagedScalables = [...stagedScalables, built.scalableValue];
+      const caret = pos + built.templated.length;
+      void tick().then(() => {
+         if (ta) {
+            ta.focus();
+            ta.setSelectionRange(caret, caret);
+         }
+      });
    }
 
    function renderDescriptionHtml(ability: SpecialAbility): string {
@@ -479,9 +513,17 @@
                               {/if}
                               {#if editingAbilityIndex === abilityIndex}
                                  <div class="ability-template-editor">
+                                    <div class="template-toolbar">
+                                       <InlineElementInserter
+                                          level={creature.level}
+                                          enrich={env.enrichHtml}
+                                          oninsert={(spec) => insertInlineElement(ability, spec)}
+                                       />
+                                    </div>
                                     <textarea
                                        class="template-textarea"
                                        rows="6"
+                                       bind:this={templateTextarea}
                                        bind:value={editingTemplate}
                                     ></textarea>
                                     <div class="template-actions">
@@ -1126,6 +1168,11 @@
          display: flex;
          flex-direction: column;
          gap: var(--space-8);
+
+         .template-toolbar {
+            display: flex;
+            align-items: center;
+         }
 
          .template-textarea {
             width: 100%;

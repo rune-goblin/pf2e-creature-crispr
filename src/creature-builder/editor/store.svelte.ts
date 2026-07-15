@@ -5,6 +5,7 @@ import type {
   CreatureStrike,
   DamageModifier,
   Immunity,
+  ScalableValue,
   SenseType,
   SpecialAbility,
   TroopSize
@@ -433,6 +434,29 @@ class CreatureEditorStore {
       const normalized = customTemplate && customTemplate.length > 0 ? customTemplate : undefined;
       c.specialAbilities[abilityIndex] =
         normalized === undefined ? rest : { ...rest, customDescriptionTemplate: normalized };
+    });
+  }
+
+  /**
+   * Commit an edited description template, appending any scalable values inserted via the inline-element
+   * inserter in the same edit session. The appended values' `{N}` placeholders were written into
+   * `customTemplate` against the existing array length, so a plain append keeps indices aligned.
+   */
+  saveAbilityDescriptionTemplate(
+    abilityIndex: number,
+    customTemplate: string | undefined,
+    appendedScalables: ScalableValue[] = []
+  ): void {
+    if (!this.creature || abilityIndex < 0 || abilityIndex >= this.creature.specialAbilities.length) return;
+    this.mutateCreature((c) => {
+      const { customDescriptionTemplate: _old, ...rest } = c.specialAbilities[abilityIndex];
+      const normalized = customTemplate && customTemplate.length > 0 ? customTemplate : undefined;
+      const scalableValues =
+        appendedScalables.length > 0 ? [...(rest.scalableValues ?? []), ...appendedScalables] : rest.scalableValues;
+      const next: SpecialAbility =
+        normalized === undefined ? { ...rest } : { ...rest, customDescriptionTemplate: normalized };
+      if (scalableValues) next.scalableValues = scalableValues;
+      c.specialAbilities[abilityIndex] = next;
     });
   }
 

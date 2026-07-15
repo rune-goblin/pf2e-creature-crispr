@@ -414,6 +414,7 @@
           onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}
           onUpdateAbilityScalableCustomValue={(d) => editorStore.updateAbilityScalableCustomValue(d.abilityIndex, d.valueIndex, d.customValue)}
           onUpdateAbilityCustomDescriptionTemplate={(d) => editorStore.updateAbilityCustomDescriptionTemplate(d.abilityIndex, d.customTemplate)}
+          onSaveAbilityDescription={(d) => editorStore.saveAbilityDescriptionTemplate(d.abilityIndex, d.customTemplate, d.appendedScalables)}
           onAddAbility={(a) => editorStore.addSpecialAbility(a)}
           onUpdateAbility={(d) => editorStore.updateSpecialAbility(d.index, d.updates)}
           onRemoveAbility={(i) => editorStore.removeSpecialAbility(i)}
@@ -431,6 +432,7 @@
           onUpdateAbilityScalableOverride={(d) => editorStore.updateAbilityScalableOverride(d.abilityIndex, d.valueIndex, d.override)}
           onUpdateAbilityScalableCustomValue={(d) => editorStore.updateAbilityScalableCustomValue(d.abilityIndex, d.valueIndex, d.customValue)}
           onUpdateAbilityCustomDescriptionTemplate={(d) => editorStore.updateAbilityCustomDescriptionTemplate(d.abilityIndex, d.customTemplate)}
+          onSaveAbilityDescription={(d) => editorStore.saveAbilityDescriptionTemplate(d.abilityIndex, d.customTemplate, d.appendedScalables)}
           onAddAbility={(a) => editorStore.addSpecialAbility(a)}
           onUpdateAbility={(d) => editorStore.updateSpecialAbility(d.index, d.updates)}
           onRemoveAbility={(i) => editorStore.removeSpecialAbility(i)}
