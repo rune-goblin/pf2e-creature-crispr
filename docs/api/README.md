@@ -52,6 +52,16 @@ Reached at `game.modules.get('pf2e-creature-crispr').api` after CRISPR's `ready`
 | `editCreature` | `(opts?: EditCreatureOptions) => void` | Open the editor bound to a target + provider filter, editing an actor or creating new. |
 | `registerAbilityProvider` | `(provider: AbilityProvider) => void` | Add a provider's abilities to the picker. |
 | `registerSaveTarget` | `(target: CreatureSaveTarget) => void` | Register a persistence backend selectable by `editCreature`. |
+| `searchBestiary` | `(options?: BestiaryFilterOptions, limit?: number) => Promise<BestiaryEntry[]>` | Search every loaded Actor compendium for NPCs. Self-initializing (builds/reuses its index on first call). |
+| `importCreatureFromCompendium` | `(uuid: string) => Promise<string>` | Copy a compendium NPC into the world (items intact, CRISPR-managed); resolves to the new actor id. |
+| `applyTroopToActor` | `(actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>` | Make a world NPC a PF2e troop; resolves to the actor id. Idempotent. |
+| `exportActorSource` | `(actorId: string) => Promise<Record<string, unknown>>` | Full actor source (`actor.toObject()`) for compiling into your own pack. |
+| `exportActorSourceToFile` | `(actorId: string) => Promise<void>` | The same source, written to a JSON file via the save picker. |
+
+These last five are the **dev-time creature-library** surface — a developer uses them inside a running
+world to assemble a creature, then compiles the exported source into a shipped compendium. They are not
+a runtime import path (see "Building troops as a dev-time flow"). `api.version` reaches `0.6.0` with them;
+gate on `>= 0.6.0` if you call them.
 
 ```ts
 interface EditCreatureOptions {
@@ -226,22 +236,117 @@ function onEditArmy(actorId: string) {
 
 ---
 
+## Building creatures as a dev-time flow
+
+Use CRISPR as a **creature library at dev time**: a developer, inside a running world, searches the
+published bestiaries, imports a base creature, shapes it (including making it a troop), and exports the
+full source to compile into their own shipped compendium. This is **not** a runtime import path — your
+users never call these; you build the pack, then ship it. `api.version >= 0.6.0` carries this surface.
+
+```ts
+const crispr = game.modules.get('pf2e-creature-crispr')?.api;
+
+// 1. Find a base creature (self-initializing — no bestiary browser to open first).
+const [match] = await crispr.searchBestiary({ search: 'wolf pack' }, 1);
+
+// 2. Copy it into the world with items intact; the copy is CRISPR-managed.
+const actorId = await crispr.importCreatureFromCompendium(match.uuid);
+
+// 3. Make it a troop (idempotent — a no-op on a creature that's already one).
+await crispr.applyTroopToActor(actorId, { formUp: true });
+
+// 4. A developer opens the editor and adds a Strike + art (CRISPR's default save target).
+crispr.editCreature({ actorId });
+
+// 5. Export the full source and compile it into your own pack.
+const source = await crispr.exportActorSource(actorId);
+// …write `source` into your pack's _source and build, or:
+await crispr.exportActorSourceToFile(actorId); // JSON via the save picker
+```
+
+### `searchBestiary(options?, limit?)`
+
+Searches every loaded Actor compendium for NPCs and returns `BestiaryEntry[]`
+(`{ uuid, name, level, remaster, traits, source }`). Self-initializing: the first call builds an
+index of every Actor pack and later calls reuse it, so you can call it cold — no need to open the
+editor or the bestiary tab first.
+
+```ts
+interface BestiaryFilterOptions {
+  search?: string;        // case-insensitive name substring; omitted → all NPCs
+  includeLegacy?: boolean; // include pre-remaster content; default false (remaster only)
+}
+// limit — cap the result count; omitted or ≤ 0 → all matches.
+```
+
+### `importCreatureFromCompendium(uuid)`
+
+Copies the compendium NPC at `uuid` into the world via Foundry's `importFromCompendium` (embedded
+items preserved), back-solves its benchmarks, stamps the CRISPR flag (`importedFrom` recorded), and
+resolves to the **new actor id**. Rejects non-NPC entries. The source's `publication` (e.g.
+`license: 'ORC'`) rides along on the copied actor.
+
+### `applyTroopToActor(actorId, opts?)`
+
+Makes a world NPC a PF2e troop and resolves to the actor id.
+
+```ts
+opts?: {
+  troopSize?: TroopSize; // 'large' | 'huge' | 'gargantuan'; default 'gargantuan'
+  formUp?: boolean;      // also seed the Form Up ability; default false
+}
+```
+
+It adds the `troop` trait, seeds any **missing** `area-damage`/`splash-damage` weakness (authored
+values are kept — see "Native troops"), sets the actor's size, and embeds the standard glossary
+abilities (Troop Defenses + Troop Movement always; Form Up when `formUp: true`), deduped by slug. It
+does **not** touch token size, HP thresholds/segments, or immunities — the system derives troop
+presentation from the trait itself. Requires a world **NPC** (rejects other actor types). Fully
+idempotent: re-running, or running on an imported published troop that already has trait, weaknesses,
+and abilities, changes nothing.
+
+### `exportActorSource(actorId)` / `exportActorSourceToFile(actorId)`
+
+`exportActorSource` returns the full actor source (`actor.toObject()`: `system`, `items`,
+`prototypeToken`, `img`, and flags — the CRISPR flag kept so a shipped actor stays CRISPR-editable
+when reimported). The data-returning form comes first so your pack tooling can consume it directly;
+`exportActorSourceToFile` is a thin wrapper that writes the same JSON to a file through the save
+picker. This is distinct from the editor's "Export" button, which emits a benchmark/stat snapshot, not
+packageable source.
+
+---
+
 ## Native troops
 
-Troops are PF2e-core and CRISPR-native (no consumer required):
+Troops are PF2e-core and CRISPR-native (no consumer required). The `troop` trait is the whole record:
+CRISPR derives `isTroop`/`troopSize` from the actor (trait + size), and the **PF2e system** derives all
+troop *presentation and combat state* from the trait — 4/3/2-segment HP thresholds, the fixed 10×10-ft
+(2×2-square) footprint, and unflankability — regardless of actor size. **CRISPR does not manage token
+size or thresholds; the system owns them.**
 
 - The **Defenses** section has a **Troop** toggle + a formation-size select (`large`/`huge`/
-  `gargantuan`). When on, it shows the HP/square thresholds and the level-derived area/splash
-  weakness values (read-only guidance).
+  `gargantuan`). When on, it shows level-derived area/splash weakness *guidance*.
 - On save, the active target stamps the **`troop` trait** + **`area-damage`/`splash-damage`**
-  weaknesses (CRISPR's built-in target does this for you; a custom target gets the kernel helpers
-  `withTroopTrait` / `withTroopWeaknesses` to do the same).
+  weaknesses. Semantics are **seed-if-missing**: any authored `area-damage`/`splash-damage` value is
+  preserved and only absent types are filled from the level table (`withTroopWeaknesses`). The table is
+  a *guideline* for from-scratch troops — published troops author their own values, and those always
+  win. CRISPR's built-in target does this for you; a custom target gets the kernel helpers
+  `withTroopTrait` / `withTroopWeaknesses` to do the same.
+- **No immunities.** There is no troop *immunity* rule — the system reads only authored weaknesses at
+  damage time. IWR beyond area/splash is creature-specific (the mindless-undead package on undead
+  troops, etc.), so CRISPR stamps none.
+- `formUp: true` (on `applyTroopToActor`) seeds the Form Up ability; by convention troops with Form Up
+  run **splash ≈ half the area value** (e.g. 10/5, 12/6, 20/10). This is a convention, not enforced —
+  author the exact values the statblock calls for.
+- **Save target for the dev flow.** Build packs through CRISPR's **default** save target. A consumer's
+  own target (RM's faction folders / army registration) is for its *runtime* worlds, not pack-building;
+  mixing scopes mid-flow makes `loadCreatureData` miss and the editor back-solve.
 
-**Convert to Troop** (the Defenses button) applies the structural transform (flag, formation size,
-actor size). If the *active provider* supplies a `troopConversion` recipe, CRISPR also applies its
-`levelDelta` / `nameSuffix` / `defaultTroopSize` and merges `generateAbilities(creature)` into the
-creature — **without clobbering the user's existing abilities** (reconciled by name). With no recipe,
-it's the structural transform only.
+**Convert to Troop** (the Defenses button) applies the structural transform (formation size, actor
+size, seed-if-missing weaknesses). If the *active provider* supplies a `troopConversion` recipe, CRISPR
+also applies its `levelDelta` / `nameSuffix` / `defaultTroopSize` and merges `generateAbilities(creature)`
+into the creature — **without clobbering the user's existing abilities** (reconciled by name). With no
+recipe, it's the structural transform only.
 
 ---
 

@@ -4,8 +4,19 @@ import './creature-builder/styles/form-controls.css';
 import './creature-builder/styles/app-shell.css';
 import { MODULE_ID } from './constants';
 import { editCreature, openEditor, type EditCreatureOptions } from './creature-builder/editorLaunch';
-import { registerAbilityProvider, registerSaveTarget } from './creature-builder/services';
+import {
+  registerAbilityProvider,
+  registerSaveTarget,
+  searchBestiary,
+  importCreatureFromCompendium,
+  applyTroopToActor,
+  exportActorSource,
+  exportActorSourceToFile,
+  type BestiaryEntry,
+  type BestiaryFilterOptions
+} from './creature-builder/services';
 import type { AbilityProvider, CreatureSaveTarget } from './creature-builder/logic/contracts';
+import type { TroopSize } from './creature-builder/logic/models';
 
 interface ModuleApi {
   version: string;
@@ -13,6 +24,13 @@ interface ModuleApi {
   editCreature: (opts?: EditCreatureOptions) => void;
   registerAbilityProvider: (provider: AbilityProvider) => void;
   registerSaveTarget: (target: CreatureSaveTarget) => void;
+  // Dev-time creature-library flow: search → import → applyTroopToActor → export (see docs/api/README.md).
+  // searchBestiary self-initializes the compendium index, so a consumer can call it cold.
+  searchBestiary: (options?: BestiaryFilterOptions, limit?: number) => Promise<BestiaryEntry[]>;
+  importCreatureFromCompendium: (uuid: string) => Promise<string>;
+  applyTroopToActor: (actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>;
+  exportActorSource: (actorId: string) => Promise<Record<string, unknown>>;
+  exportActorSourceToFile: (actorId: string) => Promise<void>;
 }
 
 Hooks.once('init', () => {
@@ -27,7 +45,12 @@ Hooks.once('ready', () => {
     open: openEditor,
     editCreature,
     registerAbilityProvider,
-    registerSaveTarget
+    registerSaveTarget,
+    searchBestiary,
+    importCreatureFromCompendium,
+    applyTroopToActor,
+    exportActorSource,
+    exportActorSourceToFile
   };
   // `api` is the Foundry convention for a public API, but isn't a typed field on Module.
   if (module) (module as { api?: ModuleApi }).api = api;
