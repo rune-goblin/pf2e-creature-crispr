@@ -1,9 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { withTroopTrait, troopWeaknesses, withTroopWeaknesses } from '@/creature-builder/logic/troop';
+import {
+  withTroopTrait,
+  troopWeaknesses,
+  withTroopWeaknesses,
+  troopImmunities,
+  withTroopImmunities,
+  troopAdjusted
+} from '@/creature-builder/logic/troop';
 import { getTroopWeaknessValues } from '@/creature-builder/logic/creatureStatTables';
 import { mergeSpecialAbilitiesByName } from '@/creature-builder/logic/customAbility';
 import { editorStore } from '@/creature-builder/editor';
-import type { DamageModifier, SpecialAbility } from '@/creature-builder/logic/models';
+import type { DamageModifier, Immunity, SpecialAbility } from '@/creature-builder/logic/models';
 
 describe('troop derivation (kernel)', () => {
   it('adds the troop trait without duplicating', () => {
@@ -28,6 +35,55 @@ describe('troop derivation (kernel)', () => {
     expect(out.find((m) => m.type === 'fire')).toEqual({ type: 'fire', value: 5 });
     expect(out.filter((m) => m.type === 'area-damage')).toHaveLength(1);
     expect(out.find((m) => m.type === 'area-damage')?.value).toBe(getTroopWeaknessValues(5).area);
+  });
+
+  it('carries the effects a formation shrugs off but an individual would not', () => {
+    expect(troopImmunities().map((i) => i.type)).toEqual([
+      'death-effects',
+      'disease',
+      'paralyzed',
+      'poison',
+      'unconscious'
+    ]);
+  });
+
+  it('overlays troop immunities, keeping the creature\'s own and not duplicating', () => {
+    const existing: Immunity[] = [{ type: 'fire' }, { type: 'poison' }];
+    const out = withTroopImmunities(existing);
+    expect(out.find((i) => i.type === 'fire')).toEqual({ type: 'fire' });
+    expect(out.filter((i) => i.type === 'poison')).toHaveLength(1);
+  });
+});
+
+describe('troopAdjusted', () => {
+  const base = (over: Partial<Parameters<typeof troopAdjusted>[0]> = {}) => ({
+    level: 5,
+    traits: ['animal'],
+    weaknesses: [] as DamageModifier[],
+    immunities: [] as Immunity[],
+    ...over
+  });
+
+  it('stamps trait, weaknesses and immunities together for a troop', () => {
+    const out = troopAdjusted(base({ isTroop: true }));
+    expect(out.traits).toContain('troop');
+    expect(out.weaknesses.find((m) => m.type === 'area-damage')?.value).toBe(getTroopWeaknessValues(5).area);
+    expect(out.immunities.map((i) => i.type)).toContain('death-effects');
+  });
+
+  it('passes a non-troop through untouched', () => {
+    const input = base({ isTroop: false, weaknesses: [{ type: 'fire', value: 5 }] });
+    const out = troopAdjusted(input);
+    expect(out.traits).toEqual(['animal']);
+    expect(out.weaknesses).toEqual([{ type: 'fire', value: 5 }]);
+    expect(out.immunities).toEqual([]);
+  });
+
+  // Save targets call this on every persist, so a second pass must not stack duplicates.
+  it('is idempotent', () => {
+    const once = troopAdjusted(base({ isTroop: true }));
+    const twice = troopAdjusted(base({ isTroop: true, ...once }));
+    expect(twice).toEqual(once);
   });
 });
 
