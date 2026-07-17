@@ -6,8 +6,8 @@ import { getTroopWeaknessValues } from './creatureStatTables';
 // (2026-07-17) shows most carry zero immunities and the rest vary by creature, so the kernel seeds
 // only missing area/splash weaknesses and stamps nothing else. Authored values always win.
 
-const TROOP_TRAIT = 'troop';
-const TROOP_WEAKNESS_TYPES = ['area-damage', 'splash-damage'];
+export const TROOP_TRAIT = 'troop';
+export const TROOP_WEAKNESS_TYPES: string[] = ['area-damage', 'splash-damage'];
 
 export function withTroopTrait(traits: string[]): string[] {
   return traits.includes(TROOP_TRAIT) ? [...traits] : [...traits, TROOP_TRAIT];

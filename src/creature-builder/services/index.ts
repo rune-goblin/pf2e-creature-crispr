@@ -5,6 +5,7 @@ export * from './sync';
 export * from './spells';
 export * from './strikes';
 export * from './import';
+export * from './troop';
 export * from './actorQueries';
 export * from './actorStatsExtractor';
 export * from './bestiaryBrowser';

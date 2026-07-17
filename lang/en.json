@@ -1,5 +1,9 @@
 {
   "pf2e-creature-crispr": {
-    "title": "PF2E Creature CRISPR"
+    "title": "PF2E Creature CRISPR",
+    "troop": {
+      "notNpc": "Cannot apply the troop template to a \"{type}\" actor — troops must be NPCs.",
+      "abilityMissing": "Troop ability item not found ({uuid}). The PF2e bestiary glossary pack is missing or out of date."
+    }
   }
 }

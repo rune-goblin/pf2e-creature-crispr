@@ -23,15 +23,12 @@ import {
   scaleResistanceWeakness,
   scalarToResistanceWeakness
 } from '../logic/creatureStatTables';
+import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES } from '../logic/troop';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
 import { ALL_SECTIONS } from './types';
 
 const DEFAULT_EXPANDED: EditorSection[] = ['abilities', 'defenses', 'skills', 'offense', 'spellcasting'];
-
-// Mirror the kernel's save-derived troop markers so un-trooping reverses them (troop.ts owns them).
-const TROOP_TRAIT = 'troop';
-const TROOP_WEAKNESS_TYPES: string[] = ['area-damage', 'splash-damage'];
 
 class CreatureEditorStore {
   active = $state(false);
