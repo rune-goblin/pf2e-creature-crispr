@@ -1,8 +1,7 @@
 import type { ActorPF2e, ItemPF2e } from 'foundry-pf2e';
 import type { EditableCreature } from '../logic/editableCreature';
 import type { CreatureSaveTarget, StoredCreatureData } from '../logic/contracts';
-import type { DamageModifier } from '../logic/models';
-import { withTroopTrait, withTroopWeaknesses } from '../logic/troop';
+import { troopAdjusted } from '../logic/troop';
 import { MODULE_ID } from '@/constants';
 import { createCreatureActor, cloneCreatureActor, getCreatureData } from './crud';
 import { updateCreature } from './sync';
@@ -22,15 +21,6 @@ function buildItemIdMap(
   const len = Math.min(sourceItems.length, cloneItems.length);
   for (let i = 0; i < len; i++) map[sourceItems[i].id] = cloneItems[i].id;
   return map;
-}
-
-/** Troops persist with the `troop` trait + level-derived area/splash weaknesses; non-troops unchanged. */
-function troopAdjusted(creature: EditableCreature): { traits: string[]; weaknesses: DamageModifier[] } {
-  if (!creature.isTroop) return { traits: creature.traits, weaknesses: creature.weaknesses };
-  return {
-    traits: withTroopTrait(creature.traits),
-    weaknesses: withTroopWeaknesses(creature.weaknesses, creature.level)
-  };
 }
 
 // CRISPR's built-in save target: the "Creature CRISPR" flat folder + the module's own flag scope.

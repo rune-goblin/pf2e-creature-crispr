@@ -29,6 +29,10 @@ import { ALL_SECTIONS } from './types';
 
 const DEFAULT_EXPANDED: EditorSection[] = ['abilities', 'defenses', 'skills', 'offense', 'spellcasting'];
 
+// Mirror the kernel's save-derived troop markers so un-trooping reverses them (troop.ts owns them).
+const TROOP_TRAIT = 'troop';
+const TROOP_WEAKNESS_TYPES: string[] = ['area-damage', 'splash-damage'];
+
 class CreatureEditorStore {
   active = $state(false);
   mode = $state<EditorMode>('create');
@@ -589,7 +593,14 @@ class CreatureEditorStore {
   setTroop(isTroop: boolean): void {
     this.mutateCreature((c) => {
       c.isTroop = isTroop;
-      if (isTroop && !c.troopSize) c.troopSize = 'gargantuan';
+      if (isTroop) {
+        if (!c.troopSize) c.troopSize = 'gargantuan';
+      } else {
+        // Troop-ness re-derives from the trait + seeded weaknesses on the next load, so strip both
+        // or turning a troop off silently reverts on reopen.
+        c.traits = c.traits.filter((t) => t !== TROOP_TRAIT);
+        c.weaknesses = c.weaknesses.filter((w) => !TROOP_WEAKNESS_TYPES.includes(w.type));
+      }
     });
   }
 

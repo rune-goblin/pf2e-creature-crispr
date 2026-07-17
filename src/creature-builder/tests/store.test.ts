@@ -584,6 +584,27 @@ describe('troop', () => {
     editorStore.setTroop(false);
     expect(editorStore.creature!.isTroop).toBe(false);
   });
+
+  // Troop-ness re-derives from the trait + seeded area/splash weaknesses on load, so setTroop(false)
+  // must strip exactly those, or reopening a de-trooped creature silently re-troops it.
+  it('setTroop(false) strips the troop trait and seeded area/splash weaknesses but keeps others', () => {
+    editorStore.startEdit(
+      makeEditable({
+        isTroop: true,
+        troopSize: 'gargantuan',
+        traits: ['goblin', 'troop'],
+        weaknesses: [
+          { type: 'area-damage', value: 5 },
+          { type: 'splash-damage', value: 5 },
+          { type: 'cold-iron', value: 5 }
+        ]
+      })
+    );
+    editorStore.setTroop(false);
+    expect(editorStore.creature!.isTroop).toBe(false);
+    expect(editorStore.creature!.traits).toEqual(['goblin']);
+    expect(editorStore.creature!.weaknesses).toEqual([{ type: 'cold-iron', value: 5 }]);
+  });
 });
 
 describe('role presets', () => {

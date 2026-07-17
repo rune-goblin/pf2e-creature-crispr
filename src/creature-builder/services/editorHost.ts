@@ -1,8 +1,8 @@
 import type { NPCPF2e } from 'foundry-pf2e';
 import type { EditableCreature } from '../logic/editableCreature';
 import type { CreatureSaveTarget } from '../logic/contracts';
-import type { CreatureSense, CreatureSpeeds, CreatureStats, CreatureBenchmarks, SenseAcuity, SenseType } from '../logic/models';
-import { getDefaultBenchmarks } from '../logic/models';
+import type { CreatureSense, CreatureSpeeds, CreatureStats, CreatureBenchmarks, SenseAcuity, SenseType, TroopSize } from '../logic/models';
+import { getDefaultBenchmarks, TROOP_SIZES } from '../logic/models';
 import { pf2eToSize } from '../logic/sizes';
 import { analyzeStatsForBenchmarks } from '../logic/creatureStatTables';
 import {
@@ -47,6 +47,12 @@ function getSensesFromActor(actor: NPCPF2e | null | undefined): CreatureSense[] 
   return out;
 }
 
+// TroopSize only spans large/huge/gargantuan; the system forces a grg token footprint regardless of
+// stored size, so a troop authored at any other size loads at the gargantuan default.
+function toTroopSize(size: string): TroopSize {
+  return (TROOP_SIZES as readonly string[]).includes(size) ? (size as TroopSize) : 'gargantuan';
+}
+
 /**
  * Read a PF2e NPC into the editor's pure EditableCreature, sourcing stored benchmarks/baseStats from
  * the save target's flag scope (so a consumer's own scope loads), else back-solving from live stats.
@@ -63,6 +69,10 @@ export function loadCreatureForEdit(
   }
 
   const level = actor.system?.details?.level?.value ?? 1;
+  const traits = actor.system?.traits?.value || [];
+  const size = pf2eToSize(actor.system?.traits?.size?.value || 'med');
+  // Troop-ness is not persisted in the flag — the actor is the record (trait + size).
+  const isTroop = traits.includes('troop');
 
   // Flagged creatures keep their stored benchmarks/baseStats verbatim. Actors without the
   // flag back-solve from live stats, so editing them never resets their real numbers.
@@ -77,8 +87,8 @@ export function loadCreatureForEdit(
     name: actor.name || 'Unknown',
     level,
     creatureType: (actor.system?.details as { creatureType?: string }).creatureType || 'creature',
-    size: pf2eToSize(actor.system?.traits?.size?.value || 'med'),
-    traits: actor.system?.traits?.value || [],
+    size,
+    traits,
     benchmarks,
     baseLevel,
     baseStats,
@@ -92,7 +102,9 @@ export function loadCreatureForEdit(
     senses: getSensesFromActor(actor),
     portraitImage: actor.img,
     tokenImage: actor.prototypeToken?.texture?.src ?? undefined,
-    importedFrom: creatureData?.importedFrom
+    importedFrom: creatureData?.importedFrom,
+    isTroop,
+    troopSize: isTroop ? toTroopSize(size) : undefined
   };
 }
 
