@@ -276,4 +276,4 @@ your own `ready` hook sees the API.
 - **Vendoring, not importing.** Author against your vendored copy of the kernel; do not import from
   CRISPR's runtime bundle.
 
-See `docs/plans/creature-editor-extension-api.md` for the design and phasing.
+For in-flight API work, see `docs/plans/troop-build-api-for-reignmaker.md`.
