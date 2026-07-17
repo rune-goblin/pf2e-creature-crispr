@@ -67,14 +67,15 @@ export async function applyTroopToActor(
   const uuids: string[] = [TROOP_ABILITY_UUIDS.defenses, TROOP_ABILITY_UUIDS.movement];
   if (formUp) uuids.push(TROOP_ABILITY_UUIDS.formUp);
 
-  const existingSlugs = new Set(npc.items.contents.map((i) => i.slug).filter((s): s is string => !!s));
+  // Fall back to a sluggified name so a null-slug item still dedups instead of double-embedding.
+  const existingSlugs = new Set(npc.items.contents.map((i) => i.slug ?? game.pf2e.system.sluggify(i.name)));
   const toEmbed: object[] = [];
   for (const uuid of uuids) {
     const source = (await fromUuid(uuid)) as ItemPF2e | null;
     if (!source) {
       throw new Error(game.i18n.format('pf2e-creature-crispr.troop.abilityMissing', { uuid }));
     }
-    if (source.slug && existingSlugs.has(source.slug)) continue;
+    if (existingSlugs.has(source.slug ?? game.pf2e.system.sluggify(source.name))) continue;
     toEmbed.push(source.toObject());
   }
   if (toEmbed.length) await npc.createEmbeddedDocuments('Item', toEmbed as any);

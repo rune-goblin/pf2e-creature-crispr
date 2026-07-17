@@ -2,7 +2,7 @@ import type { NPCPF2e } from 'foundry-pf2e';
 import { getDefaultBenchmarks } from '../logic/models';
 import { calculateCreatureStats } from '../logic/creatureStatTables';
 import type { CreatureActorData } from './types';
-import { ensureCreatureFolder } from './folderManager';
+import { ensureCreatureFolder, requireActor } from './folderManager';
 import { logger } from './logger';
 import { readActorStatsAndBenchmarks } from './actorStatsExtractor';
 import { addBenchmarkFlagsToMeleeItems, addBenchmarkFlagsToAbilityItems } from './strikes';
@@ -116,16 +116,34 @@ export async function exportCreatureToFile(actorId: string): Promise<void> {
     exportedAt: Date.now()
   };
 
-  const jsonString = JSON.stringify(exportData, null, 2);
-  const blob = new Blob([jsonString], { type: 'application/json' });
+  await saveJsonToFile(JSON.stringify(exportData, null, 2), `${slugFilename(actor.name)}.json`);
+}
 
-  const sanitizedName = actor.name
+/**
+ * Full actor source for packaging into a consumer's compendium: `system`, `items`,
+ * `prototypeToken`, `img` and flags — the CRISPR flag kept, so a shipped actor stays
+ * CRISPR-editable when reimported. `toObject()` yields the whole source; don't hand-assemble.
+ */
+export async function exportActorSource(actorId: string): Promise<Record<string, unknown>> {
+  const actor = requireActor(actorId);
+  return actor.toObject() as Record<string, unknown>;
+}
+
+export async function exportActorSourceToFile(actorId: string): Promise<void> {
+  const source = await exportActorSource(actorId);
+  const jsonString = JSON.stringify(source, null, 2);
+  await saveJsonToFile(jsonString, `${slugFilename(String(source.name ?? actorId))}.json`);
+}
+
+function slugFilename(name: string): string {
+  return name
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
-  const filename = `${sanitizedName}.json`;
+}
 
+async function saveJsonToFile(jsonString: string, filename: string): Promise<void> {
   if ('showSaveFilePicker' in window) {
     try {
       const handle = await (window as any).showSaveFilePicker({
@@ -137,10 +155,12 @@ export async function exportCreatureToFile(actorId: string): Promise<void> {
       await writable.close();
       return;
     } catch (err) {
+      // User cancelled the picker — not an error worth surfacing.
       if ((err as { name?: string }).name === 'AbortError') return;
     }
   }
 
+  const blob = new Blob([jsonString], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
