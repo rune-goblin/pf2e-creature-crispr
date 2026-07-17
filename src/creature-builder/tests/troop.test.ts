@@ -3,14 +3,12 @@ import {
   withTroopTrait,
   troopWeaknesses,
   withTroopWeaknesses,
-  troopImmunities,
-  withTroopImmunities,
   troopAdjusted
 } from '@/creature-builder/logic/troop';
 import { getTroopWeaknessValues } from '@/creature-builder/logic/creatureStatTables';
 import { mergeSpecialAbilitiesByName } from '@/creature-builder/logic/customAbility';
 import { editorStore } from '@/creature-builder/editor';
-import type { DamageModifier, Immunity, SpecialAbility } from '@/creature-builder/logic/models';
+import type { DamageModifier, SpecialAbility } from '@/creature-builder/logic/models';
 
 describe('troop derivation (kernel)', () => {
   it('adds the troop trait without duplicating', () => {
@@ -26,32 +24,29 @@ describe('troop derivation (kernel)', () => {
     ]);
   });
 
-  it('overlays troop weaknesses, replacing prior area/splash but keeping others', () => {
+  it('seeds only missing area/splash types and keeps everything authored', () => {
+    // Level 6 table splash is 4; Wolf Pack authors splash 5 — the authored value must survive.
     const existing: DamageModifier[] = [
       { type: 'fire', value: 5 },
-      { type: 'area-damage', value: 99 }
+      { type: 'splash-damage', value: 5 }
     ];
-    const out = withTroopWeaknesses(existing, 5);
+    const out = withTroopWeaknesses(existing, 6);
     expect(out.find((m) => m.type === 'fire')).toEqual({ type: 'fire', value: 5 });
-    expect(out.filter((m) => m.type === 'area-damage')).toHaveLength(1);
+    expect(out.filter((m) => m.type === 'splash-damage')).toHaveLength(1);
+    expect(out.find((m) => m.type === 'splash-damage')?.value).toBe(5);
+    expect(out.find((m) => m.type === 'area-damage')?.value).toBe(getTroopWeaknessValues(6).area);
+  });
+
+  it('fills both types when the creature authors neither', () => {
+    const out = withTroopWeaknesses([], 5);
     expect(out.find((m) => m.type === 'area-damage')?.value).toBe(getTroopWeaknessValues(5).area);
+    expect(out.find((m) => m.type === 'splash-damage')?.value).toBe(getTroopWeaknessValues(5).splash);
   });
 
-  it('carries the effects a formation shrugs off but an individual would not', () => {
-    expect(troopImmunities().map((i) => i.type)).toEqual([
-      'death-effects',
-      'disease',
-      'paralyzed',
-      'poison',
-      'unconscious'
-    ]);
-  });
-
-  it('overlays troop immunities, keeping the creature\'s own and not duplicating', () => {
-    const existing: Immunity[] = [{ type: 'fire' }, { type: 'poison' }];
-    const out = withTroopImmunities(existing);
-    expect(out.find((i) => i.type === 'fire')).toEqual({ type: 'fire' });
-    expect(out.filter((i) => i.type === 'poison')).toHaveLength(1);
+  it('is idempotent — a second seeding adds nothing', () => {
+    const once = withTroopWeaknesses([], 5);
+    const twice = withTroopWeaknesses(once, 5);
+    expect(twice).toEqual(once);
   });
 });
 
@@ -60,15 +55,18 @@ describe('troopAdjusted', () => {
     level: 5,
     traits: ['animal'],
     weaknesses: [] as DamageModifier[],
-    immunities: [] as Immunity[],
     ...over
   });
 
-  it('stamps trait, weaknesses and immunities together for a troop', () => {
+  it('stamps trait and seeds weaknesses for a troop', () => {
     const out = troopAdjusted(base({ isTroop: true }));
     expect(out.traits).toContain('troop');
     expect(out.weaknesses.find((m) => m.type === 'area-damage')?.value).toBe(getTroopWeaknessValues(5).area);
-    expect(out.immunities.map((i) => i.type)).toContain('death-effects');
+  });
+
+  it('keeps a troop\'s authored area/splash divergence', () => {
+    const out = troopAdjusted(base({ isTroop: true, level: 6, weaknesses: [{ type: 'splash-damage', value: 5 }] }));
+    expect(out.weaknesses.find((m) => m.type === 'splash-damage')?.value).toBe(5);
   });
 
   it('passes a non-troop through untouched', () => {
@@ -76,7 +74,6 @@ describe('troopAdjusted', () => {
     const out = troopAdjusted(input);
     expect(out.traits).toEqual(['animal']);
     expect(out.weaknesses).toEqual([{ type: 'fire', value: 5 }]);
-    expect(out.immunities).toEqual([]);
   });
 
   // Save targets call this on every persist, so a second pass must not stack duplicates.

@@ -1,20 +1,19 @@
-import type { DamageModifier, Immunity } from './models';
+import type { DamageModifier } from './models';
 import { getTroopWeaknessValues } from './creatureStatTables';
 
-// PF2e represents a troop with the `troop` trait, area/splash-damage weaknesses, and immunity to the
-// effects that target individuals (see any core troop statblock). These derive from the creature's
-// troop flag + level rather than being stored as editable entries, so the editor shows them read-only
-// and a save target stamps them at persist time.
+// PF2e represents a troop with the `troop` trait plus authored area/splash-damage weaknesses (see any
+// core troop statblock). There is no troop immunity rule — a sweep of all 162 published troops
+// (2026-07-17) shows most carry zero immunities and the rest vary by creature, so the kernel seeds
+// only missing area/splash weaknesses and stamps nothing else. Authored values always win.
 
 const TROOP_TRAIT = 'troop';
 const TROOP_WEAKNESS_TYPES = ['area-damage', 'splash-damage'];
-const TROOP_IMMUNITY_TYPES = ['death-effects', 'disease', 'paralyzed', 'poison', 'unconscious'];
 
 export function withTroopTrait(traits: string[]): string[] {
   return traits.includes(TROOP_TRAIT) ? [...traits] : [...traits, TROOP_TRAIT];
 }
 
-/** The area/splash weaknesses every troop carries at a given level (PF2e GMG guideline values). */
+/** The area/splash weaknesses a from-scratch troop gets at a given level (PF2e GMG guideline values). */
 export function troopWeaknesses(level: number): DamageModifier[] {
   const { area, splash } = getTroopWeaknessValues(level);
   return [
@@ -23,21 +22,15 @@ export function troopWeaknesses(level: number): DamageModifier[] {
   ];
 }
 
-/** Overlay the level-derived troop weaknesses onto the creature's own; troop values win for area/splash. */
+/**
+ * Seed the guideline area/splash weaknesses, but only for types the creature doesn't already author.
+ * Published troops carry divergent authored values (e.g. Wolf Pack's splash 5 vs. the table's 4 at
+ * level 6); those must survive, so troop-ness can be re-asserted idempotently without clobbering them.
+ */
 export function withTroopWeaknesses(existing: DamageModifier[], level: number): DamageModifier[] {
-  const kept = existing.filter((m) => !TROOP_WEAKNESS_TYPES.includes(m.type));
-  return [...kept, ...troopWeaknesses(level)];
-}
-
-/** The effects every troop is immune to: a formation shrugs off what would fell one of its members. */
-export function troopImmunities(): Immunity[] {
-  return TROOP_IMMUNITY_TYPES.map((type) => ({ type }));
-}
-
-/** Overlay the standard troop immunities onto the creature's own, dropping duplicates. */
-export function withTroopImmunities(existing: Immunity[]): Immunity[] {
-  const kept = existing.filter((i) => !TROOP_IMMUNITY_TYPES.includes(i.type));
-  return [...kept, ...troopImmunities()];
+  const present = new Set(existing.map((m) => m.type));
+  const seeded = troopWeaknesses(level).filter((m) => TROOP_WEAKNESS_TYPES.includes(m.type) && !present.has(m.type));
+  return [...existing, ...seeded];
 }
 
 /** The subset of a creature the troop derivation reads; `EditableCreature` satisfies it structurally. */
@@ -46,25 +39,22 @@ export interface TroopAdjustable {
   level: number;
   traits: string[];
   weaknesses: DamageModifier[];
-  immunities: Immunity[];
 }
 
 /**
- * Everything a save target must stamp for a troop, in one call: the trait, the level-derived
- * area/splash weaknesses, and the standard immunities. Non-troops pass through untouched, so this
- * is safe to call unconditionally. Idempotent — re-running on an already-stamped troop is a no-op.
+ * Everything a save target must stamp for a troop, in one call: the trait and the seed-if-missing
+ * area/splash weaknesses. Non-troops pass through untouched, so this is safe to call
+ * unconditionally. Idempotent — re-running on an already-stamped troop is a no-op.
  */
 export function troopAdjusted(creature: TroopAdjustable): {
   traits: string[];
   weaknesses: DamageModifier[];
-  immunities: Immunity[];
 } {
   if (!creature.isTroop) {
-    return { traits: creature.traits, weaknesses: creature.weaknesses, immunities: creature.immunities };
+    return { traits: creature.traits, weaknesses: creature.weaknesses };
   }
   return {
     traits: withTroopTrait(creature.traits),
-    weaknesses: withTroopWeaknesses(creature.weaknesses, creature.level),
-    immunities: withTroopImmunities(creature.immunities)
+    weaknesses: withTroopWeaknesses(creature.weaknesses, creature.level)
   };
 }
