@@ -343,7 +343,7 @@ size or thresholds; the system owns them.**
   mixing scopes mid-flow makes `loadCreatureData` miss and the editor back-solve.
 
 **Convert to Troop** (the Defenses button) applies the structural transform (formation size, actor
-size, seed-if-missing weaknesses). If the *active provider* supplies a `troopConversion` recipe, CRISPR
+size; the `troop` trait and any missing area/splash weaknesses land on save). If the *active provider* supplies a `troopConversion` recipe, CRISPR
 also applies its `levelDelta` / `nameSuffix` / `defaultTroopSize` and merges `generateAbilities(creature)`
 into the creature — **without clobbering the user's existing abilities** (reconciled by name). With no
 recipe, it's the structural transform only.
