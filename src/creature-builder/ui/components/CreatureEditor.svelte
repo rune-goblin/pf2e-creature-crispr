@@ -1,8 +1,7 @@
 <script lang="ts">
   import type { ActorPF2e } from 'foundry-pf2e';
-  import { editorStore, dragDropState, type EditableCreature } from '@/creature-builder/editor';
+  import { editorStore, dragDropState } from '@/creature-builder/editor';
   import { getActiveSaveTarget, defaultEditorEnvironment, getActiveProviders } from '@/creature-builder/services';
-  import { mergeSpecialAbilitiesByName } from '@/creature-builder/logic/customAbility';
   import {
     getStatRangesForLevel,
     statToScalar,
@@ -167,24 +166,10 @@
     game.actors?.get(id)?.sheet?.render(true);
   }
 
-  // Structural transform in the store, then (if the active provider supplies a recipe) seed its
-  // standard abilities — mapped + given ids host-side — without clobbering the user's existing ones.
   function handleConvertToTroop(): void {
-    const c = editorStore.creature;
-    if (!c) return;
+    if (!editorStore.creature) return;
     const recipe = getActiveProviders().find((p) => p.troopConversion)?.troopConversion;
-    editorStore.convertToTroop({
-      troopSize: recipe?.defaultTroopSize,
-      levelDelta: recipe?.levelDelta,
-      nameSuffix: recipe?.nameSuffix
-    });
-    const after = editorStore.creature;
-    if (recipe?.generateAbilities && after) {
-      const generated = recipe
-        .generateAbilities($state.snapshot(after) as EditableCreature)
-        .map((def) => env.abilityFromDefinition(def, after.level));
-      editorStore.updateCreature({ specialAbilities: mergeSpecialAbilitiesByName(after.specialAbilities, generated) });
-    }
+    editorStore.convertToTroop(recipe ?? {});
     env.notify.info('Converted to troop');
   }
 

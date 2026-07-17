@@ -1,10 +1,13 @@
 import type { ItemPF2e, NPCPF2e } from 'foundry-pf2e';
 import type { TroopSize } from '../logic/models';
-import { withTroopTrait, withTroopWeaknesses } from '../logic/troop';
+import { withTroopTrait, withTroopWeaknesses, applyTroopConversion } from '../logic/troop';
 import { sizeToPf2e } from '../logic/sizes';
 import { buildIwrSystem } from './crud';
 import { getWeaknessesFromActor } from './actorQueries';
 import { requireActor } from './folderManager';
+import { loadCreatureForEdit } from './editorHost';
+import { getAbilityProviders } from './abilityProviderRegistry';
+import { getActiveSaveTarget, getSaveTarget } from './saveTargetRegistry';
 import { logger } from './logger';
 
 // Canonical generic glossary items — pure @Localize wrappers, no creature-specific values (see the
@@ -82,4 +85,30 @@ export async function applyTroopToActor(
 
   logger.info(`Applied troop template to: ${npc.name}`);
   return npc.id;
+}
+
+/**
+ * Headless "Convert to Troop": load the actor as an EditableCreature, apply a provider's troopConversion
+ * recipe (the same `applyTroopConversion` the editor button runs — level bump + formation size + the
+ * generated troop abilities), and persist through a save target. Same load/transform/save as the editor's
+ * Save, without the UI. `providerId` selects the recipe (default: the first registered provider that has
+ * one); `saveTargetId` selects where it writes (default: the active target). Returns the actor id.
+ */
+export async function convertActorToTroop(
+  actorId: string,
+  opts: { providerId?: string; saveTargetId?: string } = {}
+): Promise<string> {
+  const target = (opts.saveTargetId && getSaveTarget(opts.saveTargetId)) || getActiveSaveTarget();
+  const creature = loadCreatureForEdit(actorId, target);
+  if (!creature) throw new Error(`convertActorToTroop: actor not found (${actorId})`);
+
+  const recipe = getAbilityProviders(opts.providerId ? [opts.providerId] : undefined).find(
+    (p) => p.troopConversion
+  )?.troopConversion;
+  applyTroopConversion(creature, recipe ?? {});
+
+  await target.updateActor(actorId, creature);
+  await target.onAfterSave?.(actorId, creature, 'update');
+  logger.info(`Converted actor to troop: ${creature.name}`);
+  return actorId;
 }

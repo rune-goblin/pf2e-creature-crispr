@@ -3,12 +3,16 @@ import {
   withTroopTrait,
   troopWeaknesses,
   withTroopWeaknesses,
-  troopAdjusted
+  troopAdjusted,
+  applyTroopConversion
 } from '@/creature-builder/logic/troop';
 import { getTroopWeaknessValues } from '@/creature-builder/logic/creatureStatTables';
 import { mergeSpecialAbilitiesByName } from '@/creature-builder/logic/customAbility';
+import { getDefaultBenchmarks } from '@/creature-builder/logic/models';
 import { editorStore } from '@/creature-builder/editor';
 import type { DamageModifier, SpecialAbility } from '@/creature-builder/logic/models';
+import type { EditableCreature } from '@/creature-builder/logic/editableCreature';
+import type { CustomAbilityDefinition } from '@/creature-builder/logic/contracts';
 
 describe('troop derivation (kernel)', () => {
   it('adds the troop trait without duplicating', () => {
@@ -93,6 +97,63 @@ describe('mergeSpecialAbilitiesByName', () => {
   });
 });
 
+describe('applyTroopConversion', () => {
+  const baseCreature = (over: Partial<EditableCreature> = {}): EditableCreature => ({
+    name: 'Wolf',
+    level: 3,
+    creatureType: 'animal',
+    size: 'medium',
+    traits: ['animal'],
+    benchmarks: getDefaultBenchmarks(),
+    speeds: { land: 35 },
+    languages: [],
+    senses: [],
+    strikes: [],
+    specialAbilities: [],
+    immunities: [],
+    resistances: [],
+    weaknesses: [],
+    ...over
+  });
+
+  it('flags a troop, sizes it, bumps + rescales the level, and suffixes the name', () => {
+    const c = baseCreature();
+    applyTroopConversion(c, { levelDelta: 5, defaultTroopSize: 'large', nameSuffix: ' Pack' });
+    expect(c.isTroop).toBe(true);
+    expect(c.troopSize).toBe('large');
+    expect(c.size).toBe('large');
+    expect(c.level).toBe(8);
+    expect(c.name).toBe('Wolf Pack');
+  });
+
+  it('defaults to gargantuan and leaves level/name when the recipe is empty', () => {
+    const c = baseCreature();
+    applyTroopConversion(c);
+    expect(c.isTroop).toBe(true);
+    expect(c.troopSize).toBe('gargantuan');
+    expect(c.level).toBe(3);
+    expect(c.name).toBe('Wolf');
+  });
+
+  it('scales raw IWR values on the level bump', () => {
+    const c = baseCreature({ weaknesses: [{ type: 'fire', value: 5 }] });
+    applyTroopConversion(c, { levelDelta: 5 });
+    expect(c.weaknesses[0].value).toBeGreaterThan(5);
+  });
+
+  it("merges the recipe's generated abilities, deduped by name", () => {
+    const def: CustomAbilityDefinition = {
+      slug: 'trample', name: 'Trample', img: '', group: 'war-action',
+      description: '<p>Tramples.</p>', actionType: 'action', actions: 3, traits: []
+    };
+    const c = baseCreature({
+      specialAbilities: [{ id: 'x', name: 'Trample', description: '', actionType: 'action' }]
+    });
+    applyTroopConversion(c, { generateAbilities: () => [def] });
+    expect(c.specialAbilities.filter((a) => a.name === 'Trample')).toHaveLength(1);
+  });
+});
+
 describe('store troop methods', () => {
   beforeEach(() => editorStore.resetEditor());
 
@@ -109,7 +170,7 @@ describe('store troop methods', () => {
     editorStore.startCreate();
     const name0 = editorStore.creature!.name;
     const lvl0 = editorStore.creature!.level;
-    editorStore.convertToTroop({ levelDelta: 5, nameSuffix: ' Troop', troopSize: 'huge' });
+    editorStore.convertToTroop({ levelDelta: 5, nameSuffix: ' Troop', defaultTroopSize: 'huge' });
     const c = editorStore.creature!;
     expect(c.isTroop).toBe(true);
     expect(c.troopSize).toBe('huge');

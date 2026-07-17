@@ -20,10 +20,10 @@ import {
 } from '../logic/models';
 import {
   calculateCreatureStats,
-  scaleResistanceWeakness,
   scalarToResistanceWeakness
 } from '../logic/creatureStatTables';
-import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES } from '../logic/troop';
+import type { TroopConversionRecipe } from '../logic/contracts';
+import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, rescaleCreatureIwr } from '../logic/troop';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
 import { ALL_SECTIONS } from './types';
@@ -127,17 +127,9 @@ class CreatureEditorStore {
   updateLevel(level: number): void {
     const next = Math.max(-1, Math.min(24, level));
     this.mutateCreature((c) => {
-      this.rescaleIwr(c, c.level, next);
+      rescaleCreatureIwr(c, c.level, next);
       c.level = next;
     });
-  }
-
-  /** Resistances/weaknesses store raw numbers, not benchmarks, so unlike AC/HP/saves they don't
-   *  recompute on their own — keep them in step with the level's typical range on a level change. */
-  private rescaleIwr(c: EditableCreature, fromLevel: number, toLevel: number): void {
-    if (fromLevel === toLevel) return;
-    for (const r of c.resistances) r.value = scaleResistanceWeakness(r.value, fromLevel, toLevel);
-    for (const w of c.weaknesses) w.value = scaleResistanceWeakness(w.value, fromLevel, toLevel);
   }
 
   /**
@@ -608,22 +600,13 @@ class CreatureEditorStore {
   }
 
   /**
-   * Structural half of Convert to Troop: flag + formation size + actor size, plus the provider
-   * recipe's level/name tweaks. Pure — ability seeding is host-side (it needs item ids), reconciled
-   * separately so the user's existing abilities survive.
+   * Convert the creature to a troop via a provider's recipe — formation size, level/name tweaks, and the
+   * recipe's generated troop abilities — through `applyTroopConversion`, the same logic the headless
+   * `convertActorToTroop` service runs. The trait + area/splash weaknesses are stamped by `troopAdjusted`
+   * at save time.
    */
-  convertToTroop(opts: { troopSize?: TroopSize; levelDelta?: number; nameSuffix?: string } = {}): void {
-    this.mutateCreature((c) => {
-      c.isTroop = true;
-      c.troopSize = opts.troopSize ?? c.troopSize ?? 'gargantuan';
-      c.size = c.troopSize;
-      if (opts.levelDelta) {
-        const next = Math.max(-1, Math.min(24, c.level + opts.levelDelta));
-        this.rescaleIwr(c, c.level, next);
-        c.level = next;
-      }
-      if (opts.nameSuffix) c.name = `${c.name}${opts.nameSuffix}`;
-    });
+  convertToTroop(recipe: TroopConversionRecipe = {}): void {
+    this.mutateCreature((c) => applyTroopConversion(c, recipe));
   }
 }
 

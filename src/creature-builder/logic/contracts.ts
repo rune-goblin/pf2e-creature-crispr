@@ -20,19 +20,22 @@ export interface CustomAbilityDefinition {
   referenceUuid?: string; // opaque string; resolution (fromUuid) is host-side if ever needed
 }
 
+/** A provider's "Convert to Troop" recipe: CRISPR does the structural transform, this supplies the
+ *  consumer's level/size/name heuristics + the standard troop ability set. Consumed identically by the
+ *  editor (store.convertToTroop) and the headless convertActorToTroop service via applyTroopConversion. */
+export interface TroopConversionRecipe {
+  levelDelta?: number;
+  nameSuffix?: string;
+  defaultTroopSize?: TroopSize;
+  generateAbilities?(creature: EditableCreature): CustomAbilityDefinition[];
+}
+
 export interface AbilityProvider {
   id: string;
   label: string;
   abilities: CustomAbilityDefinition[];
   groups?: { key: string; label: string }[];
-  /** Optional "Convert to Troop" recipe. CRISPR does the structural transform; this supplies the
-   *  consumer's heuristics + standard ability set. RM's handleConvertToTroop is the reference. */
-  troopConversion?: {
-    levelDelta?: number;
-    nameSuffix?: string;
-    defaultTroopSize?: TroopSize;
-    generateAbilities?(creature: EditableCreature): CustomAbilityDefinition[];
-  };
+  troopConversion?: TroopConversionRecipe;
 }
 
 /** Persisted creature blob — the flag SHAPE is shared across targets; the flag SCOPE is per-target. */

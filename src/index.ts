@@ -10,6 +10,7 @@ import {
   searchBestiary,
   importCreatureFromCompendium,
   applyTroopToActor,
+  convertActorToTroop,
   exportActorSource,
   exportActorSourceToFile,
   type BestiaryEntry,
@@ -24,11 +25,14 @@ interface ModuleApi {
   editCreature: (opts?: EditCreatureOptions) => void;
   registerAbilityProvider: (provider: AbilityProvider) => void;
   registerSaveTarget: (target: CreatureSaveTarget) => void;
-  // Dev-time creature-library flow: search → import → applyTroopToActor → export (see docs/api/README.md).
-  // searchBestiary self-initializes the compendium index, so a consumer can call it cold.
+  // Dev-time creature-library flow: search → import → convertActorToTroop (or applyTroopToActor) →
+  // export (see docs/api/README.md). searchBestiary self-initializes the index, so it can be called cold.
   searchBestiary: (options?: BestiaryFilterOptions, limit?: number) => Promise<BestiaryEntry[]>;
   importCreatureFromCompendium: (uuid: string) => Promise<string>;
   applyTroopToActor: (actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>;
+  // Fully-automated Convert to Troop: runs a provider's recipe (level bump + size + generated troop
+  // abilities) headlessly, so a consumer never has to drive the editor UI.
+  convertActorToTroop: (actorId: string, opts?: { providerId?: string; saveTargetId?: string }) => Promise<string>;
   exportActorSource: (actorId: string) => Promise<Record<string, unknown>>;
   exportActorSourceToFile: (actorId: string) => Promise<void>;
 }
@@ -49,6 +53,7 @@ Hooks.once('ready', () => {
     searchBestiary,
     importCreatureFromCompendium,
     applyTroopToActor,
+    convertActorToTroop,
     exportActorSource,
     exportActorSourceToFile
   };

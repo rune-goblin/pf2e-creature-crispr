@@ -1,5 +1,8 @@
 import type { DamageModifier } from './models';
-import { getTroopWeaknessValues } from './creatureStatTables';
+import type { EditableCreature } from './editableCreature';
+import type { TroopConversionRecipe } from './contracts';
+import { getTroopWeaknessValues, scaleResistanceWeakness } from './creatureStatTables';
+import { customAbilityToSpecialAbility, mergeSpecialAbilitiesByName } from './customAbility';
 
 // PF2e represents a troop with the `troop` trait plus authored area/splash-damage weaknesses (see any
 // core troop statblock). There is no troop immunity rule — a sweep of all 162 published troops
@@ -57,4 +60,37 @@ export function troopAdjusted(creature: TroopAdjustable): {
     traits: withTroopTrait(creature.traits),
     weaknesses: withTroopWeaknesses(creature.weaknesses, creature.level)
   };
+}
+
+const clampLevel = (level: number): number => Math.max(-1, Math.min(24, level));
+
+/** Resistances/weaknesses store raw numbers (not benchmarks), so unlike AC/HP/saves they don't
+ *  recompute on their own — keep them in step with the level's typical range on a level change. */
+export function rescaleCreatureIwr(creature: EditableCreature, fromLevel: number, toLevel: number): void {
+  if (fromLevel === toLevel) return;
+  for (const r of creature.resistances) r.value = scaleResistanceWeakness(r.value, fromLevel, toLevel);
+  for (const w of creature.weaknesses) w.value = scaleResistanceWeakness(w.value, fromLevel, toLevel);
+}
+
+/**
+ * Apply a provider's Convert-to-Troop recipe to an EditableCreature in place: flag it a troop, set the
+ * formation size, bump + rescale the level, suffix the name, and merge in the recipe's generated troop
+ * abilities (deduped by name, so re-running seeds nothing new). The single source of truth shared by the
+ * editor's `store.convertToTroop` and the headless `convertActorToTroop` service. The trait itself and
+ * the area/splash weaknesses are stamped downstream by `troopAdjusted` at save time.
+ */
+export function applyTroopConversion(creature: EditableCreature, recipe: TroopConversionRecipe = {}): void {
+  creature.isTroop = true;
+  creature.troopSize = recipe.defaultTroopSize ?? creature.troopSize ?? 'gargantuan';
+  creature.size = creature.troopSize;
+  if (recipe.levelDelta) {
+    const next = clampLevel(creature.level + recipe.levelDelta);
+    rescaleCreatureIwr(creature, creature.level, next);
+    creature.level = next;
+  }
+  if (recipe.nameSuffix) creature.name = `${creature.name}${recipe.nameSuffix}`;
+  if (recipe.generateAbilities) {
+    const generated = recipe.generateAbilities(creature).map((def) => customAbilityToSpecialAbility(def, creature.level, def.slug));
+    creature.specialAbilities = mergeSpecialAbilitiesByName(creature.specialAbilities, generated);
+  }
 }
