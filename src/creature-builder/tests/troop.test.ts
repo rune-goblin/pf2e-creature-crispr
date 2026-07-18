@@ -234,6 +234,16 @@ describe('applyTroopConversion', () => {
     const names = c.specialAbilities.map((a) => a.name);
     expect(names).toEqual(expect.arrayContaining(['Rally', 'Troop Defenses', 'Troop Movement']));
   });
+
+  it('sweepName/volleyName options rename the generated attack actions', () => {
+    const c = baseCreature({ strikes: [meleeStrike(), rangedStrike()] });
+    applyTroopConversion(c, {}, { sweepName: 'Coordinated Assault', volleyName: 'Arrow Storm' });
+    const names = c.specialAbilities.map((a) => a.name);
+    expect(names).toContain('Coordinated Assault');
+    expect(names).toContain('Arrow Storm');
+    expect(names).not.toContain('Jaws Flurry');
+    expect(names).not.toContain('Shortbow Volley');
+  });
 });
 
 describe('store troop methods', () => {
@@ -272,5 +282,62 @@ describe('store troop methods', () => {
     expect(c.size).toBe('gargantuan');
     expect(c.level).toBe(lvl0 + 5);
     expect(c.name).toBe(`${name0} Troop`);
+  });
+});
+
+// The editor button (store.convertToTroop) and the headless convertActorToTroop service both funnel
+// through the same kernel seam — applyTroopConversion(creature, recipe, opts). This pins that a
+// conversion driven through the store equals one driven through the kernel directly for identical input,
+// so the two entry points can never silently diverge on the options plumbing (the W3 Done-when).
+describe('conversion seam parity: editor store vs. kernel', () => {
+  beforeEach(() => editorStore.resetEditor());
+
+  const seamCreature = (): EditableCreature => ({
+    name: 'Boar',
+    level: 4,
+    creatureType: 'animal',
+    size: 'medium',
+    traits: ['animal'],
+    benchmarks: getDefaultBenchmarks(),
+    speeds: { land: 35 },
+    languages: [],
+    senses: [],
+    strikes: [
+      { name: 'Tusk', attackBenchmark: 0.5, damageBenchmark: 0.5, attackBonus: 10, damage: '1d8+4', damageType: 'piercing' },
+      { name: 'Sling', attackBenchmark: 0.5, damageBenchmark: 0.5, attackBonus: 10, damage: '1d6', damageType: 'bludgeoning', isRanged: true, range: 50 }
+    ],
+    specialAbilities: [{ id: 'gore', name: 'Gore', description: '<p>Gores.</p>', actionType: 'action', actions: 1 }],
+    immunities: [],
+    resistances: [],
+    weaknesses: [{ type: 'fire', value: 5 }]
+  });
+
+  // The store creature is a Svelte $state proxy; JSON round-tripping both sides unwraps it and drops the
+  // `undefined` fields the kernel object may carry, so toEqual compares plain, apples-to-apples state.
+  const plain = (c: unknown) => JSON.parse(JSON.stringify(c));
+
+  it('produces identical creature state for the same recipe + options', () => {
+    const recipe = { nameSuffix: ' Legion', defaultTroopSize: 'large' as const, levelDelta: 3 };
+    const opts = { levelDelta: 5, troopSize: 'huge' as const, formUp: true, sweepName: 'Charge', volleyName: 'Volley Fire' };
+
+    editorStore.startEdit(seamCreature());
+    editorStore.convertToTroop(recipe, opts);
+    const viaStore = plain(editorStore.creature);
+
+    const viaKernel = seamCreature();
+    applyTroopConversion(viaKernel, recipe, opts);
+
+    expect(viaStore).toEqual(plain(viaKernel));
+  });
+
+  it('produces identical creature state for a recipe-less default conversion', () => {
+    editorStore.startEdit(seamCreature());
+    editorStore.convertToTroop();
+    const viaStore = plain(editorStore.creature);
+
+    const viaKernel = seamCreature();
+    applyTroopConversion(viaKernel);
+
+    expect(viaStore).toEqual(plain(viaKernel));
   });
 });

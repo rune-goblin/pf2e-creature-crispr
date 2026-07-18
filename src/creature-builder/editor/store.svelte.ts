@@ -22,7 +22,7 @@ import {
   calculateCreatureStats,
   scalarToResistanceWeakness
 } from '../logic/creatureStatTables';
-import type { TroopConversionRecipe } from '../logic/contracts';
+import type { TroopConversionOptions, TroopConversionRecipe } from '../logic/contracts';
 import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, rescaleCreatureIwr } from '../logic/troop';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
@@ -600,13 +600,13 @@ class CreatureEditorStore {
   }
 
   /**
-   * Convert the creature to a troop via a provider's recipe — formation size, level/name tweaks, and the
-   * recipe's generated troop abilities — through `applyTroopConversion`, the same logic the headless
-   * `convertActorToTroop` service runs. The trait + area/splash weaknesses are stamped by `troopAdjusted`
-   * at save time.
+   * Convert the creature to a troop through `applyTroopConversion` — the same kernel seam the headless
+   * `convertActorToTroop` service runs. `recipe` is the provider's override/additive layer; `opts` are the
+   * per-conversion choices the editor surfaces (formation size, level delta, Form Up, keep strikes). The
+   * trait + area/splash weaknesses are stamped by `troopAdjusted` at save time.
    */
-  convertToTroop(recipe: TroopConversionRecipe = {}): void {
-    this.mutateCreature((c) => applyTroopConversion(c, recipe));
+  convertToTroop(recipe: TroopConversionRecipe = {}, opts: TroopConversionOptions = {}): void {
+    this.mutateCreature((c) => applyTroopConversion(c, recipe, opts));
   }
 }
 

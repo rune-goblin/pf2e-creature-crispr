@@ -1,5 +1,6 @@
 import type { ItemPF2e, NPCPF2e } from 'foundry-pf2e';
 import type { TroopSize } from '../logic/models';
+import type { TroopConversionOptions } from '../logic/contracts';
 import { withTroopTrait, withTroopWeaknesses, applyTroopConversion } from '../logic/troop';
 import { sizeToPf2e } from '../logic/sizes';
 import { buildIwrSystem } from './crud';
@@ -88,24 +89,27 @@ export async function applyTroopToActor(
 }
 
 /**
- * Headless "Convert to Troop": load the actor as an EditableCreature, apply a provider's troopConversion
- * recipe (the same `applyTroopConversion` the editor button runs — level bump + formation size + the
- * generated troop abilities), and persist through a save target. Same load/transform/save as the editor's
- * Save, without the UI. `providerId` selects the recipe (default: the first registered provider that has
- * one); `saveTargetId` selects where it writes (default: the active target). Returns the actor id.
+ * Headless "Convert to Troop": load the actor as an EditableCreature, run CRISPR's default conversion
+ * engine (the same `applyTroopConversion` the editor button runs — level bump + formation size + generated
+ * sweep/volley + glossary kit), and persist through a save target. Same load/transform/save as the editor's
+ * Save, without the UI. `providerId` selects the recipe override layer (default: the first registered
+ * provider that has one); `saveTargetId` selects where it writes (default: the active target). The remaining
+ * fields are the W2 `TroopConversionOptions` (formation size, level delta, Form Up, keep strikes, ability
+ * name overrides), forwarded to the same kernel seam the editor uses. Returns the actor id.
  */
 export async function convertActorToTroop(
   actorId: string,
-  opts: { providerId?: string; saveTargetId?: string } = {}
+  opts: { providerId?: string; saveTargetId?: string } & TroopConversionOptions = {}
 ): Promise<string> {
-  const target = (opts.saveTargetId && getSaveTarget(opts.saveTargetId)) || getActiveSaveTarget();
+  const { providerId, saveTargetId, ...conversionOpts } = opts;
+  const target = (saveTargetId && getSaveTarget(saveTargetId)) || getActiveSaveTarget();
   const creature = loadCreatureForEdit(actorId, target);
   if (!creature) throw new Error(`convertActorToTroop: actor not found (${actorId})`);
 
-  const recipe = getAbilityProviders(opts.providerId ? [opts.providerId] : undefined).find(
+  const recipe = getAbilityProviders(providerId ? [providerId] : undefined).find(
     (p) => p.troopConversion
   )?.troopConversion;
-  applyTroopConversion(creature, recipe ?? {});
+  applyTroopConversion(creature, recipe ?? {}, conversionOpts);
 
   await target.updateActor(actorId, creature);
   await target.onAfterSave?.(actorId, creature, 'update');

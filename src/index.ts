@@ -16,7 +16,7 @@ import {
   type BestiaryEntry,
   type BestiaryFilterOptions
 } from './creature-builder/services';
-import type { AbilityProvider, CreatureSaveTarget } from './creature-builder/logic/contracts';
+import type { AbilityProvider, CreatureSaveTarget, TroopConversionOptions } from './creature-builder/logic/contracts';
 import type { TroopSize } from './creature-builder/logic/models';
 
 interface ModuleApi {
@@ -30,9 +30,14 @@ interface ModuleApi {
   searchBestiary: (options?: BestiaryFilterOptions, limit?: number) => Promise<BestiaryEntry[]>;
   importCreatureFromCompendium: (uuid: string) => Promise<string>;
   applyTroopToActor: (actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>;
-  // Fully-automated Convert to Troop: runs a provider's recipe (level bump + size + generated troop
-  // abilities) headlessly, so a consumer never has to drive the editor UI.
-  convertActorToTroop: (actorId: string, opts?: { providerId?: string; saveTargetId?: string }) => Promise<string>;
+  // Fully-automated Convert to Troop: runs CRISPR's default conversion engine (level bump + size +
+  // generated sweep/volley + glossary kit) headlessly, so a consumer never has to drive the editor UI.
+  // The conversion options (formation size, level delta, Form Up, keep strikes, ability name overrides)
+  // are the same the editor surfaces; `providerId`/`saveTargetId` pick the recipe override and save target.
+  convertActorToTroop: (
+    actorId: string,
+    opts?: { providerId?: string; saveTargetId?: string } & TroopConversionOptions
+  ) => Promise<string>;
   exportActorSource: (actorId: string) => Promise<Record<string, unknown>>;
   exportActorSourceToFile: (actorId: string) => Promise<void>;
 }

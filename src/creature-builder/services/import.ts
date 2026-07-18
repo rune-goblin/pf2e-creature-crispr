@@ -1,6 +1,7 @@
 import type { NPCPF2e } from 'foundry-pf2e';
 import { getDefaultBenchmarks } from '../logic/models';
 import { calculateCreatureStats } from '../logic/creatureStatTables';
+import { TROOP_TRAIT } from '../logic/troop';
 import type { CreatureActorData } from './types';
 import { ensureCreatureFolder, requireActor } from './folderManager';
 import { logger } from './logger';
@@ -126,7 +127,17 @@ export async function exportCreatureToFile(actorId: string): Promise<void> {
  */
 export async function exportActorSource(actorId: string): Promise<Record<string, unknown>> {
   const actor = requireActor(actorId);
-  return actor.toObject() as Record<string, unknown>;
+  const source = actor.toObject() as Record<string, unknown>;
+
+  // A converted troop is a differentiated *copy* of a source compendium doc (import minted a fresh world
+  // id + `importedFrom` provenance; conversion added the `troop` trait). Packaging it into a compendium
+  // with keepId would collide with that still-present source doc, so mint a fresh id — provenance stays.
+  const traits = ((actor as unknown as NPCPF2e).system?.traits?.value ?? []) as string[];
+  const creatureData = actor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY) as CreatureActorData | undefined;
+  if (traits.includes(TROOP_TRAIT) && creatureData?.importedFrom) {
+    source._id = foundry.utils.randomID();
+  }
+  return source;
 }
 
 export async function exportActorSourceToFile(actorId: string): Promise<void> {

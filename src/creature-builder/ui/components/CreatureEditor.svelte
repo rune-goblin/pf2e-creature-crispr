@@ -11,6 +11,7 @@
     type StatRange
   } from '@/creature-builder/logic/creatureStatTables';
   import { type StatType, getStatRangeForType } from '@/creature-builder/editor/creatureEditorUtils';
+  import { TROOP_SIZES, type TroopSize } from '@/creature-builder/logic/models';
   import Dialog from './baseComponents/Dialog.svelte';
   import BasicInfoSection from './sections/BasicInfoSection.svelte';
   import AbilitiesSection from './sections/AbilitiesSection.svelte';
@@ -41,6 +42,12 @@
   let showSaveAsDialog = $state(false);
   let saveAsName = $state('');
   let isSavingAs = $state(false);
+
+  let showConvertDialog = $state(false);
+  let convertTroopSize = $state<TroopSize>('gargantuan');
+  let convertLevelDelta = $state(5);
+  let convertFormUp = $state(false);
+  let convertKeepStrikes = $state(false);
 
   async function handleSave(): Promise<void> {
     const c = editorStore.getCreatureForSave();
@@ -169,8 +176,14 @@
   function handleConvertToTroop(): void {
     if (!editorStore.creature) return;
     const recipe = getActiveProviders().find((p) => p.troopConversion)?.troopConversion;
-    editorStore.convertToTroop(recipe ?? {});
-    env.notify.info('Converted to troop');
+    editorStore.convertToTroop(recipe ?? {}, {
+      troopSize: convertTroopSize,
+      levelDelta: convertLevelDelta,
+      formUp: convertFormUp,
+      keepStrikes: convertKeepStrikes
+    });
+    showConvertDialog = false;
+    env.notify.info(game.i18n.localize('pf2e-creature-crispr.troop.convert.success'));
   }
 
   function getStatRange(statType: StatType): StatRange {
@@ -274,8 +287,8 @@
       </span>
       <div class="header-actions">
         {#if !creature.isTroop}
-          <button class="btn-secondary" onclick={handleConvertToTroop} disabled={isSaving || isExporting || isSavingAs}>
-            <i class="fas fa-people-group"></i> Convert to Troop
+          <button class="btn-secondary" onclick={() => (showConvertDialog = true)} disabled={isSaving || isExporting || isSavingAs}>
+            <i class="fas fa-people-group"></i> {game.i18n.localize('pf2e-creature-crispr.troop.convert.button')}
           </button>
         {/if}
         <button class="btn-secondary" onclick={handleCancel} disabled={isSaving || isExporting || isSavingAs}>
@@ -455,6 +468,50 @@
   </div>
 </Dialog>
 
+<Dialog
+  bind:show={showConvertDialog}
+  title={game.i18n.localize('pf2e-creature-crispr.troop.convert.dialogTitle')}
+  confirmLabel={game.i18n.localize('pf2e-creature-crispr.troop.convert.confirm')}
+  cancelLabel={game.i18n.localize('pf2e-creature-crispr.troop.convert.cancel')}
+  width="440px"
+  onConfirm={handleConvertToTroop}
+  onCancel={() => (showConvertDialog = false)}
+>
+  <div class="convert-body">
+    <div class="convert-field">
+      <label for="convert-troop-size">{game.i18n.localize('pf2e-creature-crispr.troop.convert.sizeLabel')}</label>
+      <select id="convert-troop-size" class="convert-input" bind:value={convertTroopSize}>
+        {#each TROOP_SIZES as size (size)}
+          <option value={size}>{game.i18n.localize(`pf2e-creature-crispr.troop.convert.size.${size}`)}</option>
+        {/each}
+      </select>
+      <p class="convert-hint">{game.i18n.localize('pf2e-creature-crispr.troop.convert.sizeHint')}</p>
+    </div>
+
+    <div class="convert-field">
+      <label for="convert-level-delta">{game.i18n.localize('pf2e-creature-crispr.troop.convert.levelDeltaLabel')}</label>
+      <input id="convert-level-delta" type="number" class="convert-input" bind:value={convertLevelDelta} />
+      <p class="convert-hint">{game.i18n.localize('pf2e-creature-crispr.troop.convert.levelDeltaHint')}</p>
+    </div>
+
+    <div class="convert-field">
+      <label class="convert-check">
+        <input type="checkbox" bind:checked={convertFormUp} />
+        <span>{game.i18n.localize('pf2e-creature-crispr.troop.convert.formUpLabel')}</span>
+      </label>
+      <p class="convert-hint">{game.i18n.localize('pf2e-creature-crispr.troop.convert.formUpHint')}</p>
+    </div>
+
+    <div class="convert-field">
+      <label class="convert-check">
+        <input type="checkbox" bind:checked={convertKeepStrikes} />
+        <span>{game.i18n.localize('pf2e-creature-crispr.troop.convert.keepStrikesLabel')}</span>
+      </label>
+      <p class="convert-hint">{game.i18n.localize('pf2e-creature-crispr.troop.convert.keepStrikesHint')}</p>
+    </div>
+  </div>
+</Dialog>
+
 <style lang="scss">
   .creature-editor {
     display: flex;
@@ -505,6 +562,63 @@
       color: var(--text-muted);
       font-style: italic;
     }
+  }
+
+  .convert-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-16);
+  }
+
+  .convert-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+
+    label {
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-semibold);
+      color: var(--text-secondary);
+    }
+  }
+
+  .convert-input {
+    padding: var(--space-8) var(--space-12);
+    background: var(--surface-lowest);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: var(--font-sm);
+
+    &:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 1px var(--color-primary);
+    }
+  }
+
+  .convert-check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    cursor: pointer;
+
+    input {
+      cursor: pointer;
+    }
+
+    span {
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-semibold);
+      color: var(--text-secondary);
+    }
+  }
+
+  .convert-hint {
+    margin: 0;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+    font-style: italic;
   }
 
   .editor-header {

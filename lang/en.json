@@ -3,7 +3,27 @@
     "title": "PF2E Creature CRISPR",
     "troop": {
       "notNpc": "Cannot apply the troop template to a \"{type}\" actor — troops must be NPCs.",
-      "abilityMissing": "Troop ability item not found ({uuid}). The PF2e bestiary glossary pack is missing or out of date."
+      "abilityMissing": "Troop ability item not found ({uuid}). The PF2e bestiary glossary pack is missing or out of date.",
+      "convert": {
+        "button": "Convert to Troop",
+        "dialogTitle": "Convert to Troop",
+        "confirm": "Convert",
+        "cancel": "Cancel",
+        "success": "Converted to troop",
+        "sizeLabel": "Formation size",
+        "sizeHint": "The troop's token footprint. Published troops are Gargantuan.",
+        "size": {
+          "large": "Large",
+          "huge": "Huge",
+          "gargantuan": "Gargantuan"
+        },
+        "levelDeltaLabel": "Level increase",
+        "levelDeltaHint": "Levels added on conversion. Published troops are the base creature +5.",
+        "formUpLabel": "Include Form Up",
+        "formUpHint": "Adds the Form Up action and halves the splash-damage weakness.",
+        "keepStrikesLabel": "Keep original strikes",
+        "keepStrikesHint": "Retain the base creature's strikes instead of replacing them with the generated troop attack actions."
+      }
     }
   }
 }
