@@ -34,6 +34,7 @@
   let menuEl = $state<HTMLDivElement | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
   let pos = $state<{ left: number; top?: number; bottom?: number; maxHeight: number }>({ left: 0, maxHeight: 320 });
+  let anchor: { left: number; top: number } | null = null;
 
   const MENU_W = 260;
 
@@ -73,6 +74,7 @@
   function openMenu(): void {
     if (!triggerEl) return;
     const r = triggerEl.getBoundingClientRect();
+    anchor = { left: r.left, top: r.top };
     const margin = 6;
     const below = window.innerHeight - r.bottom - margin;
     const above = r.top - margin;
@@ -130,6 +132,15 @@
     // Close when the surrounding panel scrolls, but not when the menu's own list scrolls.
     function onScroll(e: Event): void {
       if (menuEl && e.target instanceof Node && menuEl.contains(e.target)) return;
+      // A scroll that already finished before the menu opened still delivers its event afterwards
+      // (scroll events are queued to the next frame), which used to close the menu ~1ms after it
+      // opened — reachable by hand mid-inertial-scroll, and always in Playwright, which scrolls the
+      // trigger into view and clicks within the same frame. Close only once the anchor has really
+      // moved, which is the case `position: fixed` can't follow.
+      if (triggerEl && anchor) {
+        const r = triggerEl.getBoundingClientRect();
+        if (r.left === anchor.left && r.top === anchor.top) return;
+      }
       closeMenu();
     }
     document.addEventListener('pointerdown', onDocPointer, true);
