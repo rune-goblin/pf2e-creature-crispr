@@ -90,7 +90,7 @@ export function deriveBenchmarksFromActor(actor: NPCPF2e, level: number): Creatu
 /** Back-solve benchmarks from an already-extracted stat block (shared so the extraction runs once). */
 function deriveBenchmarks(actor: NPCPF2e, level: number, baseStats: CreatureStats): CreatureBenchmarks {
   const analyzed = analyzeStatsForBenchmarks(level, baseStats);
-  const { progression, tradition, font } = extractSpellcastingProgression(actor);
+  const { progression, tradition, font, slotOverrides } = extractSpellcastingProgression(actor);
   const defaults = getDefaultBenchmarks();
   return {
     ...defaults,
@@ -99,7 +99,8 @@ function deriveBenchmarks(actor: NPCPF2e, level: number, baseStats: CreatureStat
     saves: { ...defaults.saves, ...(analyzed.saves ?? {}) },
     ...(progression !== 'none' ? { spellProgression: progression } : {}),
     ...(tradition ? { spellTradition: tradition } : {}),
-    ...(font ? { spellFont: font } : {})
+    ...(font ? { spellFont: font } : {}),
+    ...(slotOverrides ? { spellSlotOverrides: slotOverrides } : {})
   };
 }
 

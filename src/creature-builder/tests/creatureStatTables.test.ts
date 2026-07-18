@@ -551,14 +551,44 @@ describe('averageToDiceFormula', () => {
 });
 
 describe('applySpellSlotOverrides (via calculateCreatureStats spellSlots, level 5 fullPrepared)', () => {
-  it('replaces the computed count for an existing rank and silently ignores overrides for absent ranks', () => {
+  it('replaces the computed count for an existing rank', () => {
     const b: CreatureBenchmarks = {
       ...getDefaultBenchmarks(),
       spellProgression: 'fullPrepared',
-      spellSlotOverrides: { 1: 10, 5: 99 }
+      spellSlotOverrides: { 1: 10 }
     };
     const s = calculateCreatureStats(5, b);
     expect(s.spellSlots).toEqual({ 0: 5, 1: 10, 2: 3, 3: 2 });
+  });
+
+  it('adds a rank the level curve never produced (level 5 tops out at rank 3)', () => {
+    const b: CreatureBenchmarks = {
+      ...getDefaultBenchmarks(),
+      spellProgression: 'fullPrepared',
+      spellSlotOverrides: { 8: 2 }
+    };
+    const s = calculateCreatureStats(5, b);
+    expect(s.spellSlots).toEqual({ 0: 5, 1: 3, 2: 3, 3: 2, 8: 2 });
+  });
+
+  it('zeroes a computed rank when overridden to 0 — the editor\'s "removed" state', () => {
+    const b: CreatureBenchmarks = {
+      ...getDefaultBenchmarks(),
+      spellProgression: 'fullPrepared',
+      spellSlotOverrides: { 2: 0, 3: 0 }
+    };
+    const s = calculateCreatureStats(5, b);
+    expect(s.spellSlots).toEqual({ 0: 5, 1: 3, 2: 0, 3: 0 });
+  });
+
+  it('ignores ranks outside 0-10 and clamps negative counts', () => {
+    const b: CreatureBenchmarks = {
+      ...getDefaultBenchmarks(),
+      spellProgression: 'fullPrepared',
+      spellSlotOverrides: { [-1]: 4, 11: 4, 1.5: 4, 1: -3 }
+    };
+    const s = calculateCreatureStats(5, b);
+    expect(s.spellSlots).toEqual({ 0: 5, 1: 0, 2: 3, 3: 2 });
   });
 
   it('leaves the computed layout untouched when no overrides are given', () => {

@@ -41,6 +41,41 @@ function getBoundedHighestRank(level: number): number {
   return Math.min(9, Math.ceil(level / 2));
 }
 
+/** PF2e has no spell slots outside ranks 0-10; the actor write path loops this range. */
+export const MAX_SPELL_RANK = 10;
+
+/** One entry in a prepared entry's per-rank slot array; `id: null` is PF2e's own "blank slot". */
+export interface PreparedSpellSlot {
+  id: string | null;
+  expended: boolean;
+}
+
+/**
+ * Resize a rank's prepared-slot array to a new slot count, keeping every spell already assigned.
+ *
+ * Growing a rank pads with blank slots rather than assigning anything — an NPC statblock lists far
+ * fewer spells than a full caster's allotment, and which spells fill the rest is the GM's call.
+ * Shrinking never discards an assignment: the array stays long enough to hold the spells that are
+ * already there, so scaling a caster down cannot silently delete the spells it shipped with.
+ */
+export function resizePreparedSlots(existing: PreparedSpellSlot[], slotCount: number): PreparedSpellSlot[] {
+  const assigned = existing.filter((slot) => slot.id !== null);
+  const length = Math.max(slotCount, assigned.length);
+  return Array.from({ length }, (_, i) => assigned[i] ?? { id: null, expended: false });
+}
+
+/**
+ * Highest rank this creature's level and progression justify — the threshold the editor warns above.
+ * Ranks past it stay editable (a creature may legitimately carry casting its level doesn't explain);
+ * exceeding it is flagged, not blocked. Innate/none have no slot curve, so they use the full-caster one.
+ */
+export function getMaxSpellRankForProgression(
+  progression: SpellProgressionType | undefined,
+  level: number
+): number {
+  return progression === 'bounded' ? getBoundedHighestRank(level) : getHighestSpellRank(level);
+}
+
 // ============================================================================
 // PROGRESSION FUNCTIONS
 // ============================================================================

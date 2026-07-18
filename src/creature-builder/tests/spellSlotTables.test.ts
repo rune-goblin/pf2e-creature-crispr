@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   getHighestSpellRank,
+  getMaxSpellRankForProgression,
+  resizePreparedSlots,
   getFullPreparedSlots,
   getFullSpontaneousSlots,
   getBoundedSlots,
@@ -22,6 +24,57 @@ describe('getHighestSpellRank', () => {
     for (const [level, rank] of Object.entries(expected)) {
       expect(getHighestSpellRank(Number(level))).toBe(rank);
     }
+  });
+});
+
+describe('getMaxSpellRankForProgression', () => {
+  it('caps bounded casters at rank 9 and everything else at rank 10', () => {
+    expect(getMaxSpellRankForProgression('bounded', 20)).toBe(9);
+    expect(getMaxSpellRankForProgression('bounded', 17)).toBe(9);
+    expect(getMaxSpellRankForProgression('bounded', 5)).toBe(3);
+    expect(getMaxSpellRankForProgression('fullPrepared', 20)).toBe(10);
+    expect(getMaxSpellRankForProgression('fullSpontaneous', 19)).toBe(10);
+  });
+
+  it('falls back to the full-caster curve for innate, none, and unset progressions', () => {
+    expect(getMaxSpellRankForProgression('innate', 5)).toBe(3);
+    expect(getMaxSpellRankForProgression('none', 5)).toBe(3);
+    expect(getMaxSpellRankForProgression(undefined, 5)).toBe(3);
+  });
+});
+
+describe('resizePreparedSlots', () => {
+  const blank = { id: null, expended: false };
+
+  it('pads with blank slots when the rank grows, assigning nothing', () => {
+    const existing = [{ id: 'fireball', expended: false }];
+    expect(resizePreparedSlots(existing, 3)).toEqual([{ id: 'fireball', expended: false }, blank, blank]);
+  });
+
+  it('keeps every assigned spell when the rank shrinks, widening past the requested count', () => {
+    const existing = [
+      { id: 'heal', expended: true },
+      { id: 'bless', expended: false },
+      blank
+    ];
+    expect(resizePreparedSlots(existing, 1)).toEqual([
+      { id: 'heal', expended: true },
+      { id: 'bless', expended: false }
+    ]);
+  });
+
+  it('drops blank slots but preserves assignment order and expended flags', () => {
+    const existing = [blank, { id: 'haste', expended: true }, blank, { id: 'slow', expended: false }];
+    expect(resizePreparedSlots(existing, 3)).toEqual([
+      { id: 'haste', expended: true },
+      { id: 'slow', expended: false },
+      blank
+    ]);
+  });
+
+  it('produces an all-blank array of the requested size from nothing', () => {
+    expect(resizePreparedSlots([], 2)).toEqual([blank, blank]);
+    expect(resizePreparedSlots([], 0)).toEqual([]);
   });
 });
 

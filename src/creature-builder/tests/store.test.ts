@@ -345,6 +345,16 @@ describe('spell slot overrides', () => {
     expect(editorStore.creature!.benchmarks.spellSlotOverrides).toBeUndefined();
     expect(editorStore.isDirty).toBe(false);
   });
+
+  it('setSpellSlotOverride accepts any rank 0-10 and rejects ranks outside it', () => {
+    editorStore.startCreate();
+    editorStore.setSpellSlotOverride(0, 5);
+    editorStore.setSpellSlotOverride(10, 1);
+    editorStore.setSpellSlotOverride(-1, 4);
+    editorStore.setSpellSlotOverride(11, 4);
+    editorStore.setSpellSlotOverride(2.5, 4);
+    expect(editorStore.creature!.benchmarks.spellSlotOverrides).toEqual({ 0: 5, 10: 1 });
+  });
 });
 
 describe('strikes', () => {

@@ -22,6 +22,7 @@ import {
   calculateCreatureStats,
   scalarToResistanceWeakness
 } from '../logic/creatureStatTables';
+import { MAX_SPELL_RANK } from '../logic/spellSlotTables';
 import type { TroopConversionOptions, TroopConversionRecipe } from '../logic/contracts';
 import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, rescaleCreatureIwr, stampTroopDefaults } from '../logic/troop';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
@@ -292,6 +293,7 @@ class CreatureEditorStore {
   }
 
   setSpellSlotOverride(rank: number, count: number): void {
+    if (!Number.isInteger(rank) || rank < 0 || rank > MAX_SPELL_RANK) return;
     this.mutateCreature((c) => {
       const overrides = { ...(c.benchmarks.spellSlotOverrides ?? {}) };
       overrides[rank] = Math.max(0, count);

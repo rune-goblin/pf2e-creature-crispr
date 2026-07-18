@@ -4,7 +4,11 @@
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
    import { getStatRangesForLevel, spellStatToScalar } from '@/creature-builder/logic/creatureStatTables';
-   import { getSpellSlots } from '@/creature-builder/logic/spellSlotTables';
+   import {
+      getSpellSlots,
+      getMaxSpellRankForProgression,
+      MAX_SPELL_RANK
+   } from '@/creature-builder/logic/spellSlotTables';
    import {
       SPELL_PROGRESSION_OPTIONS,
       SPELL_TRADITION_LABELS,
@@ -38,33 +42,57 @@
 
    const spellcastingEnabled = $derived(creature.benchmarks.spellDC !== undefined);
 
+   const usesSpellSlots = $derived(
+      !!creature.benchmarks.spellProgression
+         && creature.benchmarks.spellProgression !== 'none'
+         && creature.benchmarks.spellProgression !== 'innate'
+   );
+
    // Non-overridden (calculated) slot layout for this progression/level/font.
    // Used to compute reset values and detect which ranks are overridden.
    const calculatedSlots = $derived(
-      creature.benchmarks.spellProgression
-            && creature.benchmarks.spellProgression !== 'none'
-            && creature.benchmarks.spellProgression !== 'innate'
-         ? getSpellSlots(creature.benchmarks.spellProgression, creature.level, creature.benchmarks.spellFont)
+      usesSpellSlots
+         ? getSpellSlots(creature.benchmarks.spellProgression!, creature.level, creature.benchmarks.spellFont)
          : undefined
    );
 
    const slotOverrides = $derived(creature.benchmarks.spellSlotOverrides);
 
-   // Iterate the calculated layout so ranks with overridden values of 0 still render
-   // (otherwise the user loses the ability to bump them back up). Ranks absent from
-   // the calculated layout cannot be overridden.
-   const slotEntries = $derived.by(() =>
-      calculatedSlots
-         ? Object.entries(calculatedSlots)
-              .map(([rankStr, calculated]) => {
-                 const rank = Number(rankStr);
-                 const override = slotOverrides?.[rank];
-                 const count = override !== undefined ? override : calculated;
-                 return { rank, count, calculated, overridden: override !== undefined };
-              })
-              .sort((a, b) => a.rank - b.rank)
-         : []
+   const maxRank = $derived(
+      getMaxSpellRankForProgression(creature.benchmarks.spellProgression, creature.level)
    );
+
+   const slotEntries = $derived.by(() => {
+      const ranks = new Set<number>([
+         ...Object.keys(calculatedSlots ?? {}).map(Number),
+         ...Object.keys(slotOverrides ?? {}).map(Number)
+      ]);
+      return [...ranks]
+         .map((rank) => {
+            const calculated = calculatedSlots?.[rank] ?? 0;
+            const override = slotOverrides?.[rank];
+            const count = override !== undefined ? override : calculated;
+            return {
+               rank,
+               count,
+               calculated,
+               overridden: override !== undefined,
+               exceedsLevel: rank > 0 && rank > maxRank
+            };
+         })
+         // A count of 0 is how a removed rank is stored, so it drops out of the list entirely.
+         .filter((entry) => entry.count > 0)
+         .sort((a, b) => a.rank - b.rank);
+   });
+
+   const availableRanks = $derived.by(() => {
+      const present = new Set(slotEntries.map((e) => e.rank));
+      const ranks: number[] = [];
+      for (let rank = 0; rank <= MAX_SPELL_RANK; rank++) {
+         if (!present.has(rank)) ranks.push(rank);
+      }
+      return ranks;
+   });
 
    const fontSlotCount = $derived(
       creature.benchmarks.spellFont
@@ -72,11 +100,13 @@
          : 0
    );
 
-   const fontRank = $derived(
-      slotEntries.length > 0
-         ? Math.max(...slotEntries.filter(e => e.rank > 0).map(e => e.rank))
-         : 0
-   );
+   // Font slots are applied to the top non-cantrip rank of the *calculated* layout, so the note stays
+   // with that rank. Deriving it from the displayed ranks would migrate it down when the top rank is
+   // removed, where the calculated-minus-font breakdown describes nothing.
+   const fontRank = $derived.by(() => {
+      const ranks = Object.keys(calculatedSlots ?? {}).map(Number).filter((rank) => rank > 0);
+      return ranks.length > 0 ? Math.max(...ranks) : 0;
+   });
 
    function toggleSpellcasting(enabled: boolean): void {
       if (enabled) {
@@ -139,6 +169,26 @@
 
    function resetSlot(rank: number): void {
       onResetSpellSlotOverride?.({ rank });
+   }
+
+   function defaultSlotCount(rank: number): number {
+      const calculated = calculatedSlots?.[rank] ?? 0;
+      if (calculated > 0) return calculated;
+      if (rank === 0) return 5;
+      switch (creature.benchmarks.spellProgression) {
+         case 'fullPrepared': return 3;
+         case 'fullSpontaneous': return 4;
+         case 'bounded': return 2;
+         default: return 1;
+      }
+   }
+
+   function removeRank(rank: number): void {
+      onSetSpellSlotOverride?.({ rank, count: 0 });
+   }
+
+   function addRank(rank: number): void {
+      onSetSpellSlotOverride?.({ rank, count: defaultSlotCount(rank) });
    }
 </script>
 
@@ -283,48 +333,84 @@
                </div>
             </div>
 
-            {#if slotEntries.length > 0}
+            {#if usesSpellSlots}
                <div class="slots-breakdown">
                   <div class="slots-header">Spell Slots by Rank</div>
-                  <div class="slots-table">
-                     {#each slotEntries as entry}
-                        <div class="slot-row">
-                           <span class="slot-rank">{rankLabel(entry.rank)}</span>
-                           <div class="slot-controls">
-                              <button
-                                 type="button"
-                                 class="slot-btn"
-                                 aria-label="Decrease"
-                                 title="Decrease"
-                                 disabled={entry.count <= 0}
-                                 onclick={() => adjustSlot(entry.rank, entry.count, -1)}
-                              ><i class="fas fa-minus"></i></button>
-                              <span class="slot-count" class:overridden={entry.overridden}>{entry.count}</span>
-                              <button
-                                 type="button"
-                                 class="slot-btn"
-                                 aria-label="Increase"
-                                 title="Increase"
-                                 onclick={() => adjustSlot(entry.rank, entry.count, 1)}
-                              ><i class="fas fa-plus"></i></button>
-                              <button
-                                 type="button"
-                                 class="slot-btn slot-reset"
-                                 aria-label={`Reset to ${entry.calculated}`}
-                                 title={`Reset to ${entry.calculated}`}
-                                 disabled={!entry.overridden}
-                                 onclick={() => resetSlot(entry.rank)}
-                              ><i class="fas fa-rotate-left"></i></button>
+                  {#if slotEntries.length > 0}
+                     <div class="slots-table">
+                        {#each slotEntries as entry (entry.rank)}
+                           <div class="slot-row" class:exceeds-level={entry.exceedsLevel}>
+                              {#if entry.exceedsLevel}
+                                 <i
+                                    class="fas fa-triangle-exclamation slot-warning"
+                                    title={`Rank ${entry.rank} is above rank ${maxRank}, the highest a level ${creature.level} caster normally reaches`}
+                                 ></i>
+                              {/if}
+                              <span class="slot-rank">{rankLabel(entry.rank)}</span>
+                              <div class="slot-controls">
+                                 <button
+                                    type="button"
+                                    class="slot-btn"
+                                    aria-label="Decrease"
+                                    title="Decrease"
+                                    disabled={entry.count <= 0}
+                                    onclick={() => adjustSlot(entry.rank, entry.count, -1)}
+                                 ><i class="fas fa-minus"></i></button>
+                                 <span class="slot-count" class:overridden={entry.overridden}>{entry.count}</span>
+                                 <button
+                                    type="button"
+                                    class="slot-btn"
+                                    aria-label="Increase"
+                                    title="Increase"
+                                    onclick={() => adjustSlot(entry.rank, entry.count, 1)}
+                                 ><i class="fas fa-plus"></i></button>
+                                 <button
+                                    type="button"
+                                    class="slot-btn slot-reset"
+                                    aria-label={`Reset to ${entry.calculated}`}
+                                    title={`Reset to ${entry.calculated}`}
+                                    disabled={!entry.overridden}
+                                    onclick={() => resetSlot(entry.rank)}
+                                 ><i class="fas fa-rotate-left"></i></button>
+                                 <button
+                                    type="button"
+                                    class="slot-btn"
+                                    aria-label={entry.rank === 0 ? 'Remove cantrips' : 'Remove rank'}
+                                    title={entry.rank === 0 ? 'Remove cantrips' : 'Remove rank'}
+                                    onclick={() => removeRank(entry.rank)}
+                                 ><i class="fas fa-xmark"></i></button>
+                              </div>
+                              {#if entry.rank === fontRank && !entry.overridden && fontSlotCount > 0 && creature.benchmarks.spellFont}
+                                 <span class="slot-note">({entry.calculated - fontSlotCount} + {fontSlotCount} {creature.benchmarks.spellFont} font)</span>
+                              {/if}
                            </div>
-                           {#if entry.rank === fontRank && fontSlotCount > 0 && creature.benchmarks.spellFont}
-                              <span class="slot-note">({entry.calculated - fontSlotCount} + {fontSlotCount} {creature.benchmarks.spellFont} font)</span>
-                           {/if}
-                        </div>
-                     {/each}
-                  </div>
+                        {/each}
+                     </div>
+                  {:else}
+                     <div class="slots-empty">No spell slots at this level.</div>
+                  {/if}
+
+                  {#if availableRanks.length > 0}
+                     <div class="add-rank">
+                        <select
+                           class="cc-select"
+                           aria-label="Add spell rank"
+                           value=""
+                           onchange={(e) => {
+                              const value = e.currentTarget.value;
+                              if (!value) return;
+                              e.currentTarget.value = '';
+                              addRank(Number(value));
+                           }}
+                        >
+                           <option value="" disabled>+ Add rank</option>
+                           {#each availableRanks as rank (rank)}
+                              <option value={rank}>{rankLabel(rank)}</option>
+                           {/each}
+                        </select>
+                     </div>
+                  {/if}
                </div>
-            {:else if creature.benchmarks.spellProgression && creature.benchmarks.spellProgression !== 'innate' && creature.benchmarks.spellProgression !== 'none'}
-               <div class="slots-empty">No spell slots at this level.</div>
             {/if}
          {/if}
       </div>
@@ -511,12 +597,24 @@
       display: flex;
       align-items: baseline;
       gap: var(--space-12);
-      padding: var(--space-2) 0;
+      padding: var(--space-2) var(--space-4);
       font-size: var(--font-sm);
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
 
       &:not(:last-child) {
          border-bottom: 1px solid var(--border-subtle);
       }
+
+      &.exceeds-level {
+         border-color: var(--border-warning);
+         background: var(--surface-warning-lower);
+      }
+   }
+
+   .slot-warning {
+      color: var(--text-warning);
+      margin-right: var(--space-4);
    }
 
    .slot-rank {
@@ -583,6 +681,17 @@
       font-size: var(--font-sm);
       color: var(--text-muted);
       font-style: italic;
-      padding-left: var(--space-24);
+   }
+
+   .add-rank {
+      display: flex;
+      align-items: center;
+
+      .cc-select {
+         width: auto;
+         min-width: 9rem;
+         font-size: var(--font-xs);
+         color: var(--text-secondary);
+      }
    }
 </style>

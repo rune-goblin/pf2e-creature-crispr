@@ -6,12 +6,18 @@
 
 import type { NPCPF2e, SpellcastingEntryPF2e } from 'foundry-pf2e';
 import type { CreatureBenchmarks, SpellProgressionType, SpellTradition, SpellFont } from '../logic/models';
-import { deduceSpellProgression, detectFont } from '../logic/spellSlotTables';
+import {
+  deduceSpellProgression,
+  detectFont,
+  getSpellSlots,
+  resizePreparedSlots,
+  MAX_SPELL_RANK
+} from '../logic/spellSlotTables';
 import { calculateCreatureStats } from '../logic/creatureStatTables';
 import { logger } from './logger';
 
 /** Per-rank spell-slot record; computed `slot${rank}` keys aren't on the prepared entry type. */
-type SpellSlots = Record<string, { max?: number; prepared?: Array<{ id?: string }> }>;
+type SpellSlots = Record<string, { max?: number; prepared?: Array<{ id?: string | null; expended?: boolean }> }>;
 
 /**
  * Extract the highest spell DC and spell attack from an actor's spellcasting entries.
@@ -56,6 +62,7 @@ export function extractSpellcastingProgression(actor: NPCPF2e): {
   progression: SpellProgressionType;
   tradition?: SpellTradition;
   font?: SpellFont;
+  slotOverrides?: Record<number, number>;
 } {
   const spellcastingEntries = actor.items?.contents?.filter((i): i is SpellcastingEntryPF2e<NPCPF2e> => i.type === 'spellcastingEntry') ?? [];
 
@@ -119,7 +126,30 @@ export function extractSpellcastingProgression(actor: NPCPF2e): {
     font = detectFont(slotsByRank, level, preparedSpells);
   }
 
-  return { progression, tradition, font };
+  return { progression, tradition, font, slotOverrides: diffSlotOverrides(slots, progression, level, font) };
+}
+
+/**
+ * Record every rank whose actual slot count differs from what the deduced progression would compute.
+ * Without this the editor rebuilds the level-derived layout on load, so a hand-tuned rank list — a
+ * high-level creature holding only low ranks, or one reaching past its level — is silently reverted
+ * and then zeroed on the next save. Rank 0 is included: cantrips are `slot0`.
+ */
+function diffSlotOverrides(
+  slots: SpellSlots,
+  progression: SpellProgressionType,
+  level: number,
+  font: SpellFont | undefined
+): Record<number, number> | undefined {
+  const computed = getSpellSlots(progression, level, font);
+  if (!computed) return undefined;
+
+  const overrides: Record<number, number> = {};
+  for (let rank = 0; rank <= MAX_SPELL_RANK; rank++) {
+    const actual = slots[`slot${rank}`]?.max ?? 0;
+    if (actual !== (computed[rank] ?? 0)) overrides[rank] = actual;
+  }
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
 }
 
 /**
@@ -144,6 +174,11 @@ export async function syncSpellcastingEntriesForLevel(actor: NPCPF2e, level: num
   // Compute spell slot layout if we have a progression
   const slotLayout = stats.spellSlots;
 
+  // A binding whose spell item was deleted would otherwise be resized forward forever.
+  const liveSpellIds = new Set(
+    actor.items?.contents?.filter((i) => i.type === 'spell').map((i) => i.id) ?? []
+  );
+
   const updates: EmbeddedDocumentUpdateData[] = [];
 
   for (const entry of spellcastingEntries) {
@@ -162,11 +197,28 @@ export async function syncSpellcastingEntriesForLevel(actor: NPCPF2e, level: num
 
     // Update spell slots for non-innate entries
     if (slotLayout && !isInnate) {
-      for (let rank = 0; rank <= 10; rank++) {
+      // Only prepared entries bind spells to slots. A spontaneous repertoire and innate spells hang
+      // off the spell items' own `location.value`, so leaving them alone already preserves them.
+      const isPrepared = entry.system?.prepared?.value === 'prepared';
+      const slots = (entry.system?.slots ?? {}) as SpellSlots;
+
+      for (let rank = 0; rank <= MAX_SPELL_RANK; rank++) {
         const slotKey = `slot${rank}`;
         const slotCount = slotLayout[rank] ?? 0;
-        update[`system.slots.${slotKey}.max`] = slotCount;
-        update[`system.slots.${slotKey}.value`] = slotCount;
+
+        if (isPrepared) {
+          const assigned = (slots[slotKey]?.prepared ?? [])
+            .map((slot) => ({ id: slot.id ?? null, expended: slot.expended ?? false }))
+            .filter((slot) => slot.id === null || liveSpellIds.has(slot.id));
+          const prepared = resizePreparedSlots(assigned, slotCount);
+          update[`system.slots.${slotKey}.prepared`] = prepared;
+          // Length, not slotCount: resize widens past the computed count rather than drop a spell.
+          update[`system.slots.${slotKey}.max`] = prepared.length;
+          update[`system.slots.${slotKey}.value`] = prepared.length;
+        } else {
+          update[`system.slots.${slotKey}.max`] = slotCount;
+          update[`system.slots.${slotKey}.value`] = slotCount;
+        }
       }
     }
 

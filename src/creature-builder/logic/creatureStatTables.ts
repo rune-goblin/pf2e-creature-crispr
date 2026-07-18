@@ -10,7 +10,7 @@
 
 import type { CreatureBenchmarks, CreatureStats, AbilityScore, TroopSize } from './models';
 import { BENCHMARK_VALUES, TROOP_SQUARES } from './models';
-import { getSpellSlots } from './spellSlotTables';
+import { getSpellSlots, MAX_SPELL_RANK } from './spellSlotTables';
 
 // Valid creature levels in PF2e
 export type CreatureLevel = -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
@@ -1205,6 +1205,10 @@ export function calculateCreatureStats(
 /**
  * Merge per-rank slot overrides onto a computed spell slot layout.
  * Overrides are absolute values that replace the computed count for that rank.
+ *
+ * An override may introduce a rank the level curve never produced — a high-level creature whose
+ * casting is all low-rank, or one reaching past its level — so the layout is not a filter here.
+ * A count of 0 is how the editor expresses "this rank is gone"; the actor write path zeroes it.
  */
 function applySpellSlotOverrides(
   layout: Record<number, number> | undefined,
@@ -1215,9 +1219,8 @@ function applySpellSlotOverrides(
   const result = { ...layout };
   for (const [rankStr, count] of Object.entries(overrides)) {
     const rank = Number(rankStr);
-    if (result[rank] !== undefined) {
-      result[rank] = count;
-    }
+    if (!Number.isInteger(rank) || rank < 0 || rank > MAX_SPELL_RANK) continue;
+    result[rank] = Math.max(0, count);
   }
   return result;
 }
