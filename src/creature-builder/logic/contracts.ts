@@ -20,14 +20,28 @@ export interface CustomAbilityDefinition {
   referenceUuid?: string; // opaque string; resolution (fromUuid) is host-side if ever needed
 }
 
-/** A provider's "Convert to Troop" recipe: CRISPR does the structural transform, this supplies the
- *  consumer's level/size/name heuristics + the standard troop ability set. Consumed identically by the
- *  editor (store.convertToTroop) and the headless convertActorToTroop service via applyTroopConversion. */
+/** A provider's "Convert to Troop" recipe: overrides layered on CRISPR's default conversion engine.
+ *  `levelDelta`/`nameSuffix`/`defaultTroopSize` override the engine defaults; `generateAbilities` is
+ *  now *additive* — its output is merged (by name) alongside the engine's own sweep/volley/kit, not a
+ *  replacement for them. Consumed identically by the editor (store.convertToTroop) and the headless
+ *  convertActorToTroop service via applyTroopConversion. */
 export interface TroopConversionRecipe {
   levelDelta?: number;
   nameSuffix?: string;
   defaultTroopSize?: TroopSize;
   generateAbilities?(creature: EditableCreature): CustomAbilityDefinition[];
+}
+
+/** Caller-supplied options for the default troop-conversion engine — FE-free, kernel-level. Distinct
+ *  from a provider's recipe: these are the per-conversion choices the editor/headless entry points
+ *  surface. When both carry the same field (levelDelta, troopSize), the explicit option wins. */
+export interface TroopConversionOptions {
+  levelDelta?: number;
+  troopSize?: TroopSize;
+  formUp?: boolean;
+  keepStrikes?: boolean;
+  sweepName?: string;
+  volleyName?: string;
 }
 
 export interface AbilityProvider {

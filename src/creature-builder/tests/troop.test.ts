@@ -10,7 +10,7 @@ import { getTroopWeaknessValues } from '@/creature-builder/logic/creatureStatTab
 import { mergeSpecialAbilitiesByName } from '@/creature-builder/logic/customAbility';
 import { getDefaultBenchmarks } from '@/creature-builder/logic/models';
 import { editorStore } from '@/creature-builder/editor';
-import type { DamageModifier, SpecialAbility } from '@/creature-builder/logic/models';
+import type { CreatureStrike, DamageModifier, SpecialAbility } from '@/creature-builder/logic/models';
 import type { EditableCreature } from '@/creature-builder/logic/editableCreature';
 import type { CustomAbilityDefinition } from '@/creature-builder/logic/contracts';
 
@@ -116,7 +116,16 @@ describe('applyTroopConversion', () => {
     ...over
   });
 
-  it('flags a troop, sizes it, bumps + rescales the level, and suffixes the name', () => {
+  const meleeStrike = (): CreatureStrike => ({
+    name: 'Jaws', attackBenchmark: 0.5, damageBenchmark: 0.5, attackBonus: 8,
+    damage: '1d6+3', damageType: 'piercing'
+  });
+  const rangedStrike = (): CreatureStrike => ({
+    name: 'Shortbow', attackBenchmark: 0.5, damageBenchmark: 0.5, attackBonus: 8,
+    damage: '1d6', damageType: 'piercing', isRanged: true, range: 60
+  });
+
+  it('recipe overrides still win: explicit levelDelta/size/suffix beat the engine defaults', () => {
     const c = baseCreature();
     applyTroopConversion(c, { levelDelta: 5, defaultTroopSize: 'large', nameSuffix: ' Pack' });
     expect(c.isTroop).toBe(true);
@@ -126,13 +135,75 @@ describe('applyTroopConversion', () => {
     expect(c.name).toBe('Wolf Pack');
   });
 
-  it('defaults to gargantuan and leaves level/name when the recipe is empty', () => {
-    const c = baseCreature();
+  it('recipe-less conversion runs the default engine: +5 level, " Troop" name, sweep, cleared strikes, kit', () => {
+    const c = baseCreature({
+      strikes: [meleeStrike()],
+      specialAbilities: [{ id: 'howl', name: 'Howl', description: '<p>Howls.</p>', actionType: 'action', actions: 1 }]
+    });
+    const benchmarks0 = structuredClone(c.benchmarks);
     applyTroopConversion(c);
+
     expect(c.isTroop).toBe(true);
     expect(c.troopSize).toBe('gargantuan');
-    expect(c.level).toBe(3);
-    expect(c.name).toBe('Wolf');
+    expect(c.size).toBe('gargantuan');
+    expect(c.level).toBe(8);
+    expect(c.name).toBe('Wolf Troop');
+    expect(c.strikes).toEqual([]);
+    expect(c.benchmarks).toEqual(benchmarks0); // decision 2: benchmarks (incl. HP) untouched
+    expect(c.specialAbilities.find((a) => a.name === 'Howl')).toBeDefined();
+
+    const sweep = c.specialAbilities.find((a) => a.name === 'Jaws Flurry');
+    expect(sweep).toBeDefined();
+    expect(sweep!.description).toContain('options:area-damage');
+    expect(sweep!.description).toContain('@Template[type:emanation');
+    expect(sweep!.description).toContain('@Check[reflex');
+    expect(sweep!.scalableValues?.length ?? 0).toBeGreaterThan(0);
+
+    expect(c.specialAbilities.map((a) => a.name)).toEqual(
+      expect.arrayContaining(['Troop Defenses', 'Troop Movement'])
+    );
+    expect(c.specialAbilities.find((a) => a.name === 'Form Up')).toBeUndefined();
+  });
+
+  it('generates a volley from the best ranged strike alongside the melee sweep', () => {
+    const c = baseCreature({ strikes: [meleeStrike(), rangedStrike()] });
+    applyTroopConversion(c);
+    const volley = c.specialAbilities.find((a) => a.name === 'Shortbow Volley');
+    expect(volley).toBeDefined();
+    expect(volley!.description).toContain('@Template[type:burst');
+    expect(c.specialAbilities.find((a) => a.name === 'Jaws Flurry')).toBeDefined();
+    expect(c.strikes).toEqual([]);
+  });
+
+  it('keepStrikes retains the source strikes', () => {
+    const c = baseCreature({ strikes: [meleeStrike()] });
+    applyTroopConversion(c, {}, { keepStrikes: true });
+    expect(c.strikes).toHaveLength(1);
+    expect(c.strikes[0].name).toBe('Jaws');
+    expect(c.specialAbilities.find((a) => a.name === 'Jaws Flurry')).toBeDefined();
+  });
+
+  it('is idempotent — converting the result again changes nothing', () => {
+    const c = baseCreature({
+      strikes: [meleeStrike(), rangedStrike()],
+      specialAbilities: [{ id: 'howl', name: 'Howl', description: '', actionType: 'passive' }],
+      weaknesses: [{ type: 'fire', value: 5 }]
+    });
+    applyTroopConversion(c);
+    const once = structuredClone(c);
+    applyTroopConversion(c);
+    expect(c).toEqual(once);
+  });
+
+  it('formUp adds Form Up and pre-seeds the half-splash weakness variant', () => {
+    const c = baseCreature({ level: 4 });
+    applyTroopConversion(c, {}, { formUp: true });
+    expect(c.level).toBe(9);
+    expect(c.specialAbilities.find((a) => a.name === 'Form Up')).toBeDefined();
+    const { area, splash } = getTroopWeaknessValues(9, { formUp: true });
+    expect(splash).toBe(5); // half of the level-9 area value (10)
+    expect(c.weaknesses.find((w) => w.type === 'area-damage')?.value).toBe(area);
+    expect(c.weaknesses.find((w) => w.type === 'splash-damage')?.value).toBe(splash);
   });
 
   it('scales raw IWR values on the level bump', () => {
@@ -141,7 +212,7 @@ describe('applyTroopConversion', () => {
     expect(c.weaknesses[0].value).toBeGreaterThan(5);
   });
 
-  it("merges the recipe's generated abilities, deduped by name", () => {
+  it("merges the recipe's generateAbilities extras additively, deduped by name", () => {
     const def: CustomAbilityDefinition = {
       slug: 'trample', name: 'Trample', img: '', group: 'war-action',
       description: '<p>Tramples.</p>', actionType: 'action', actions: 3, traits: []
@@ -151,6 +222,17 @@ describe('applyTroopConversion', () => {
     });
     applyTroopConversion(c, { generateAbilities: () => [def] });
     expect(c.specialAbilities.filter((a) => a.name === 'Trample')).toHaveLength(1);
+  });
+
+  it('additive extras land alongside the engine kit', () => {
+    const def: CustomAbilityDefinition = {
+      slug: 'rally', name: 'Rally', img: '', group: 'war-action',
+      description: '<p>Rallies.</p>', actionType: 'action', actions: 1, traits: []
+    };
+    const c = baseCreature();
+    applyTroopConversion(c, { generateAbilities: () => [def] });
+    const names = c.specialAbilities.map((a) => a.name);
+    expect(names).toEqual(expect.arrayContaining(['Rally', 'Troop Defenses', 'Troop Movement']));
   });
 });
 
@@ -179,7 +261,7 @@ describe('store troop methods', () => {
     expect(c.name).toBe(`${name0} Troop`);
   });
 
-  it('convertToTroop with no recipe defaults to gargantuan and leaves level/name', () => {
+  it('convertToTroop with no recipe runs the default engine (+5 level, " Troop", gargantuan)', () => {
     editorStore.startCreate();
     const lvl0 = editorStore.creature!.level;
     const name0 = editorStore.creature!.name;
@@ -188,7 +270,7 @@ describe('store troop methods', () => {
     expect(c.isTroop).toBe(true);
     expect(c.troopSize).toBe('gargantuan');
     expect(c.size).toBe('gargantuan');
-    expect(c.level).toBe(lvl0);
-    expect(c.name).toBe(name0);
+    expect(c.level).toBe(lvl0 + 5);
+    expect(c.name).toBe(`${name0} Troop`);
   });
 });

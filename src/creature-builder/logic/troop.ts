@@ -1,8 +1,9 @@
-import type { DamageModifier } from './models';
+import type { CreatureStrike, DamageModifier, SpecialAbility } from './models';
 import type { EditableCreature } from './editableCreature';
-import type { TroopConversionRecipe } from './contracts';
-import { getTroopWeaknessValues, scaleResistanceWeakness } from './creatureStatTables';
+import type { CustomAbilityDefinition, TroopConversionOptions, TroopConversionRecipe } from './contracts';
+import { calculateEffectiveDamage, getTroopWeaknessValues, parseDiceFormulaAverage, scaleResistanceWeakness } from './creatureStatTables';
 import { customAbilityToSpecialAbility, mergeSpecialAbilitiesByName } from './customAbility';
+import { TROOP_ACTION_GROUP, buildTroopSweep, buildTroopVolley } from './troopActions';
 
 // PF2e represents a troop with the `troop` trait plus authored area/splash-damage weaknesses (see any
 // core troop statblock). There is no troop immunity rule — a sweep of all 162 published troops
@@ -72,25 +73,107 @@ export function rescaleCreatureIwr(creature: EditableCreature, fromLevel: number
   for (const w of creature.weaknesses) w.value = scaleResistanceWeakness(w.value, fromLevel, toLevel);
 }
 
+const DEFAULT_LEVEL_DELTA = 5; // published troop = base + 5 (corpus fact 1)
+const DEFAULT_NAME_SUFFIX = ' Troop';
+
+// The universal glossary kit as pure @Localize abilities — same name/actionType/description the editor's
+// `applyTroopToActor` embeds from the SRD glossary items, so the headless and editor paths converge.
+const TROOP_DEFENSES_DEF: CustomAbilityDefinition = {
+  slug: 'troop-defenses', name: 'Troop Defenses', img: 'systems/pf2e/icons/actions/Passive.webp',
+  group: TROOP_ACTION_GROUP, description: '<p>@Localize[PF2E.NPC.Abilities.Glossary.TroopDefenses]</p>',
+  actionType: 'passive', traits: []
+};
+const TROOP_MOVEMENT_DEF: CustomAbilityDefinition = {
+  slug: 'troop-movement', name: 'Troop Movement', img: 'systems/pf2e/icons/actions/Passive.webp',
+  group: TROOP_ACTION_GROUP, description: '<p>@Localize[PF2E.NPC.Abilities.Glossary.TroopMovement]</p>',
+  actionType: 'passive', traits: []
+};
+const FORM_UP_DEF: CustomAbilityDefinition = {
+  slug: 'form-up', name: 'Form Up', img: 'systems/pf2e/icons/actions/OneAction.webp',
+  group: TROOP_ACTION_GROUP, description: '<p>@Localize[PF2E.NPC.Abilities.Glossary.FormUp]</p>',
+  actionType: 'action', actions: 1, traits: []
+};
+
+function troopKitAbilities(formUp: boolean, level: number): SpecialAbility[] {
+  const defs = formUp
+    ? [TROOP_DEFENSES_DEF, TROOP_MOVEMENT_DEF, FORM_UP_DEF]
+    : [TROOP_DEFENSES_DEF, TROOP_MOVEMENT_DEF];
+  return defs.map((def) => customAbilityToSpecialAbility(def, level, def.slug));
+}
+
+function strikeEffectiveAverage(strike: CreatureStrike): number {
+  const direct = parseDiceFormulaAverage(strike.customDamageFormula ?? strike.damage ?? '');
+  return calculateEffectiveDamage(direct, strike.customPersistentFormula ?? strike.persistentDamage);
+}
+
+function bestStrike(strikes: CreatureStrike[]): CreatureStrike | undefined {
+  return strikes.reduce<CreatureStrike | undefined>(
+    (best, s) => (!best || strikeEffectiveAverage(s) > strikeEffectiveAverage(best) ? s : best),
+    undefined
+  );
+}
+
+// Form Up seeds the half-splash weakness variant now, so the divergent splash survives `withTroopWeaknesses`
+// at save time (seed-if-missing keeps it). Seed after the level bump so it isn't rescaled.
+function seedFormUpWeaknesses(creature: EditableCreature): void {
+  const { area, splash } = getTroopWeaknessValues(creature.level, { formUp: true });
+  const present = new Set(creature.weaknesses.map((w) => w.type));
+  if (!present.has('area-damage')) creature.weaknesses.push({ type: 'area-damage', value: area });
+  if (!present.has('splash-damage')) creature.weaknesses.push({ type: 'splash-damage', value: splash });
+}
+
 /**
- * Apply a provider's Convert-to-Troop recipe to an EditableCreature in place: flag it a troop, set the
- * formation size, bump + rescale the level, suffix the name, and merge in the recipe's generated troop
- * abilities (deduped by name, so re-running seeds nothing new). The single source of truth shared by the
- * editor's `store.convertToTroop` and the headless `convertActorToTroop` service. The trait itself and
- * the area/splash weaknesses are stamped downstream by `troopAdjusted` at save time.
+ * Convert an EditableCreature to a troop in place: CRISPR's default engine. Flags it, sizes it, bumps +
+ * rescales the level, suffixes the name, and — the v2 core — generates the two published attack actions
+ * from the pre-conversion strikes (best melee → 1-to-3 sweep, best ranged → 2-action volley), removes the
+ * now-converted strikes (published troops carry zero strike items — corpus fact 2), and seeds the standard
+ * glossary kit. The recipe is an override/additive layer (decision 5): its `levelDelta`/`nameSuffix`/
+ * `defaultTroopSize` tune the engine, its `generateAbilities` extras merge in by name. The `troop` trait and
+ * the standard area/splash weaknesses stay save-time (`troopAdjusted`); Form Up alone pre-seeds its
+ * half-splash weakness. Idempotent: re-running on an already-troop re-bumps nothing and duplicates nothing.
  */
-export function applyTroopConversion(creature: EditableCreature, recipe: TroopConversionRecipe = {}): void {
+export function applyTroopConversion(
+  creature: EditableCreature,
+  recipe: TroopConversionRecipe = {},
+  opts: TroopConversionOptions = {}
+): void {
+  const alreadyTroop = creature.isTroop === true;
+
   creature.isTroop = true;
-  creature.troopSize = recipe.defaultTroopSize ?? creature.troopSize ?? 'gargantuan';
+  creature.troopSize = opts.troopSize ?? recipe.defaultTroopSize ?? creature.troopSize ?? 'gargantuan';
   creature.size = creature.troopSize;
-  if (recipe.levelDelta) {
-    const next = clampLevel(creature.level + recipe.levelDelta);
+
+  // Level bump is a once-only transform: an already-troop carries the bumped level, so re-converting
+  // must not stack another +5 (idempotence).
+  if (!alreadyTroop) {
+    const levelDelta = opts.levelDelta ?? recipe.levelDelta ?? DEFAULT_LEVEL_DELTA;
+    const next = clampLevel(creature.level + levelDelta);
     rescaleCreatureIwr(creature, creature.level, next);
     creature.level = next;
   }
-  if (recipe.nameSuffix) creature.name = `${creature.name}${recipe.nameSuffix}`;
-  if (recipe.generateAbilities) {
-    const generated = recipe.generateAbilities(creature).map((def) => customAbilityToSpecialAbility(def, creature.level, def.slug));
-    creature.specialAbilities = mergeSpecialAbilitiesByName(creature.specialAbilities, generated);
+
+  const suffix = recipe.nameSuffix ?? DEFAULT_NAME_SUFFIX;
+  if (suffix && !creature.name.endsWith(suffix)) creature.name = `${creature.name}${suffix}`;
+
+  const generated: SpecialAbility[] = [];
+  const melee = bestStrike(creature.strikes.filter((s) => !s.isRanged));
+  const ranged = bestStrike(creature.strikes.filter((s) => s.isRanged));
+  if (melee) {
+    const def = buildTroopSweep(melee, creature.level, { name: opts.sweepName });
+    generated.push(customAbilityToSpecialAbility(def, creature.level, def.slug));
   }
+  if (ranged) {
+    const def = buildTroopVolley(ranged, creature.level, { name: opts.volleyName });
+    generated.push(customAbilityToSpecialAbility(def, creature.level, def.slug));
+  }
+  if (!opts.keepStrikes) creature.strikes = [];
+
+  const formUp = opts.formUp ?? false;
+  const kit = troopKitAbilities(formUp, creature.level);
+  const extras = recipe.generateAbilities
+    ? recipe.generateAbilities(creature).map((def) => customAbilityToSpecialAbility(def, creature.level, def.slug))
+    : [];
+  creature.specialAbilities = mergeSpecialAbilitiesByName(creature.specialAbilities, [...generated, ...kit, ...extras]);
+
+  if (formUp) seedFormUpWeaknesses(creature);
 }
