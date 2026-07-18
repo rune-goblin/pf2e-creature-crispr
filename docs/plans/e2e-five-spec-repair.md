@@ -111,6 +111,44 @@ a genuinely new regression would drown; getting to 12/12 restores the suite as a
     `drop-hover-highlight`, `convert-troop` (7). Unit side: `npm run check` 0 errors,
     `npx vitest run` **571/571** at d1de29e.
 
+## Correction — W2's premise was falsified during execution (2026-07-18)
+
+Fact 9 and the "real product bug" classification of `multiselect` are **wrong**. Confirmed live,
+not inferred: with the spec instrumented mid-run, the lingering row dumps as
+
+```
+className: "no-matches-row svelte-1bkkrlr"   data-actor-id: null
+text: "No creatures match “__e2e_ms_1784370135930”."
+searchInput: "__e2e_ms_1784370135930"        result-count: "0 of 5"
+tr[data-actor-id] → 0 within 3s
+```
+
+There is no ghost row and no refresh bug — real creature rows drop to zero in under 3s; list
+reactivity is correct. The lingering `<tr>` is the deliberate empty-state placeholder
+(`CreatureListView.svelte:452-456`), which renders inside `<tbody>` because the spec fills the
+search box (multiselect.spec.ts:39) and never clears it. The spec's unfiltered locator
+`.creatures-table tbody tr` (:40) counts it.
+
+This explains every pinned signature that fact 9 attributed to a bug: **exactly 1** because the
+placeholder is a singleton `{#if}`, not part of the `{#each}` — so it is 1 regardless of how many
+actors were deleted (N surviving actors would give N rows); **deterministic across 23 polls**
+because it is world state, not timing (a hook/batching race would flake).
+
+Trigger is world contamination (fact 14, not fact 9): the world held 5 CRISPR creatures including
+leaked `__e2e_iwr_*` / `__e2e_kebab` residue, so the outer `{#if creatures.length === 0}` gate
+(:370) doesn't fire and the table stays mounted. On a pristine world the spec passes.
+
+**Mark's decision (asked during execution, 2026-07-18):** tighten the locator to real rows —
+`.creatures-table tbody tr[data-actor-id]`, which every real row carries (:459). This is
+decision 1's pattern (spec catches up to deliberate UI) applied to a spec this doc misclassified;
+product code stays untouched, honoring decision 5. Decision 2's "multiselect verbatim" no longer
+binds for this locator. Note `toHaveCount(4)` at :41 passes today only because the filter matches —
+any row-count assertion through the unfiltered locator counts the placeholder whenever the
+filtered set empties.
+
+**W2 is therefore spec-only.** It is not a product fix, and the wave's Done-when below
+("no UX change beyond rows disappearing when their actors do") is satisfied vacuously.
+
 ## Settled decisions
 
 1. **Specs catch up to the UI, not vice versa, for the three stale ones.** The kebab

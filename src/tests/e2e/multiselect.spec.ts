@@ -37,7 +37,9 @@ test.describe('Multiselect bulk actions', () => {
 
     // Isolate our seeded rows so shift-range selection is deterministic.
     await win.locator('.search-input').fill(prefix);
-    const rows = win.locator('.creatures-table tbody tr');
+    // [data-actor-id] excludes the "No creatures match" placeholder, which tbody renders as a
+    // <tr> whenever the filtered set empties — i.e. exactly when we assert zero rows below.
+    const rows = win.locator('.creatures-table tbody tr[data-actor-id]');
     await expect(rows).toHaveCount(4);
 
     const bulkCount = win.locator('.bulk-bar .bulk-count');
