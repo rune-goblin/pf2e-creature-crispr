@@ -66,7 +66,9 @@ Code style: global `~/.claude/CLAUDE.md` — comment only the non-obvious *why*.
 - Compendium packs build from `packs/_source/<name>` → `packs/<name>` on `npm run build`
   (`scripts/pack.ts`; built LevelDB gitignored like `dist/`). Edit the JSON sources, not the
   LevelDB. If Foundry holds a pack open the build skips it with a warning (LevelDB lock) —
-  close Foundry to refresh. `npm run init` rewrites the sources so a generated module's packs
+  close Foundry to refresh. The **e2e harness never causes this**: `test/foundry-data` clones
+  `systems`/`modules`/world instead of symlinking them, precisely so a running Foundry and a
+  test run don't fight over the ~130 LevelDB locks a world launch takes (`src/tests/e2e/README.md`). `npm run init` rewrites the sources so a generated module's packs
   carry its id after the next build. Pack workflow: skill's `packs-cli.md`.
 - **Distribution is derived, not a mode.** `scripts/pack.ts` ships what `module.json` registers:
   register an `Adventure` pack and `npm run build` *derives* it from the per-type sources

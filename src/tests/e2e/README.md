@@ -40,8 +40,22 @@ singleton that a prior spec (e.g. `duplicate`) can leave open.
 `npm run test:e2e:setup` builds `test/foundry-data/` (gitignored): a Foundry data path with its
 own `Config/options.json` (port 30005), the activated `license.json` copied in, and **no
 `admin.txt`** (so there's no admin password — specs join a world as a user, never `/setup`).
-`systems`, `modules`, and `worlds` are **symlinked** from your real Foundry data dir, so tests run
-against the same pf2e system, the live module scaffold, and your existing worlds.
+`systems`, `modules`, and the test world are **cloned** from your real Foundry data dir — not
+symlinked — so **you can run your own Foundry while the suite runs.** Foundry takes an exclusive
+LevelDB lock on every world db *and every compendium pack it can see* (~130 locks for this world:
+15 world dbs, 96 pf2e system packs, the rest from enabled modules); sharing those directories
+means whichever instance boots second fails to open them.
+
+On APFS the clones are copy-on-write, so mirroring ~3 GB takes ~4 s and a few MB of real disk.
+`start-test-foundry.sh` re-clones `systems`/`modules` on every boot (set
+`TEST_FOUNDRY_SKIP_SETUP=1` to skip), which keeps them from drifting behind a pf2e or
+sibling-module update. Two fixups make the clone work:
+
+- The module under test keeps `dist`, `lang`, `module.json` and `assets` as symlinks to the repo,
+  so a Vite build is live in the harness with no re-clone.
+- Any module whose `packs` is a symlink to a repo (this one, `pf2e-reignmaker`) gets it replaced
+  by a clone — otherwise the test instance locks the repo's built LevelDB and `npm run build`
+  silently skips packs.
 
 ## The test world
 
@@ -49,8 +63,10 @@ Default `TEST_WORLD=pf2e-tesbed` (override with the env var). The module isn't e
 world by default — module activation is a per-world LevelDB setting, not in `world.json`. So on
 first run `global-setup.ts` joins as GM, flips `core.moduleConfiguration` to enable
 `pf2e-creature-crispr`, and reloads (what Foundry's Manage Modules UI does, minus the click). The
-change persists, so later runs find it already active. This **enables the module in that world**
-— benign, and what you want for testing, but it does mutate `pf2e-tesbed`.
+change persists, so later runs find it already active. That mutation lands on the **clone**, not
+your `pf2e-tesbed` — the world is cloned once and then left alone, so it keeps the harness state
+specs accumulate. `npm run test:e2e:setup -- --reset-world` re-clones it from the original for a
+clean slate.
 
 Requirements of whatever world you point at:
 - It's a **pf2e** world whose GM user has **no password** (standard for a throwaway world).
@@ -86,13 +102,14 @@ is on locally, so a stray Foundry left on a port gets silently reused. Guard rai
   ```bash
   lsof -ti:30005 | xargs kill    # stray test Foundry (also check :30000 / :30001)
   ```
-- Make sure the test world isn't open in your normal Foundry (LevelDB lock).
+- Your own Foundry being open is *fine* — the data path is cloned, not shared. Only a stray
+  Foundry **on :30005** can hijack a run.
 
 ## Conventions for new specs
 
 - Use the `gmPage` fixture from `fixtures/foundry-clients.ts` (worker-scoped GM login).
 - Name created actors with the `__e2e_` prefix and delete them in `afterEach` (`deleteActors`).
-  The world is shared — leave it as you found it.
+  The world persists across runs — leave it as you found it.
 - Reach Foundry APIs with `page.evaluate(() => game.…)`; drive the UI with the builder's stable
   selectors (`.list-header .btn-create`, `#basic-info-name`, `[aria-label="Increase level"]`,
   `.editor-header .btn-primary`, …). Helpers in `fixtures/creature-ui.ts`.

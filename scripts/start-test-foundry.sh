@@ -12,7 +12,12 @@ TEST_DATA="$REPO_ROOT/test/foundry-data"
 PORT="${TEST_FOUNDRY_PORT:-30005}"
 FOUNDRY_VERSION="${FOUNDRY_VERSION:-14}"
 
-if [ ! -f "$TEST_DATA/Config/options.json" ]; then
+# Re-clone systems/modules from the real Data dir before every boot. Idempotent and cheap
+# (copy-on-write), and it keeps the isolated tree from drifting behind a pf2e or sibling-module
+# update. Skip with TEST_FOUNDRY_SKIP_SETUP=1 for a fast re-boot of an unchanged tree.
+if [ "${TEST_FOUNDRY_SKIP_SETUP:-0}" != "1" ]; then
+    (cd "$REPO_ROOT" && TEST_FOUNDRY_PORT="$PORT" node scripts/setup-test-foundry.ts)
+elif [ ! -f "$TEST_DATA/Config/options.json" ]; then
     echo "❌ Test data path not initialized at $TEST_DATA"
     echo "   Run: npm run test:e2e:setup"
     exit 1

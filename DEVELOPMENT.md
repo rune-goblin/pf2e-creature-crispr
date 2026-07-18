@@ -63,11 +63,19 @@ symlink). Paths cache to `.dev-paths.json`. Flags: `--reconfigure`, `--no-link`,
   the persisted actors. Setup, the world-migration gotcha, the harness-health checks, and spec
   conventions live in **[`src/tests/e2e/README.md`](src/tests/e2e/README.md)**.
   ```bash
-  npm run test:e2e:setup           # once: build the isolated test/foundry-data
   npx playwright install chromium  # once
   npm run test:e2e                 # build dist + run specs  (test:e2e:ui for the GUI)
   npm run check:e2e                # type-check the specs
+  npm run test:e2e:setup           # rebuild test/foundry-data by hand (booting does it anyway)
   ```
+  **You can run your own Foundry at the same time.** `test/foundry-data` holds *clones* of
+  `systems/`, `modules/` and the test world, not symlinks — a running Foundry takes an exclusive
+  LevelDB lock on every world db and every compendium pack it can see (~130 for this world), so
+  two instances sharing those directories cannot both boot. On APFS the clones are
+  copy-on-write: ~3 GB mirrored in ~4 s for a few MB of real disk, refreshed on every boot so it
+  can't drift behind a pf2e update. The module under test still symlinks `dist`/`lang`/
+  `module.json`/`assets` at the repo, so builds land in the harness immediately.
+  Add `-- --reset-world` to `test:e2e:setup` to re-clone the world from the original.
 
 ## Layout
 
