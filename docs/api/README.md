@@ -8,7 +8,8 @@ don't fork or embed its UI — they **extend it at runtime through a small JS AP
    instead of CRISPR's built-in flat folder.
 
 It can then **launch the editor bound to those**, with *no edits to CRISPR*. CRISPR also has native
-**troop** support, with an optional per-provider **Convert to Troop** recipe.
+**troop** support with a built-in **Convert to Troop** engine (a per-provider recipe layers optional
+overrides on top).
 
 > Why an API and not a shared component? CRISPR's editor is Svelte 5 (runes/`mount`); a Svelte 4
 > consumer can't compile or mount it. So nothing crosses the boundary except data + this API. The
@@ -54,14 +55,17 @@ Reached at `game.modules.get('pf2e-creature-crispr').api` after CRISPR's `ready`
 | `registerSaveTarget` | `(target: CreatureSaveTarget) => void` | Register a persistence backend selectable by `editCreature`. |
 | `searchBestiary` | `(options?: BestiaryFilterOptions, limit?: number) => Promise<BestiaryEntry[]>` | Search every loaded Actor compendium for NPCs. Self-initializing (builds/reuses its index on first call). |
 | `importCreatureFromCompendium` | `(uuid: string) => Promise<string>` | Copy a compendium NPC into the world (items intact, CRISPR-managed); resolves to the new actor id. |
-| `applyTroopToActor` | `(actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>` | Make a world NPC a PF2e troop; resolves to the actor id. Idempotent. |
+| `applyTroopToActor` | `(actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>` | Make a world NPC a PF2e troop (trait + weaknesses + glossary kit only); resolves to the actor id. Idempotent. |
+| `convertActorToTroop` | `(actorId: string, opts?: { providerId?: string; saveTargetId?: string } & TroopConversionOptions) => Promise<string>` | Headless **Convert to Troop**: runs the default engine (level bump, generated sweep/volley, cleared strikes, kit) and saves through a target. The editor button's non-UI twin. |
 | `exportActorSource` | `(actorId: string) => Promise<Record<string, unknown>>` | Full actor source (`actor.toObject()`) for compiling into your own pack. |
 | `exportActorSourceToFile` | `(actorId: string) => Promise<void>` | The same source, written to a JSON file via the save picker. |
 
-These last five are the **dev-time creature-library** surface — a developer uses them inside a running
-world to assemble a creature, then compiles the exported source into a shipped compendium. They are not
-a runtime import path (see "Building troops as a dev-time flow"). `api.version` reaches `0.6.0` with them;
-gate on `>= 0.6.0` if you call them.
+`searchBestiary`, `importCreatureFromCompendium`, `applyTroopToActor`, `convertActorToTroop`, and the two
+`exportActorSource*` methods are the **dev-time creature-library** surface — a developer uses them inside a
+running world to assemble a creature, then compiles the exported source into a shipped compendium. They are
+not a runtime import path (see "Building troops as a dev-time flow"). The search/import/export/
+`applyTroopToActor` set arrived at `api.version` `0.6.0` (gate on `>= 0.6.0`); the default conversion engine
+behind `convertActorToTroop` and the Convert-to-Troop button landed at `0.8.0` (gate on `>= 0.8.0` for it).
 
 ```ts
 interface EditCreatureOptions {
@@ -100,12 +104,23 @@ interface AbilityProvider {
   label: string;
   abilities: CustomAbilityDefinition[];
   groups?: { key: string; label: string }[]; // tab labels (falls back to the raw group key)
-  troopConversion?: {                          // optional Convert-to-Troop recipe (see "Troops")
-    levelDelta?: number;
+  troopConversion?: {                          // optional Convert-to-Troop OVERRIDES (see "Troops")
+    levelDelta?: number;                        // tunes the engine's +5 default
     nameSuffix?: string;
     defaultTroopSize?: TroopSize;              // 'large' | 'huge' | 'gargantuan'
-    generateAbilities?(creature: EditableCreature): CustomAbilityDefinition[];
+    generateAbilities?(creature: EditableCreature): CustomAbilityDefinition[]; // ADDITIVE extras, not the kit
   };
+}
+
+// Per-conversion choices the editor button / convertActorToTroop surface (kernel-level, FE-free). An
+// explicit field here wins over the same field on a provider's troopConversion recipe.
+interface TroopConversionOptions {
+  levelDelta?: number;     // default 5, clamped −1..24
+  troopSize?: TroopSize;   // default 'gargantuan'
+  formUp?: boolean;        // default false — also seeds Form Up + the half-splash weakness
+  keepStrikes?: boolean;   // default false — keep the source strikes instead of clearing them
+  sweepName?: string;      // override the generated 1-to-3 sweep's name
+  volleyName?: string;     // override the generated 2-action volley's name
 }
 
 interface StoredCreatureData {     // the flag SHAPE is shared; each target owns its flag SCOPE
@@ -174,13 +189,14 @@ const armyProvider: AbilityProvider = {
   groups: [{ key: 'war-action', label: 'War Actions' }],
   abilities,
   troopConversion: {
-    levelDelta: 5,                 // RM armies are +5 level as troops
+    levelDelta: 5,                 // RM armies are +5 level as troops (matches the engine default)
     nameSuffix: ' Troop',
     defaultTroopSize: 'gargantuan',
     generateAbilities: (creature: EditableCreature) =>
-      // RM's standard set (Form Up / Troop Movement / Troop Defenses) + 1/2/3-action attacks,
-      // scaled to creature.level. Returns CustomAbilityDefinition[].
-      buildStandardTroopAbilities(creature)
+      // ADDITIVE extras only — the engine already generates the sweep/volley + Troop Defenses/Movement.
+      // Return just the creature-specific actions RM wants on top (deduped by name); a recipe that still
+      // returns the standard kit here would duplicate the engine's. See "Convert to Troop".
+      buildArmyExtras(creature)
   }
 };
 ```
@@ -331,22 +347,95 @@ size or thresholds; the system owns them.**
   preserved and only absent types are filled from the level table (`withTroopWeaknesses`). The table is
   a *guideline* for from-scratch troops — published troops author their own values, and those always
   win. CRISPR's built-in target does this for you; a custom target gets the kernel helpers
-  `withTroopTrait` / `withTroopWeaknesses` to do the same.
+  `withTroopTrait` / `withTroopWeaknesses` to do the same. The guideline is **area = splash**, stepping
+  **5** (L2–6) → **8** (L7–8) → **10** (L9–12) → **12** (L13) → **15** (L14–18) → **20** (L19+); below
+  L2 it floors at 2. (This was realigned to the published corpus — earlier tables ran a few points low
+  with splash below area.)
 - **No immunities.** There is no troop *immunity* rule — the system reads only authored weaknesses at
   damage time. IWR beyond area/splash is creature-specific (the mindless-undead package on undead
   troops, etc.), so CRISPR stamps none.
-- `formUp: true` (on `applyTroopToActor`) seeds the Form Up ability; by convention troops with Form Up
-  run **splash ≈ half the area value** (e.g. 10/5, 12/6, 20/10). This is a convention, not enforced —
-  author the exact values the statblock calls for.
+- `formUp: true` seeds the Form Up ability; troops with Form Up run **splash ≈ half the area value**
+  (the published cluster is 5/2, 10/5, 15/8). On `applyTroopToActor` this is convention only, but the
+  conversion engine (below) *pre-seeds* the half-splash value when `formUp` is set, so it survives the
+  seed-if-missing pass.
 - **Save target for the dev flow.** Build packs through CRISPR's **default** save target. A consumer's
   own target (RM's faction folders / army registration) is for its *runtime* worlds, not pack-building;
   mixing scopes mid-flow makes `loadCreatureData` miss and the editor back-solve.
 
-**Convert to Troop** (the Defenses button) applies the structural transform (formation size, actor
-size; the `troop` trait and any missing area/splash weaknesses land on save). If the *active provider* supplies a `troopConversion` recipe, CRISPR
-also applies its `levelDelta` / `nameSuffix` / `defaultTroopSize` and merges `generateAbilities(creature)`
-into the creature — **without clobbering the user's existing abilities** (reconciled by name). With no
-recipe, it's the structural transform only.
+## Convert to Troop
+
+**Convert to Troop** — the Defenses-section button, and its non-UI twin `convertActorToTroop(actorId, opts)`
+— runs CRISPR's **default conversion engine**. No consumer recipe is required; a recipe-less conversion is
+now the full transform (not a no-op). In one pass the engine:
+
+- **Bumps the level +5** (published troop = base + 5, clamped −1..24) and rescales raw IWR values to the
+  new level.
+- **Suffixes the name** with ` Troop` — guarded, so an existing ` Troop` suffix is not doubled.
+- **Sizes the formation** to Gargantuan (the published default; 157/162 troops are Gargantuan).
+- **Generates the two published attack actions from the pre-conversion strikes, then clears the strikes**
+  (published troops carry **zero** strike items — all offense is `action` items with inline
+  `@Damage`/`@Check`):
+  - the **best melee strike** becomes a **1-to-3-action sweep** (`"{Strike} Flurry"`): a
+    `@Template[type:emanation|distance:5]` (10 ft for reach weapons) with a basic Reflex `@Check` at the
+    level's `spellDC.moderate`, and three `options:area-damage` lines that keep the strike's die;
+  - the **best ranged strike** becomes a **2-action volley** (`"{Strike} Volley"`): a `@Template[type:burst]`
+    within the strike's range band, dice-only damage ≈ the 2-action sweep line, the same save, and a
+    closing sentence shrinking the burst by 5 ft at 2 segments. Melee-only creatures get no volley.
+- **Seeds the standard glossary kit** (Troop Defenses + Troop Movement; plus Form Up when `formUp` is set),
+  deduped by name so it never clobbers the user's own abilities.
+- Leaves the `troop` **trait** and **area/splash weaknesses** to land **on save** (seed-if-missing via
+  `troopAdjusted`), exactly like the toggle. Special abilities, spellcasting, senses, speeds, languages,
+  and non-area IWR **pass through untouched** (decision 1 — signature abilities are the GM's manual pass).
+
+The per-conversion choices are `TroopConversionOptions` (kernel-level, FE-free — the editor button surfaces
+the first four):
+
+| Option | Default | Effect |
+|---|---|---|
+| `levelDelta` | `5` | Levels added on conversion (clamped −1..24). |
+| `troopSize` | `'gargantuan'` | Formation size → token footprint. |
+| `formUp` | `false` | Also seed Form Up and pre-seed the half-splash weakness. |
+| `keepStrikes` | `false` | Retain the source strikes instead of clearing them. |
+| `sweepName` / `volleyName` | generated | Rename the generated action items (hosts localize here). |
+
+### Recipe as overrides, not generation
+
+A provider's `troopConversion` recipe is now an **override/additive layer** over this engine, not the
+conversion itself. `levelDelta` / `nameSuffix` / `defaultTroopSize` tune the engine (an explicit
+`TroopConversionOptions` field wins over the same recipe field); **`generateAbilities` is additive** — its
+output merges (by name) *alongside* the engine's sweep/volley/kit, never replacing them. Two consequences:
+
+- **`generateAbilities(creature)` runs *after* the strikes are cleared**, so a recipe reading
+  `creature.strikes` sees an empty array — unless the conversion was called with `keepStrikes: true`. If a
+  recipe needs the source strikes, read them before conversion or pass `keepStrikes`.
+- A recipe that used to hand-author its own Troop Defenses / 1-2-3 attacks now **duplicates** the engine's
+  kit (only exact-name collisions are deduped). Trim such recipes down to genuine creature-specific extras.
+
+### Preserved HP is a deliberate divergence
+
+Conversion **does not touch benchmarks** — the HP benchmark carries through the +5 level bump, so the
+troop's HP is recomputed at the *new* level from the base creature's HP *position*. Published troops
+normalize HP to the moderate column for the troop level, so a mook-origin troop runs **leaner** than its
+published equivalent. This is intentional (the benchmark system already rescales stats on a level change,
+so preserving HP is *no code*); the editor's **HP benchmark control is the fix-up** when you want the
+published value.
+
+### No reverse conversion; export identity
+
+Import-from-compendium already minted the world copy (fresh world `_id`, `importedFrom` provenance);
+conversion differentiates that copy with the ` Troop` suffix + the `troop` trait. There is **no
+un-convert** — recovery is **re-importing the source**. Because the converted troop is a *copy* of a
+still-present source compendium doc, `exportActorSource` gives it a **fresh `_id`** so a keepId pack build
+can't collide with the source doc; `importedFrom` provenance is kept.
+
+### Toggling `setTroop(true)` first suppresses the level bump
+
+`isTroop` is the "already a troop" signal, and it gates **only the once-only +5 level bump**. So toggling
+`setTroop(true)` *before* converting suppresses just the bump — the offense transform (sweep/volley +
+strike clearing), the kit, and the ` Troop` suffix all still run on a later Convert to Troop (the suffix is
+skipped only when the name already ends in ` Troop`). The genuine no-op is re-converting the *result of a
+full conversion*: strikes already cleared, name already suffixed, kit already present, level already bumped —
+nothing changes. Convert a **non**-troop that's still at base level to get the bump.
 
 ---
 

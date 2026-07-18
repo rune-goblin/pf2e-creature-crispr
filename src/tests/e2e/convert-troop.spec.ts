@@ -1,0 +1,78 @@
+import { test, expect, openBuilder, BUILDER_ID, MODULE_ID } from './fixtures/foundry-clients';
+import { deleteActors } from './fixtures/creature-ui';
+
+// import → Convert to Troop → assert the persisted actor gained the sweep action and lost its strike.
+// Exercises the W2/W3 default engine end to end in a real Foundry: strike → "{Strike} Flurry" action,
+// melee item removed on save, level +5, troop trait stamped.
+test.describe('Convert to Troop', () => {
+  const trash: string[] = [];
+
+  test.afterEach(async ({ gmPage }) => {
+    await deleteActors(gmPage, trash.splice(0));
+  });
+
+  test('converting an imported creature generates the Flurry action and clears strikes', async ({ gmPage }) => {
+    const srcName = `__e2e_convert_${Date.now()}`;
+    const srcId = await gmPage.evaluate(async (n) => {
+      const actor = await (window as any).Actor.create({
+        name: n,
+        type: 'npc',
+        system: { details: { level: { value: 2 } }, attributes: { ac: { value: 16 }, hp: { value: 30, max: 30 } } },
+        items: [
+          { name: 'Bite', type: 'melee', system: { bonus: { value: 9 }, damageRolls: { a: { damage: '1d6', damageType: 'piercing' } } } }
+        ]
+      });
+      return actor.id as string;
+    }, srcName);
+    trash.push(srcId); // import moves (not clones), so this is the only actor to clean up
+
+    // Import the world NPC into the CRISPR folder (same World Actors picker flow as import.spec).
+    await openBuilder(gmPage);
+    const win = gmPage.locator(`#${BUILDER_ID}`);
+    await win.locator('.list-header .btn-import').click();
+
+    const dialog = win.locator('.picker-dialog');
+    await expect(dialog).toBeVisible();
+    const worldTab = dialog.locator('.source-tab', { hasText: 'World Actors' });
+    await expect(async () => {
+      await worldTab.click();
+      await expect(worldTab).toHaveClass(/active/, { timeout: 1000 });
+      await expect(dialog.locator('.search-input')).toHaveAttribute('placeholder', 'Search actors...', { timeout: 1000 });
+    }).toPass({ timeout: 15000 });
+    await dialog.locator('.search-input').fill(srcName);
+    await dialog.locator('.picker-item', { hasText: srcName }).click();
+    await dialog.locator('.btn-primary', { hasText: 'Import' }).click();
+    await expect(dialog).toBeHidden();
+
+    // Open the imported creature in the editor, then run the Convert to Troop button with its defaults.
+    await gmPage.evaluate((actorId) => {
+      (window as any).game.modules.get('pf2e-creature-crispr').api.editCreature({ actorId });
+    }, srcId);
+    await expect(win.locator('.editor-header')).toBeVisible();
+
+    await win.locator('.editor-header .btn-secondary', { hasText: 'Convert to Troop' }).click();
+    const convertDialog = win.locator('.dialog', { hasText: 'Convert to Troop' });
+    await expect(convertDialog).toBeVisible();
+    await convertDialog.locator('.dialog-button-primary').click();
+    await expect(convertDialog).toBeHidden();
+
+    await win.locator('.editor-header .btn-primary', { hasText: /Save/ }).click();
+
+    // Assert against the persisted actor: strike gone, Flurry action present, level bumped, trait stamped.
+    await expect
+      .poll(() => gmPage.evaluate(({ actorId, mod }) => {
+        const actor = (window as any).game.actors.get(actorId);
+        if (!actor) return null;
+        const items = actor.items.contents as any[];
+        return {
+          level: actor.system?.details?.level?.value,
+          traits: actor.system?.traits?.value ?? [],
+          meleeCount: items.filter((i) => i.type === 'melee').length,
+          hasFlurry: items.some((i) => i.type === 'action' && /Flurry/.test(i.name)),
+          hasKit: items.some((i) => i.name === 'Troop Defenses'),
+          flagged: !!actor.getFlag(mod, 'creatureData')
+        };
+      }, { actorId: srcId, mod: MODULE_ID }), { timeout: 15000 })
+      .toEqual({ level: 7, traits: expect.arrayContaining(['troop']), meleeCount: 0, hasFlurry: true, hasKit: true, flagged: true });
+  });
+});
