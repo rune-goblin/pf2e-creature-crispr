@@ -97,6 +97,80 @@ export async function createSourceNpc(page: Page, name: string, opts: { level?: 
   );
 }
 
+export type SpellcasterNpc = { actorId: string; entryId: string; spellIds: string[] };
+
+/**
+ * Create a world NPC carrying a prepared spellcasting entry with `spells` spell items bound into
+ * `rank`'s slots — the shape a published NPC caster imports as, and the one scaling has to preserve.
+ */
+export async function createSpellcasterNpc(
+  page: Page,
+  name: string,
+  opts: { level?: number; rank?: number; spells?: number } = {},
+): Promise<SpellcasterNpc> {
+  return page.evaluate(
+    async ({ n, lvl, rank, count }) => {
+      const w = window as any;
+      const actor = await w.Actor.create({
+        name: n,
+        type: 'npc',
+        system: {
+          details: { level: { value: lvl } },
+          attributes: { ac: { value: 16 }, hp: { value: 30, max: 30 } },
+        },
+      });
+      const [entry] = await actor.createEmbeddedDocuments('Item', [
+        {
+          name: 'Prepared Spells',
+          type: 'spellcastingEntry',
+          system: {
+            prepared: { value: 'prepared' },
+            tradition: { value: 'arcane' },
+            spelldc: { dc: 20, value: 10 },
+          },
+        },
+      ]);
+      const spells = await actor.createEmbeddedDocuments(
+        'Item',
+        Array.from({ length: count }, (_, i) => ({
+          name: `${n}_spell_${i}`,
+          type: 'spell',
+          system: { level: { value: rank }, location: { value: entry.id } },
+        })),
+      );
+      const spellIds = spells.map((s: any) => s.id as string);
+      await entry.update({
+        [`system.slots.slot${rank}.max`]: count,
+        [`system.slots.slot${rank}.value`]: count,
+        [`system.slots.slot${rank}.prepared`]: spellIds.map((id: string) => ({ id, expended: false })),
+      });
+      return { actorId: actor.id as string, entryId: entry.id as string, spellIds };
+    },
+    { n: name, lvl: opts.level ?? 5, rank: opts.rank ?? 2, count: opts.spells ?? 2 },
+  );
+}
+
+/** Per-rank `{ max, prepared }` off the actor's first spellcasting entry; `prepared` holds spell ids or null. */
+export async function readSpellSlots(
+  page: Page,
+  actorId: string,
+): Promise<Record<number, { max: number; prepared: (string | null)[] }> | null> {
+  return page.evaluate((id) => {
+    const actor = (window as any).game.actors.get(id);
+    const entry = actor?.items?.find((i: any) => i.type === 'spellcastingEntry');
+    if (!entry) return null;
+    const out: Record<number, { max: number; prepared: (string | null)[] }> = {};
+    for (let rank = 0; rank <= 10; rank++) {
+      const slot = entry.system?.slots?.[`slot${rank}`];
+      out[rank] = {
+        max: slot?.max ?? 0,
+        prepared: (slot?.prepared ?? []).map((p: any) => p?.id ?? null),
+      };
+    }
+    return out;
+  }, actorId);
+}
+
 /** Is this actor (by id) now in the Creature CRISPR folder with the module's data flag? */
 export async function isImportedCreature(page: Page, id: string): Promise<boolean> {
   return page.evaluate(({ actorId, mod }) => {

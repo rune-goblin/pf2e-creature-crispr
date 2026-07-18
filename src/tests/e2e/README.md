@@ -146,8 +146,9 @@ Two failures that *look* like the migration gate but aren't:
 - **A slow first boot after a re-clone.** Because `systems`/`modules`/`worlds` are cloned rather
   than symlinked, the **first** boot against fresh clones re-indexes ~96 pf2e packs and can blow
   `global-setup`'s 30 s `game.ready` budget — `TimeoutError: page.waitForFunction` at
-  `fixtures/foundry-clients.ts:53`. **Just re-run; do not raise the timeout.** The second boot
-  reuses the warm index and passes. (Bit three runs in a row on 2026-07-18.)
+  `fixtures/foundry-clients.ts:53`. **Just re-run; do not raise the timeout.** A later boot
+  reuses the warm index and passes. (Bit three runs in a row on 2026-07-18, then four in a row
+  later the same day — a filtered run booting fine is not evidence the full suite will.)
 
 ## Conventions for new specs
 

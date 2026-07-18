@@ -88,21 +88,25 @@ Extend the local `SpellSlots` alias (`services/spells.ts:14`) to type `prepared`
 
 **Done when:** `npm run check` and `npx vitest run` green.
 
-## Wave 3 — verification
+## Wave 3 — verification (done: `src/tests/e2e/spell-slots.spec.ts`)
 
-No automated coverage is possible at the service layer without a Foundry mock harness that does not
-exist here, so this wave is manual and must actually be performed:
+Unit tests can't reach this — the binding lives in a service that talks to Foundry, and there is no
+mock harness. So verification is e2e, driving the real editor against a headless Foundry:
 
-1. Import a published prepared caster with a partial spell list (e.g. a Bestiary cleric).
-2. Scale it **up** several levels → its listed spells stay in their slots; the added slots are blank.
-3. Scale it **down** below the rank of one of its spells → that spell is still assigned, and its rank
-   keeps at least enough slots to hold it.
-4. **Convert to Troop** → same preservation, via fact 5's shared path.
-5. Reopen the editor → the rank layout round-trips (this is what `diffSlotOverrides` in
-   `services/spells.ts` exists for; confirm it did not regress).
+- `createSpellcasterNpc` / `readSpellSlots` (`fixtures/creature-ui.ts`) build an NPC carrying a
+  prepared entry with spells bound into a rank's slots, and read the persisted entry back.
+- **Scale up** → both listed spells still bound, `prepared.length === max`, and every added slot is
+  `null` (nothing auto-assigned).
+- **Scale down** → both spells still bound and the rank stays wide enough to hold them.
 
-An e2e spec would be the durable form of this, but `src/tests/e2e/` has no spellcasting coverage at
-all today — adding it is its own piece of work, not a rider on this one.
+**Both specs were confirmed to fail without the fix** (`prepared` came back `[]` — the bindings were
+lost entirely, worse than the stale-array behaviour predicted). A regression test that passes with
+the bug present would have been worthless here, so re-verify that way if this code is touched.
+
+Still unverified by automation, worth a manual pass if you touch the area:
+
+- **Convert to Troop** — shares the path via fact 5, but no spec exercises a *caster* troop.
+- **Editor round-trip of a hand-tuned rank layout** — what `diffSlotOverrides` exists for.
 
 ## Out of scope
 
