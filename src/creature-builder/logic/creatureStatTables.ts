@@ -1437,10 +1437,9 @@ export function calculateTroopThresholds(maxHP: number, troopSize: TroopSize = '
 }
 
 /**
- * Troop area/splash weakness values by level
- * Based on PF2e GMG guidelines for troops
- * Area damage weakness is typically around half of the resistance/weakness max
- * Splash damage weakness is fixed at 5-15 range
+ * Troop area/splash weakness values by level.
+ * Published medians across all 162 troop-trait NPCs (2026-07-18 sweep): area = splash, stepping
+ * 5 (≤L6) → 8 (L7–8) → 10 (L9–12) → 12 (L13) → 15 (L14–18) → 20 (L19+), floor 2 below level 2.
  */
 export interface TroopWeaknessValues {
   area: number;
@@ -1448,38 +1447,48 @@ export interface TroopWeaknessValues {
 }
 
 const TROOP_WEAKNESS_TABLE: Record<CreatureLevel, TroopWeaknessValues> = {
-  [-1]: { area: 1, splash: 1 },
-  [0]:  { area: 2, splash: 1 },
+  [-1]: { area: 2, splash: 2 },
+  [0]:  { area: 2, splash: 2 },
   [1]:  { area: 2, splash: 2 },
-  [2]:  { area: 3, splash: 2 },
-  [3]:  { area: 3, splash: 3 },
-  [4]:  { area: 4, splash: 3 },
-  [5]:  { area: 5, splash: 4 },
-  [6]:  { area: 5, splash: 4 },
-  [7]:  { area: 6, splash: 5 },
-  [8]:  { area: 7, splash: 5 },
-  [9]:  { area: 8, splash: 6 },
-  [10]: { area: 8, splash: 6 },
-  [11]: { area: 9, splash: 7 },
-  [12]: { area: 10, splash: 7 },
-  [13]: { area: 10, splash: 8 },
-  [14]: { area: 11, splash: 8 },
-  [15]: { area: 12, splash: 9 },
-  [16]: { area: 12, splash: 9 },
-  [17]: { area: 13, splash: 10 },
-  [18]: { area: 14, splash: 10 },
-  [19]: { area: 14, splash: 11 },
-  [20]: { area: 15, splash: 11 },
-  [21]: { area: 15, splash: 12 },
-  [22]: { area: 16, splash: 12 },
-  [23]: { area: 16, splash: 13 },
-  [24]: { area: 17, splash: 13 }
+  [2]:  { area: 5, splash: 5 },
+  [3]:  { area: 5, splash: 5 },
+  [4]:  { area: 5, splash: 5 },
+  [5]:  { area: 5, splash: 5 },
+  [6]:  { area: 5, splash: 5 },
+  [7]:  { area: 8, splash: 8 },
+  [8]:  { area: 8, splash: 8 },
+  [9]:  { area: 10, splash: 10 },
+  [10]: { area: 10, splash: 10 },
+  [11]: { area: 10, splash: 10 },
+  [12]: { area: 10, splash: 10 },
+  [13]: { area: 12, splash: 12 },
+  [14]: { area: 15, splash: 15 },
+  [15]: { area: 15, splash: 15 },
+  [16]: { area: 15, splash: 15 },
+  [17]: { area: 15, splash: 15 },
+  [18]: { area: 15, splash: 15 },
+  [19]: { area: 20, splash: 20 },
+  [20]: { area: 20, splash: 20 },
+  [21]: { area: 20, splash: 20 },
+  [22]: { area: 20, splash: 20 },
+  [23]: { area: 20, splash: 20 },
+  [24]: { area: 20, splash: 20 }
 };
 
+// Form Up's splash is half area, rounding half to even — the published cluster is 5/2, 10/5, 15/8.
+function halfAreaSplash(area: number): number {
+  const half = area / 2;
+  if (Number.isInteger(half)) return half;
+  const floor = Math.floor(half);
+  return floor % 2 === 0 ? floor : floor + 1;
+}
+
 /**
- * Get troop weakness values for area and splash damage at a given level
+ * Get troop weakness values for area and splash damage at a given level.
+ * `formUp` seeds the Form Up variant (splash at half area).
  */
-export function getTroopWeaknessValues(level: number): TroopWeaknessValues {
+export function getTroopWeaknessValues(level: number, opts: { formUp?: boolean } = {}): TroopWeaknessValues {
   const clampedLevel = Math.max(-1, Math.min(24, Math.round(level))) as CreatureLevel;
-  return TROOP_WEAKNESS_TABLE[clampedLevel];
+  const { area, splash } = TROOP_WEAKNESS_TABLE[clampedLevel];
+  return opts.formUp ? { area, splash: halfAreaSplash(area) } : { area, splash };
 }

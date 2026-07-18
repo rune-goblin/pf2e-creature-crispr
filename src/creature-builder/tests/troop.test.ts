@@ -29,15 +29,15 @@ describe('troop derivation (kernel)', () => {
   });
 
   it('seeds only missing area/splash types and keeps everything authored', () => {
-    // Level 6 table splash is 4; Wolf Pack authors splash 5 — the authored value must survive.
+    // Level 6 table splash is 5; an authored divergent value must survive re-seeding.
     const existing: DamageModifier[] = [
       { type: 'fire', value: 5 },
-      { type: 'splash-damage', value: 5 }
+      { type: 'splash-damage', value: 3 }
     ];
     const out = withTroopWeaknesses(existing, 6);
     expect(out.find((m) => m.type === 'fire')).toEqual({ type: 'fire', value: 5 });
     expect(out.filter((m) => m.type === 'splash-damage')).toHaveLength(1);
-    expect(out.find((m) => m.type === 'splash-damage')?.value).toBe(5);
+    expect(out.find((m) => m.type === 'splash-damage')?.value).toBe(3);
     expect(out.find((m) => m.type === 'area-damage')?.value).toBe(getTroopWeaknessValues(6).area);
   });
 
@@ -69,8 +69,8 @@ describe('troopAdjusted', () => {
   });
 
   it('keeps a troop\'s authored area/splash divergence', () => {
-    const out = troopAdjusted(base({ isTroop: true, level: 6, weaknesses: [{ type: 'splash-damage', value: 5 }] }));
-    expect(out.weaknesses.find((m) => m.type === 'splash-damage')?.value).toBe(5);
+    const out = troopAdjusted(base({ isTroop: true, level: 6, weaknesses: [{ type: 'splash-damage', value: 3 }] }));
+    expect(out.weaknesses.find((m) => m.type === 'splash-damage')?.value).toBe(3);
   });
 
   it('passes a non-troop through untouched', () => {
