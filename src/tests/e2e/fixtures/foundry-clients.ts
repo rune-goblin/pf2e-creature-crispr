@@ -1,4 +1,4 @@
-import { test as base, type Page, type BrowserContext } from '@playwright/test';
+import { test as base, expect, type Page, type Locator, type BrowserContext } from '@playwright/test';
 
 declare global {
   // Foundry's runtime globals on `window`. Declared `any` — specs reach into them loosely
@@ -69,26 +69,40 @@ export async function waitForCrisprReady(page: Page): Promise<void> {
 export const BUILDER_ID = `${MODULE_ID}-builder`;
 
 /**
+ * Leave an open editor for the list view. Cancel raises a modal discard confirm when the edit is
+ * dirty (CreatureEditor.handleCancel → editorStore.confirmDiscardIfDirty), so answer whichever of
+ * the two outcomes the click actually produces.
+ */
+async function cancelActiveEditor(page: Page, win: Locator): Promise<void> {
+  await win.locator('.editor-header .btn-secondary', { hasText: 'Cancel' }).click();
+  const discard = page.locator('dialog.dialog button', { hasText: 'Discard' });
+  const list = win.locator('.creature-list-view');
+  await expect(discard.or(list).first()).toBeVisible();
+  if (await discard.count()) await discard.click();
+  await list.waitFor({ state: 'visible' });
+}
+
+/**
  * Open the builder via the public API and wait for the workspace to render. Closes any prior
  * instance first — `gmPage` is worker-scoped, so a window left open by an earlier test would
  * otherwise linger (and duplicate the fixed element id).
  */
 export async function openBuilder(page: Page): Promise<void> {
+  const win = page.locator(`#${BUILDER_ID}`);
+  // CreatureCrisprApp.close() shares the editor's dirty guard, so closing a window a prior spec
+  // left mid-edit parks the close() promise on a modal confirm that nothing here can answer while
+  // it is awaited in-page. Clear the editor through the UI first, which also lets _preClose reset
+  // the module-level editorStore (it outlives the app) so the reopened window shows the list.
+  if (await win.locator('.editor-header').count()) await cancelActiveEditor(page, win);
+
   await page.evaluate(async (appId) => {
     const existing = (window as any).foundry?.applications?.instances?.get?.(appId);
     if (existing) await existing.close();
     const id = appId.replace(/-builder$/, '');
     (window as any).game.modules.get(id).api.open();
   }, BUILDER_ID);
-  const win = page.locator(`#${BUILDER_ID}`);
   await win.locator('.creature-workspace').waitFor({ state: 'visible' });
-  // editorStore is a module-level singleton, and reopening the window doesn't reset it — a prior
-  // spec (e.g. duplicate, which opens the copy in the editor) can leave it active. Cancel back to
-  // the list so every caller starts from a known state.
-  if (await win.locator('.editor-header').count()) {
-    await win.locator('.editor-header .btn-secondary', { hasText: 'Cancel' }).click();
-    await win.locator('.creature-list-view').waitFor({ state: 'visible' });
-  }
+  if (await win.locator('.editor-header').count()) await cancelActiveEditor(page, win);
 }
 
 type WorkerFixtures = {

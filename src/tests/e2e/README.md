@@ -28,12 +28,32 @@ One operation per file — a failure names the operation that broke:
 | `launch` | `api.open()` | the workspace + Creatures list render |
 | `create-save` | Create New → name/level/template → Save | an `npc` in the *Creature CRISPR* folder with the `creatureData` flag + plausible AC/HP |
 | `edit-rescale` | open a creature → bump level → Save | HP/AC re-derived for the new level |
-| `duplicate` | row → Duplicate | an independent `(Copy)` in the folder, opened in the editor |
-| `delete` | row → Delete → confirm | actor removed from the world and the list |
+| `duplicate` | row kebab → Duplicate | an independent `(Copy)` in the folder, opened in the editor |
+| `delete` | row kebab → Delete actor → confirm | actor removed from the world and the list |
 | `import` | Import → World Actors → pick → Import | the world NPC moved into the folder + flagged |
+| `kebab-menu` | row kebab (`.ram-trigger`) | the menu portals out of the table, lists its six actions **by name**, closes on outside click |
+| `multiselect` | search-filter → checkbox + shift-click range → select-all/clear → bulk dropdown → Delete actors | selection counts, the bulk bar's lifecycle, all four actors *and* their rows gone |
+| `iwr` | Defenses → Resistances → the type menu (`.tfm-*`) | one resistance carries an exception **and** a double-vs at once; the `add-first.double` trigger survives adding the exception |
+| `item-drop` | drop `{type:'Item', uuid}` payloads on the editor frame | costed action → Actions, passive → Passives, melee → Offense; a re-drop is rejected as a duplicate |
+| `drop-hover-highlight` | dragstart sniffer + dragover the editor frame | the frame highlights and the destination section announces itself; CRISPR's own ability drag highlights the frame only |
+| `convert-troop` | import → Convert to Troop → Save | the persisted actor gains the Flurry action + Troop Defenses, loses its strikes, level +5, `troop` trait |
+
+Row actions live in the kebab (`.ram-trigger` → `.ram-menu`, which portals to page level), not in
+inline row buttons — only *Edit creature* is still an inline `aria-label` button. `delete` and
+`duplicate` drove those removed buttons until 2026-07-18.
 
 `openBuilder()` resets the editor to the list view first, because `editorStore` is a module-level
 singleton that a prior spec (e.g. `duplicate`) can leave open.
+
+That reset goes through the product's own discard path, so it handles an inherited *dirty* editor:
+it clicks Cancel and answers whichever outcome follows — the confirm dialog when there are unsaved
+edits, or the list view directly when there aren't. Order matters, and the ordering is load-bearing:
+the cleanup runs *before* `close()`, because `CreatureCrisprApp.close()` shares the same dirty guard.
+Closing a mid-edit window parks that promise on a modal confirm awaited *in-page*, which nothing on
+the Playwright side can answer — the spec burns its full timeout before any assertion runs.
+
+Because setup absorbs this, a spec may legitimately end mid-edit; `item-drop` does, and its unsaved
+drops are exactly what it asserts. Don't add a save purely to protect the next spec.
 
 ## Test data is isolated
 
@@ -105,6 +125,22 @@ is on locally, so a stray Foundry left on a port gets silently reused. Guard rai
 - Your own Foundry being open is *fine* — the data path is cloned, not shared. Only a stray
   Foundry **on :30005** can hijack a run.
 
+Two failures that *look* like the migration gate but aren't:
+
+- **A stale license copy.** After a desktop Foundry update, the *copy* of `license.json` in
+  `test/foundry-data/Config/` fails signature verification, the server boots to the license screen,
+  and `global-setup` reports the same `No active world at this port`. Confirm in
+  `test/foundry-data/Logs/error.*.log` ("Software license verification failed"), then re-copy:
+  ```bash
+  cp ~/Library/Application\ Support/FoundryVTT/Config/license.json test/foundry-data/Config/
+  ```
+  Expect this on every Foundry update.
+- **A slow first boot after a re-clone.** Because `systems`/`modules`/`worlds` are cloned rather
+  than symlinked, the **first** boot against fresh clones re-indexes ~96 pf2e packs and can blow
+  `global-setup`'s 30 s `game.ready` budget — `TimeoutError: page.waitForFunction` at
+  `fixtures/foundry-clients.ts:53`. **Just re-run; do not raise the timeout.** The second boot
+  reuses the warm index and passes. (Bit three runs in a row on 2026-07-18.)
+
 ## Conventions for new specs
 
 - Use the `gmPage` fixture from `fixtures/foundry-clients.ts` (worker-scoped GM login).
@@ -113,3 +149,9 @@ is on locally, so a stray Foundry left on a port gets silently reused. Guard rai
 - Reach Foundry APIs with `page.evaluate(() => game.…)`; drive the UI with the builder's stable
   selectors (`.list-header .btn-create`, `#basic-info-name`, `[aria-label="Increase level"]`,
   `.editor-header .btn-primary`, …). Helpers in `fixtures/creature-ui.ts`.
+- **Count rows as `.creatures-table tbody tr[data-actor-id]`, never `.creatures-table tbody tr`.**
+  The "No creatures match …" placeholder is a `<tr>` inside the same `<tbody>`, so an unfiltered
+  locator reports 1 row exactly when the filtered set empties — i.e. precisely when a spec asserts
+  zero. It also only appears when the world holds *other* creatures (otherwise the whole table is
+  replaced by the empty state), so it reads as an intermittent product bug. `multiselect` lost a
+  day to this.
