@@ -8,6 +8,7 @@ import { logger } from './logger';
 import { readActorStatsAndBenchmarks } from './actorStatsExtractor';
 import { addBenchmarkFlagsToMeleeItems, addBenchmarkFlagsToAbilityItems } from './strikes';
 import { CREATURE_FLAG, CREATURE_DATA_KEY } from './constants';
+import { canonicalizeItemOrder, type OrderableItemSource } from './canonicalItemOrder';
 
 /**
  * Import an existing world actor: back-solve its benchmarks and mark it CRISPR-managed.
@@ -124,10 +125,17 @@ export async function exportCreatureToFile(actorId: string): Promise<void> {
  * Full actor source for packaging into a consumer's compendium: `system`, `items`,
  * `prototypeToken`, `img` and flags — the CRISPR flag kept, so a shipped actor stays
  * CRISPR-editable when reimported. `toObject()` yields the whole source; don't hand-assemble.
+ *
+ * `items` is re-emitted in canonical order. Foundry's embedded-item order is unstable across
+ * builds (see `canonicalItemOrder`), and consumers commit this export as source-of-truth JSON.
  */
 export async function exportActorSource(actorId: string): Promise<Record<string, unknown>> {
   const actor = requireActor(actorId);
   const source = actor.toObject() as Record<string, unknown>;
+
+  if (Array.isArray(source.items)) {
+    source.items = canonicalizeItemOrder(source.items as OrderableItemSource[]);
+  }
 
   // A converted troop is a differentiated *copy* of a source compendium doc (import minted a fresh world
   // id + `importedFrom` provenance; conversion added the `troop` trait). Packaging it into a compendium

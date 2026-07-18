@@ -37,10 +37,16 @@ One operation per file — a failure names the operation that broke:
 | `item-drop` | drop `{type:'Item', uuid}` payloads on the editor frame | costed action → Actions, passive → Passives, melee → Offense; a re-drop is rejected as a duplicate |
 | `drop-hover-highlight` | dragstart sniffer + dragover the editor frame | the frame highlights and the destination section announces itself; CRISPR's own ability drag highlights the frame only |
 | `convert-troop` | import → Convert to Troop → Save | the persisted actor gains the Flurry action + Troop Defenses, loses its strikes, level +5, `troop` trait |
+| `export-determinism` | two independent troop builds → `api.exportActorSource` | both exports carry the **same item sequence**, and re-exporting one actor is byte-identical |
 
 Row actions live in the kebab (`.ram-trigger` → `.ram-menu`, which portals to page level), not in
 inline row buttons — only *Edit creature* is still an inline `aria-label` button. `delete` and
 `duplicate` drove those removed buttons until 2026-07-18.
+
+`export-determinism` is the one spec that must compare *across* builds, so it asserts on item
+identity (name/type/sort/actionType) rather than raw JSON: Foundry mints fresh `_id`s per build, so
+two independent builds can never be byte-equal. Item `sort` values, by contrast, **are** stable
+across builds — measured, not assumed — which is why they're part of the compared identity.
 
 `openBuilder()` resets the editor to the list view first, because `editorStore` is a module-level
 singleton that a prior spec (e.g. `duplicate`) can leave open.
