@@ -194,9 +194,24 @@ export interface MeleeItemView {
     bonus?: { value?: number };
     damageRolls?: Record<string, { damage?: string; damageType?: string; category?: string | null }>;
     traits?: { value?: string[] };
-    range?: unknown;
+    range?: { increment?: number | null; max?: number | null } | null;
   };
   getFlag(scope: string, key: string): unknown;
+}
+
+/** Every PF2e NPC strike is item-type `melee` — a literal `ranged` trait occurs on 0 of 12,627
+ *  system strikes (it survives here only as this module's own legacy convention). Real ranged-ness
+ *  lives in trait prefixes (`volley-30`, `thrown-10`, `range-increment-N`, bare `thrown`) and/or
+ *  `system.range`, where either field may be null: shortbows are increment-only (1,730 items),
+ *  the Wild Hunt Archer's bow is max-only (303). Both halves are load-bearing — 1,887 ranged
+ *  strikes carry range data but no ranged trait, ~950 the reverse. */
+function isRangedStrike(system: MeleeItemView['system']): boolean {
+  const traits = system?.traits?.value ?? [];
+  return (
+    traits.some((t) => t === 'ranged' || t === 'thrown' || /^(volley|thrown|range)-/.test(t)) ||
+    system?.range?.increment != null ||
+    system?.range?.max != null
+  );
 }
 
 /** Convert one PF2e melee item into our CreatureStrike model, preferring stored benchmark data
@@ -244,10 +259,8 @@ export function meleeItemToStrike(
     attackBonus,
     damage,
     damageType,
-    isRanged: item.system?.traits?.value?.includes('ranged') || false,
-    // Melee range is `{ increment, max }`, not `{ value }`; this read predates the typing
-    // pass and yields undefined at runtime — preserved verbatim to avoid a behavior change.
-    range: (item.system?.range as { value?: number } | undefined)?.value,
+    isRanged: isRangedStrike(item.system),
+    range: item.system?.range?.increment ?? item.system?.range?.max ?? undefined,
     traits: item.system?.traits?.value || []
   };
 

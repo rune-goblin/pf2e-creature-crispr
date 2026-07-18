@@ -70,6 +70,7 @@ test.describe('Convert to Troop', () => {
           traits: actor.system?.traits?.value ?? [],
           meleeCount: items.filter((i) => i.type === 'melee').length,
           hasFlurry: items.some((i) => i.type === 'action' && /Flurry/.test(i.name)),
+          volleyCount: items.filter((i) => i.type === 'action' && /Volley/.test(i.name)).length,
           hasKit: items.some((i) => i.name === 'Troop Defenses'),
           flagged: !!actor.getFlag(mod, 'creatureData'),
           // Guideline values for the post-conversion level (7), and nothing else seeded.
@@ -82,6 +83,7 @@ test.describe('Convert to Troop', () => {
         traits: expect.arrayContaining(['troop']),
         meleeCount: 0,
         hasFlurry: true,
+        volleyCount: 0,
         hasKit: true,
         flagged: true,
         weaknesses: [
@@ -90,5 +92,36 @@ test.describe('Convert to Troop', () => {
         ],
         immunityCount: 0
       });
+  });
+
+  // The archer's bow is a PF2e ranged strike in its real shape: item type `melee`, no `ranged`
+  // trait, volley-30 + max-only system.range. Guards the extraction layer that once classified
+  // every compendium strike as melee, leaving the volley branch dead.
+  const WILD_HUNT_ARCHER = 'Compendium.pf2e.kingmaker-bestiary.Actor.3gtQv6Mkr7CUlG7W';
+
+  test('a compendium archer converts with both a melee sweep and a ranged volley', async ({ gmPage }) => {
+    const result = await gmPage.evaluate(
+      async ({ uuid, mod }) => {
+        const api = (window as any).game.modules.get(mod).api;
+        const id = await api.importCreatureFromCompendium(uuid);
+        await api.convertActorToTroop(id, {});
+        const items = (window as any).game.actors.get(id).items.contents as any[];
+        const volley = items.find((i) => i.type === 'action' && /Volley/.test(i.name));
+        return {
+          id,
+          actionNames: items.filter((i) => i.type === 'action').map((i) => i.name),
+          meleeCount: items.filter((i) => i.type === 'melee').length,
+          volleyDescription: volley?.system?.description?.value ?? null
+        };
+      },
+      { uuid: WILD_HUNT_ARCHER, mod: MODULE_ID }
+    );
+    trash.push(result.id);
+
+    expect(result.actionNames).toContain('Horns Flurry');
+    expect(result.actionNames).toContain('Living Bow Volley');
+    expect(result.meleeCount).toBe(0);
+    expect(result.volleyDescription).toContain('@Template[type:burst|distance:10]');
+    expect(result.volleyDescription).toContain('within 100 feet');
   });
 });

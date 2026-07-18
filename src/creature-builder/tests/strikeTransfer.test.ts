@@ -114,13 +114,12 @@ describe('meleeItemToStrike', () => {
     expect(strike.persistentDamageType).toBe('acid');
   });
 
-  it('maps the ranged trait and copies traits; defaults name and damage when absent', () => {
-    const ranged = meleeItemToStrike(
-      meleeItem({ bonus: { value: 8 }, traits: { value: ['ranged', 'magical'] } }),
+  it('copies traits; defaults name and damage when absent', () => {
+    const strike = meleeItemToStrike(
+      meleeItem({ bonus: { value: 8 }, traits: { value: ['agile', 'magical'] } }),
       2
     );
-    expect(ranged.isRanged).toBe(true);
-    expect(ranged.traits).toEqual(['ranged', 'magical']);
+    expect(strike.traits).toEqual(['agile', 'magical']);
 
     const bare = meleeItemToStrike(meleeItem({}, { id: null, name: null }), 2);
     expect(bare.isRanged).toBe(false);
@@ -129,5 +128,61 @@ describe('meleeItemToStrike', () => {
     expect(bare.damage).toBe('1d4');
     expect(bare.damageType).toBe('slashing');
     expect(bare.attackBonus).toBe(0);
+  });
+});
+
+// PF2e NPC strikes are all item-type `melee` and never carry a literal `ranged` trait; these
+// shapes are lifted from real system data (kingmaker-bestiary).
+describe('ranged strike detection', () => {
+  it('classifies a volley-trait bow with no range data as ranged (Living Bow traits)', () => {
+    const strike = meleeItemToStrike(
+      meleeItem({ bonus: { value: 32 }, traits: { value: ['deadly-d10', 'propulsive', 'volley-30'] } }),
+      17
+    );
+    expect(strike.isRanged).toBe(true);
+  });
+
+  it('classifies by range increment when no trait marks it (Shortbow shape)', () => {
+    const strike = meleeItemToStrike(
+      meleeItem({
+        bonus: { value: 8 },
+        traits: { value: ['deadly-d10', 'reload-0'] },
+        range: { increment: 60, max: null }
+      }),
+      2
+    );
+    expect(strike.isRanged).toBe(true);
+    expect(strike.range).toBe(60);
+  });
+
+  it('classifies by range max when increment is null (Living Bow shape)', () => {
+    const strike = meleeItemToStrike(
+      meleeItem({
+        bonus: { value: 32 },
+        traits: { value: ['deadly-d10', 'magical', 'propulsive', 'volley-30'] },
+        range: { increment: null, max: 100 }
+      }),
+      17
+    );
+    expect(strike.isRanged).toBe(true);
+    expect(strike.range).toBe(100);
+  });
+
+  it('classifies thrown weapons as ranged, suffixed or bare', () => {
+    expect(meleeItemToStrike(meleeItem({ traits: { value: ['thrown-10'] } }), 2).isRanged).toBe(true);
+    expect(meleeItemToStrike(meleeItem({ traits: { value: ['thrown'] } }), 2).isRanged).toBe(true);
+  });
+
+  it('still honours the legacy literal ranged trait', () => {
+    expect(meleeItemToStrike(meleeItem({ traits: { value: ['ranged', 'magical'] } }), 2).isRanged).toBe(true);
+  });
+
+  it('keeps a plain melee strike melee (Horns shape)', () => {
+    const strike = meleeItemToStrike(
+      meleeItem({ bonus: { value: 30 }, traits: { value: ['agile', 'magical'] }, range: null }),
+      17
+    );
+    expect(strike.isRanged).toBe(false);
+    expect(strike.range).toBeUndefined();
   });
 });

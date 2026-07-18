@@ -46,7 +46,7 @@ with one scalable value each.
 | No Retreat | 6 | passive | forced-move distances −5 ft; fear step-down | — |
 | Trample | 4 | 3a | Stride-through, basic Reflex, prone on crit fail | level-baked damage/DC |
 | Reactive Attack (troop flavor) | 3 | reaction | sweep-line damage vs move/manipulate trigger | level-baked |
-| Mounted Troop | 8 | passive | "animal or humanoid targeting is GM's discretion" | text varies slightly per mount |
+| Mounted Troop | 8 | passive | "animal or humanoid targeting is GM's discretion" | text variemerge s slightly per mount |
 
 ## 3. Sweep/volley clones — already covered by the v2 generators
 
