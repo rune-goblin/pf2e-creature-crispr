@@ -40,6 +40,10 @@ if [ -z "${FOUNDRY_APP:-}" ] || [ ! -f "$FOUNDRY_APP/main.js" ]; then
     exit 1
 fi
 
+# Advisory only (exit 0 either way): a boot that will stall on the license screen gets named
+# here with its remedy, instead of surfacing later as a mysterious join failure.
+TEST_FOUNDRY_PORT="$PORT" node "$REPO_ROOT/scripts/check-foundry-license.ts" "$FOUNDRY_APP" "$TEST_DATA"
+
 cd "$FOUNDRY_APP"
 
 ARGS=(

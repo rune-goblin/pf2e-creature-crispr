@@ -1,4 +1,7 @@
 import { test as base, expect, type Page, type Locator, type BrowserContext } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { hostname } from 'node:os';
+import { resolve } from 'node:path';
 
 declare global {
   // Foundry's runtime globals on `window`. Declared `any` — specs reach into them loosely
@@ -23,6 +26,61 @@ export async function joinAs(page: Page, userId: string, password = ''): Promise
   await waitForGameReady(page);
 }
 
+/**
+ * Name the actual reason /join has no active world, instead of guessing. Three known causes,
+ * each observed at least once: the license screen (hostname drift — 2026-07-19), a world that
+ * needs migration (bounced to /setup), and a foreign harness holding the port
+ * (reuseExistingServer can't tell whose Foundry answered — the sibling repos share this setup).
+ */
+async function diagnoseJoinFailure(page: Page, view: string | null): Promise<string> {
+  // /join renders the same "no active game session" page whether the world merely didn't launch
+  // or the server never got past licensing — /license is the discriminator: it shows the EULA/key
+  // form when stuck and redirects away otherwise. Navigating is fine; we're aborting anyway.
+  const licenseForm = page.locator('#eula-form, #eula-agree, input[name="licenseKey"]');
+  let onLicenseScreen = (await licenseForm.count()) > 0;
+  if (!onLicenseScreen) {
+    try {
+      await page.goto('/license', { waitUntil: 'domcontentloaded' });
+      // The form is an ApplicationV2 render, not server HTML — give it a bounded beat to appear.
+      await licenseForm.first().waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
+      onLicenseScreen = (await licenseForm.count()) > 0;
+    } catch {
+      /* unreachable server — fall through to the generic message */
+    }
+  }
+  if (onLicenseScreen) {
+    let signedHost: string | undefined;
+    try {
+      signedHost = JSON.parse(
+        readFileSync(resolve('test/foundry-data/Config/license.json'), 'utf8'),
+      ).host;
+    } catch {
+      /* diagnosis stays generic */
+    }
+    const current = hostname();
+    if (signedHost && signedHost !== current) {
+      return (
+        `Foundry is stuck on its license screen: the license is signed for host "${signedHost}" but this ` +
+        `machine currently reports "${current}" — macOS hostname drift (DHCP). ` +
+        `Fix durably with \`sudo scutil --set HostName ${signedHost}\`, or open the harness's /license ` +
+        `page and click Agree to re-sign for this boot.`
+      );
+    }
+    return (
+      'Foundry is stuck on its license screen — the copied license did not verify. Complete the /license ' +
+      'page once (or launch the desktop Foundry to refresh Config/license.json), then re-run.'
+    );
+  }
+  if (view === 'setup') {
+    return (
+      'Foundry bounced to /setup — the requested world did not auto-launch. It likely needs migration ' +
+      '(older core/system than the running build); launch it once in your desktop Foundry, then re-run. ' +
+      'Or set TEST_WORLD to a world already on the current core/system version.'
+    );
+  }
+  return `No active world at this port (Foundry view: "${view}").`;
+}
+
 /** Join as the world's first GM (role ≥ 4). The test worlds use password-less users. */
 export async function joinAsFirstGm(page: Page): Promise<void> {
   await page.goto('/join');
@@ -35,13 +93,15 @@ export async function joinAsFirstGm(page: Page): Promise<void> {
       gmId: (Array.from(g?.users?.values?.() ?? []) as any[]).find((u) => u.role >= 4)?.id ?? null,
     };
   });
-  // No active world → Foundry bounced us to /setup. The usual cause is a world that needs
-  // migration (older core/system than the running build); --world won't auto-launch those.
   if (state.view !== 'join' || !state.world) {
+    throw new Error(await diagnoseJoinFailure(page, state.view));
+  }
+  const expectedWorld = process.env.TEST_WORLD ?? 'pf2e-tesbed';
+  if (state.world !== expectedWorld) {
     throw new Error(
-      `No active world at this port (Foundry view: "${state.view}"). The requested world likely needs ` +
-        `migration — launch it once in your desktop Foundry to migrate it to the current build, then re-run. ` +
-        `Or set TEST_WORLD to a world already on the current core/system version.`,
+      `The Foundry on this port is serving world "${state.world}", not "${expectedWorld}" — probably ` +
+        `another repo's harness holds the port (reuseExistingServer adopted it). Stop that instance or ` +
+        `run this suite on its own TEST_FOUNDRY_PORT.`,
     );
   }
   if (!state.gmId) throw new Error(`World "${state.world}" has no password-less GM user (role ≥ 4) on /join`);

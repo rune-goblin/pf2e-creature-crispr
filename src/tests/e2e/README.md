@@ -104,8 +104,10 @@ Requirements of whatever world you point at:
   `--world` launches it headlessly from then on. (`pf2e-tesbed` needed this; `km2`/`stolen-lands`
   were already current.)
 
-If `global-setup` reports `No active world at this port`, the world didn't launch — almost always
-the migration gate above.
+If the world didn't launch, `joinAsFirstGm` names the cause it detected — the license screen
+(with the hostname-drift diagnosis below), a `/setup` bounce (the migration gate above), or a
+foreign harness holding the port. A bare `No active world` means none of the known signatures
+matched; start with the Logs.
 
 ## Run it
 
@@ -133,7 +135,7 @@ is on locally, so a stray Foundry left on a port gets silently reused. Guard rai
 - Your own Foundry being open is *fine* — the data path is cloned, not shared. Only a stray
   Foundry **on :30005** can hijack a run.
 
-Two failures that *look* like the migration gate but aren't:
+Three failures that *look* like the migration gate but aren't:
 
 - **A stale license copy.** After a desktop Foundry update, the *copy* of `license.json` in
   `test/foundry-data/Config/` fails signature verification, the server boots to the license screen,
@@ -143,6 +145,14 @@ Two failures that *look* like the migration gate but aren't:
   cp ~/Library/Application\ Support/FoundryVTT/Config/license.json test/foundry-data/Config/
   ```
   Expect this on every Foundry update.
+- **Hostname drift (same license screen, but re-copying does not help).** Foundry's license
+  signature covers `os.hostname()`, and macOS lets DHCP rename the machine (observed 2026-07-19:
+  `Marks-MacBook-Pro.local` → `<uuid>.fritz.box` overnight), so a perfectly good license stops
+  verifying on every *fresh* boot — while a desktop Foundry that booted before the drift keeps
+  running, which makes it look intermittent. `scripts/check-foundry-license.ts` (run by every
+  harness boot) warns before launch, and the join fixture names it on failure. Fix durably with
+  `sudo scutil --set HostName <signed-host>`; or per-boot, open the harness's `/license` page and
+  click Agree to re-sign. The desktop install hits the same wall on its next restart.
 - **A slow first boot after a re-clone.** Because `systems`/`modules`/`worlds` are cloned rather
   than symlinked, the **first** boot against fresh clones re-indexes ~96 pf2e packs and can blow
   `global-setup`'s 30 s `game.ready` budget — `TimeoutError: page.waitForFunction` at
