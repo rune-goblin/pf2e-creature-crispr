@@ -15,8 +15,9 @@ test.describe('Duplicate', () => {
 
     await openBuilder(gmPage); // back to the list view
     const win = gmPage.locator(`#${BUILDER_ID}`);
-    await win.locator('.creatures-table tbody tr', { hasText: name })
-      .locator('[aria-label="Duplicate creature"]').click();
+    await win.locator('.creatures-table tbody tr', { hasText: name }).locator('.ram-trigger').click();
+    const menu = gmPage.locator('.ram-menu'); // portals out of the window, so page-level
+    await menu.getByText('Duplicate', { exact: true }).click();
 
     // duplicateCreature() makes "<name> (Copy)" then opens it in the editor (edit mode).
     await expect(win.locator('.editor-header .header-title')).toHaveText(/Edit/);

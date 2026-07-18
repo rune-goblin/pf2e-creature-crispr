@@ -18,7 +18,9 @@ test.describe('Delete', () => {
     const row = win.locator('.creatures-table tbody tr', { hasText: name });
     await expect(row).toBeVisible();
 
-    await row.locator('[aria-label="Delete creature"]').click();
+    await row.locator('.ram-trigger').click();
+    const menu = gmPage.locator('.ram-menu'); // portals out of the window, so page-level
+    await menu.getByText('Delete actor', { exact: true }).click();
     await win.locator('.dialog-backdrop .dialog-button-primary', { hasText: 'Delete' }).click();
 
     await expect

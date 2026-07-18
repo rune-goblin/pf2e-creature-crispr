@@ -25,7 +25,14 @@ test('row kebab menu opens with all actions and closes on outside click', async 
 
     const menu = page.locator('.ram-menu');
     await expect(menu).toBeVisible();
-    await expect(menu.locator('.ram-item')).toHaveCount(7);
+    await expect(menu.locator('.ram-item')).toHaveText([
+      'Duplicate',
+      'Open actor sheet',
+      'Reveal in sidebar',
+      'Move to CRISPR folder',
+      'Remove from CRISPR',
+      'Delete actor',
+    ]);
     await expect(menu.getByText('Remove from CRISPR')).toBeVisible();
     await expect(menu.getByText('Move to CRISPR folder')).toBeVisible();
     await expect(menu.getByText('Reveal in sidebar')).toBeVisible();
