@@ -95,6 +95,11 @@ describe('mergeSpecialAbilitiesByName', () => {
     const merged = mergeSpecialAbilitiesByName([ability('Form Up')], [ability('form up'), ability('Trample')]);
     expect(merged.map((a) => a.name)).toEqual(['Form Up', 'Trample']);
   });
+
+  it('dedups the incoming list against itself', () => {
+    const merged = mergeSpecialAbilitiesByName([], [ability('Form Up'), ability('form up'), ability('Trample')]);
+    expect(merged.map((a) => a.name)).toEqual(['Form Up', 'Trample']);
+  });
 });
 
 describe('applyTroopConversion', () => {
