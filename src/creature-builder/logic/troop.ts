@@ -63,6 +63,21 @@ export function troopAdjusted(creature: TroopAdjustable): {
   };
 }
 
+/**
+ * The same stamp as {@link troopAdjusted}, applied to the creature in place.
+ *
+ * Conversion calls this so troop-ness is complete on the creature *itself*, not a promise the save
+ * target has to keep. `convertActorToTroop` resolves whichever target is active — a host that
+ * registers its own and forgets `troopAdjusted` would otherwise persist a troop with no area/splash
+ * weaknesses, silently and only in that host.
+ */
+export function stampTroopDefaults(creature: TroopAdjustable): void {
+  if (!creature.isTroop) return;
+  const { traits, weaknesses } = troopAdjusted(creature);
+  creature.traits = traits;
+  creature.weaknesses = weaknesses;
+}
+
 const clampLevel = (level: number): number => Math.max(-1, Math.min(24, level));
 
 /** Resistances/weaknesses store raw numbers (not benchmarks), so unlike AC/HP/saves they don't
@@ -129,8 +144,9 @@ function seedFormUpWeaknesses(creature: EditableCreature): void {
  * now-converted strikes (published troops carry zero strike items — corpus fact 2), and seeds the standard
  * glossary kit. The recipe is an override/additive layer (decision 5): its `levelDelta`/`nameSuffix`/
  * `defaultTroopSize` tune the engine, its `generateAbilities` extras merge in by name. The `troop` trait and
- * the standard area/splash weaknesses stay save-time (`troopAdjusted`); Form Up alone pre-seeds its
- * half-splash weakness. Idempotent: re-running on an already-troop re-bumps nothing and duplicates nothing.
+ * the area/splash weaknesses are stamped here (`stampTroopDefaults`) rather than left to save time, so a
+ * converted troop is complete whichever save target persists it. Idempotent: re-running on an already-troop
+ * re-bumps nothing and duplicates nothing.
  */
 export function applyTroopConversion(
   creature: EditableCreature,
@@ -175,5 +191,8 @@ export function applyTroopConversion(
     : [];
   creature.specialAbilities = mergeSpecialAbilitiesByName(creature.specialAbilities, [...generated, ...kit, ...extras]);
 
+  // Order is load-bearing: both seeders are seed-if-missing, so Form Up's divergent half-splash
+  // must land before the standard values, which then skip the types already present.
   if (formUp) seedFormUpWeaknesses(creature);
+  stampTroopDefaults(creature);
 }

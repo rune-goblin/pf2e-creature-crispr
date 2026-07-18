@@ -95,17 +95,59 @@ describe('default conversion — Orc-Scrapper-like (L0, d6 melee + range-30 rang
     );
   });
 
-  it('derives area/splash weaknesses 5/5 at save time (troopAdjusted)', () => {
+  // The conversion stamps these itself — no save step — so they can't be lost to a save target
+  // that forgets `troopAdjusted`.
+  it('stamps the troop trait and 5/5 area/splash weaknesses during conversion', () => {
     const c = orc();
     applyTroopConversion(c);
-    const adjusted = troopAdjusted({ isTroop: c.isTroop, level: c.level, traits: c.traits, weaknesses: c.weaknesses });
-    expect(adjusted.traits).toContain('troop');
-    expect(adjusted.weaknesses).toEqual(
+    expect(c.traits).toContain('troop');
+    expect(c.weaknesses).toEqual(
       expect.arrayContaining([
         { type: 'area-damage', value: 5 },
         { type: 'splash-damage', value: 5 }
       ])
     );
+  });
+
+  it('re-asserting at save time changes nothing already stamped', () => {
+    const c = orc();
+    applyTroopConversion(c);
+    const adjusted = troopAdjusted({ isTroop: c.isTroop, level: c.level, traits: c.traits, weaknesses: c.weaknesses });
+    expect(adjusted.traits).toEqual(c.traits);
+    expect(adjusted.weaknesses).toEqual(c.weaknesses);
+  });
+
+  it('does not duplicate weaknesses when converted twice', () => {
+    const c = orc();
+    applyTroopConversion(c);
+    applyTroopConversion(c);
+    const troopTypes = c.weaknesses.filter((w) => w.type === 'area-damage' || w.type === 'splash-damage');
+    expect(troopTypes).toHaveLength(2);
+    expect(c.traits.filter((t) => t === 'troop')).toHaveLength(1);
+  });
+
+  it("keeps Form Up's divergent half-splash instead of the standard value", () => {
+    const c = orc();
+    applyTroopConversion(c, {}, { formUp: true });
+    expect(c.weaknesses).toEqual(
+      expect.arrayContaining([
+        { type: 'area-damage', value: 5 },
+        { type: 'splash-damage', value: 2 }
+      ])
+    );
+  });
+
+  it('never replaces an authored weakness with the standard value', () => {
+    const c = orc();
+    c.weaknesses = [{ type: 'splash-damage', value: 99 }];
+    applyTroopConversion(c);
+
+    const splash = c.weaknesses.filter((w) => w.type === 'splash-damage');
+    expect(splash).toHaveLength(1);
+    // The level bump rescales the authored value (99 → 200) — that's `rescaleCreatureIwr` doing its
+    // job. What this pins is that the seeder left it alone rather than stamping the table's 5.
+    expect(splash[0].value).toBeGreaterThan(5);
+    expect(c.weaknesses).toContainEqual({ type: 'area-damage', value: 5 });
   });
 });
 

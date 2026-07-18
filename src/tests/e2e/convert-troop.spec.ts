@@ -64,15 +64,31 @@ test.describe('Convert to Troop', () => {
         const actor = (window as any).game.actors.get(actorId);
         if (!actor) return null;
         const items = actor.items.contents as any[];
+        const weaknesses = (actor.system?.attributes?.weaknesses ?? []) as any[];
         return {
           level: actor.system?.details?.level?.value,
           traits: actor.system?.traits?.value ?? [],
           meleeCount: items.filter((i) => i.type === 'melee').length,
           hasFlurry: items.some((i) => i.type === 'action' && /Flurry/.test(i.name)),
           hasKit: items.some((i) => i.name === 'Troop Defenses'),
-          flagged: !!actor.getFlag(mod, 'creatureData')
+          flagged: !!actor.getFlag(mod, 'creatureData'),
+          // Guideline values for the post-conversion level (7), and nothing else seeded.
+          weaknesses: weaknesses.map((w) => ({ type: w.type, value: w.value })).sort((a, b) => a.type.localeCompare(b.type)),
+          immunityCount: (actor.system?.attributes?.immunities ?? []).length
         };
       }, { actorId: srcId, mod: MODULE_ID }), { timeout: 15000 })
-      .toEqual({ level: 7, traits: expect.arrayContaining(['troop']), meleeCount: 0, hasFlurry: true, hasKit: true, flagged: true });
+      .toEqual({
+        level: 7,
+        traits: expect.arrayContaining(['troop']),
+        meleeCount: 0,
+        hasFlurry: true,
+        hasKit: true,
+        flagged: true,
+        weaknesses: [
+          { type: 'area-damage', value: 8 },
+          { type: 'splash-damage', value: 8 }
+        ],
+        immunityCount: 0
+      });
   });
 });

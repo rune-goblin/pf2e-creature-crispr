@@ -23,7 +23,7 @@ import {
   scalarToResistanceWeakness
 } from '../logic/creatureStatTables';
 import type { TroopConversionOptions, TroopConversionRecipe } from '../logic/contracts';
-import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, rescaleCreatureIwr } from '../logic/troop';
+import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, rescaleCreatureIwr, stampTroopDefaults } from '../logic/troop';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
 import { ALL_SECTIONS } from './types';
@@ -204,8 +204,20 @@ class CreatureEditorStore {
     return this.validationErrors.size === 0;
   }
 
+  /**
+   * The single funnel every save path goes through (save, save-as, open-actor), so troop-ness is
+   * stamped here rather than trusted to each save target — a host that registers its own target
+   * can't skip it. Stamping at *save* time, not when the troop toggle flips, is deliberate: the
+   * level is final by now, so the area/splash values derive from the table for the level actually
+   * being saved instead of being proportionally rescaled by a later `updateLevel`.
+   *
+   * Deliberately not routed through `mutateCreature` — this is save-time normalization, not a user
+   * edit, and must not flip `isDirty` on the open-actor path that keeps editing afterwards.
+   */
   getCreatureForSave(): EditableCreature | null {
-    return this.validate() ? this.creature : null;
+    if (!this.validate() || !this.creature) return null;
+    stampTroopDefaults(this.creature);
+    return this.creature;
   }
 
   /**
@@ -603,7 +615,7 @@ class CreatureEditorStore {
    * Convert the creature to a troop through `applyTroopConversion` — the same kernel seam the headless
    * `convertActorToTroop` service runs. `recipe` is the provider's override/additive layer; `opts` are the
    * per-conversion choices the editor surfaces (formation size, level delta, Form Up, keep strikes). The
-   * trait + area/splash weaknesses are stamped by `troopAdjusted` at save time.
+   * trait + area/splash weaknesses are stamped by the conversion itself, so they survive any save target.
    */
   convertToTroop(recipe: TroopConversionRecipe = {}, opts: TroopConversionOptions = {}): void {
     this.mutateCreature((c) => applyTroopConversion(c, recipe, opts));

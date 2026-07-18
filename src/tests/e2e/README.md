@@ -38,6 +38,8 @@ One operation per file — a failure names the operation that broke:
 | `drop-hover-highlight` | dragstart sniffer + dragover the editor frame | the frame highlights and the destination section announces itself; CRISPR's own ability drag highlights the frame only |
 | `convert-troop` | import → Convert to Troop → Save | the persisted actor gains the Flurry action + Troop Defenses, loses its strikes, level +5, `troop` trait |
 | `export-determinism` | two independent troop builds → `api.exportActorSource` | both exports carry the **same item sequence**, and re-exporting one actor is byte-identical |
+| `troop-weaknesses` | convert through a registered save target that never calls `troopAdjusted` | the target still receives the `troop` trait + guideline area/splash weaknesses — conversion stamps them, not the target |
+| `export-roundtrip` | build a troop → `exportActorSource` → `Actor.create` from that source | the recreated actor **is the same creature** as the CRISPR-saved one (traits, IWR, AC/HP, item composition, flag) |
 
 Row actions live in the kebab (`.ram-trigger` → `.ram-menu`, which portals to page level), not in
 inline row buttons — only *Edit creature* is still an inline `aria-label` button. `delete` and
