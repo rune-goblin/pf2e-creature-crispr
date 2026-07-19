@@ -1,7 +1,7 @@
 import type { NPCPF2e } from 'foundry-pf2e';
 import type { EditableCreature } from '../logic/editableCreature';
 import type { CreatureSaveTarget } from '../logic/contracts';
-import type { CreatureSense, CreatureSpeeds, CreatureStats, CreatureBenchmarks, SenseAcuity, SenseType, TroopSize } from '../logic/models';
+import type { CreatureStats, CreatureBenchmarks, TroopSize } from '../logic/models';
 import { getDefaultBenchmarks, TROOP_SIZES } from '../logic/models';
 import { pf2eToSize } from '../logic/sizes';
 import { analyzeStatsForBenchmarks } from '../logic/creatureStatTables';
@@ -10,42 +10,13 @@ import {
   getSpecialAbilitiesFromActor,
   getResistancesFromActor,
   getWeaknessesFromActor,
-  getImmunitiesFromActor
+  getImmunitiesFromActor,
+  getSpeedsFromActor,
+  getLanguagesFromActor,
+  getSensesFromActor
 } from './actorQueries';
 import { readActorStatsAndBenchmarks, deriveBenchmarksFromActor } from './actorStatsExtractor';
 import { getActiveSaveTarget } from './saveTargetRegistry';
-
-/** `system.attributes.speed` isn't on the prepared NPC type; read it through a narrow view of just the movement fields. */
-type ActorSpeedView = { speed?: { value?: number; otherSpeeds?: Array<{ type?: string; value?: number }> } };
-
-function getSpeedsFromActor(actor: NPCPF2e | null | undefined): CreatureSpeeds {
-  const speed = (actor?.system?.attributes as ActorSpeedView | undefined)?.speed;
-  const speeds: CreatureSpeeds = { land: speed?.value ?? 25 };
-  for (const other of speed?.otherSpeeds ?? []) {
-    if (other.type && other.value != null) {
-      (speeds as unknown as Record<string, number>)[other.type] = other.value;
-    }
-  }
-  return speeds;
-}
-
-function getLanguagesFromActor(actor: NPCPF2e | null | undefined): string[] {
-  const languages = (actor?.system?.details as { languages?: { value?: string[] } } | undefined)?.languages?.value;
-  return Array.isArray(languages) ? [...languages] : [];
-}
-
-function getSensesFromActor(actor: NPCPF2e | null | undefined): CreatureSense[] {
-  const raw = (actor?.system?.perception as { senses?: Array<{ type?: string; acuity?: string; range?: number | null }> } | undefined)?.senses ?? [];
-  const out: CreatureSense[] = [];
-  for (const s of raw) {
-    if (!s.type) continue;
-    const sense: CreatureSense = { type: s.type as SenseType };
-    if (s.acuity) sense.acuity = s.acuity as SenseAcuity;
-    if (typeof s.range === 'number' && Number.isFinite(s.range) && s.range > 0) sense.range = s.range;
-    out.push(sense);
-  }
-  return out;
-}
 
 // TroopSize only spans large/huge/gargantuan; the system forces a grg token footprint regardless of
 // stored size, so a troop authored at any other size loads at the gargantuan default.
@@ -97,9 +68,9 @@ export function loadCreatureForEdit(
     immunities: getImmunitiesFromActor(actorId),
     resistances: getResistancesFromActor(actorId),
     weaknesses: getWeaknessesFromActor(actorId),
-    speeds: getSpeedsFromActor(actor),
-    languages: getLanguagesFromActor(actor),
-    senses: getSensesFromActor(actor),
+    speeds: getSpeedsFromActor(actorId),
+    languages: getLanguagesFromActor(actorId),
+    senses: getSensesFromActor(actorId),
     portraitImage: actor.img,
     tokenImage: actor.prototypeToken?.texture?.src ?? undefined,
     importedFrom: creatureData?.importedFrom,
@@ -146,9 +117,9 @@ export function loadCreatureForImport(
     immunities: getImmunitiesFromActor(actorId),
     resistances: getResistancesFromActor(actorId),
     weaknesses: getWeaknessesFromActor(actorId),
-    speeds: getSpeedsFromActor(game.actors?.get(actorId) as NPCPF2e | undefined),
-    languages: getLanguagesFromActor(game.actors?.get(actorId) as NPCPF2e | undefined),
-    senses: getSensesFromActor(game.actors?.get(actorId) as NPCPF2e | undefined),
+    speeds: getSpeedsFromActor(actorId),
+    languages: getLanguagesFromActor(actorId),
+    senses: getSensesFromActor(actorId),
     importedFrom: actorData.name
   };
 }

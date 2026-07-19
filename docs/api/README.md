@@ -327,8 +327,10 @@ and abilities, changes nothing.
 `prototypeToken`, `img`, and flags — the CRISPR flag kept so a shipped actor stays CRISPR-editable
 when reimported). The data-returning form comes first so your pack tooling can consume it directly;
 `exportActorSourceToFile` is a thin wrapper that writes the same JSON to a file through the save
-picker. This is distinct from the editor's "Export" button, which emits a benchmark/stat snapshot, not
-packageable source.
+picker. This is distinct from the editor's "Export" button, which emits a benchmark/stat snapshot
+(`exportCreatureToFile`), not packageable source. That snapshot carries the benchmark/stat core plus
+every non-benchmark attribute the editor holds verbatim — `speeds`, `senses`, `languages`, and IWR —
+so a consumer rebuilding from it doesn't silently lose e.g. a creature's Speed.
 
 ---
 

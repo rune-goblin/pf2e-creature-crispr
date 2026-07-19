@@ -6,6 +6,14 @@ import type { CreatureActorData } from './types';
 import { ensureCreatureFolder, requireActor } from './folderManager';
 import { logger } from './logger';
 import { readActorStatsAndBenchmarks } from './actorStatsExtractor';
+import {
+  getSpeedsFromActor,
+  getSensesFromActor,
+  getLanguagesFromActor,
+  getImmunitiesFromActor,
+  getResistancesFromActor,
+  getWeaknessesFromActor
+} from './actorQueries';
 import { addBenchmarkFlagsToMeleeItems, addBenchmarkFlagsToAbilityItems } from './strikes';
 import { CREATURE_FLAG, CREATURE_DATA_KEY } from './constants';
 import { canonicalizeItemOrder, type OrderableItemSource } from './canonicalItemOrder';
@@ -95,8 +103,14 @@ export async function importCreatureFromCompendium(uuid: string): Promise<string
   return actor.id;
 }
 
-/** Export a creature's benchmark/stat snapshot to a JSON file. */
-export async function exportCreatureToFile(actorId: string): Promise<void> {
+/**
+ * Assemble the benchmark/stat snapshot for an actor. Beyond benchmarks/stats, this carries every
+ * non-benchmark attribute the editor holds verbatim — movement speeds, senses, languages, IWR —
+ * because a consumer rebuilding from the snapshot has no other source for them. Omitting any of
+ * these silently loses it on round-trip (the bug that dropped a creature's Speed to the default).
+ * `timestamp` is injected so the pure assembly stays testable (no `Date.now()` inside).
+ */
+export function buildCreatureSnapshot(actorId: string, timestamp: number): Record<string, unknown> {
   const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) throw new Error(`Actor not found: ${actorId}`);
 
@@ -105,7 +119,7 @@ export async function exportCreatureToFile(actorId: string): Promise<void> {
   const benchmarks = creatureData?.benchmarks || getDefaultBenchmarks();
   const stats = calculateCreatureStats(level, benchmarks);
 
-  const exportData = {
+  return {
     name: actor.name,
     level,
     creatureType: (actor.system?.details as { creatureType?: string }).creatureType || 'creature',
@@ -113,12 +127,22 @@ export async function exportCreatureToFile(actorId: string): Promise<void> {
     traits: actor.system?.traits?.value || [],
     benchmarks,
     stats,
+    speeds: getSpeedsFromActor(actorId),
+    senses: getSensesFromActor(actorId),
+    languages: getLanguagesFromActor(actorId),
+    immunities: getImmunitiesFromActor(actorId),
+    resistances: getResistancesFromActor(actorId),
+    weaknesses: getWeaknessesFromActor(actorId),
     portraitImage: actor.img,
     tokenImage: actor.prototypeToken?.texture?.src,
-    exportedAt: Date.now()
+    exportedAt: timestamp
   };
+}
 
-  await saveJsonToFile(JSON.stringify(exportData, null, 2), `${slugFilename(actor.name)}.json`);
+/** Export a creature's benchmark/stat snapshot to a JSON file. */
+export async function exportCreatureToFile(actorId: string): Promise<void> {
+  const snapshot = buildCreatureSnapshot(actorId, Date.now());
+  await saveJsonToFile(JSON.stringify(snapshot, null, 2), `${slugFilename(String(snapshot.name))}.json`);
 }
 
 /**
