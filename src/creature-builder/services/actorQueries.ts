@@ -6,7 +6,7 @@
  */
 
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
-import type { CreatureStrike, SpecialAbility, ScalableValue, DamageModifier, Immunity } from '../logic/models';
+import type { CreatureStrike, SpecialAbility, ScalableValue, DamageModifier, Immunity, CreatureSpeeds, CreatureSense, SenseType, SenseAcuity } from '../logic/models';
 import { createDefaultStrike, BENCHMARK_VALUES_3 } from '../logic/models';
 import { getStatRangesForLevel, statToScalar4 } from '../logic/creatureStatTables';
 import { logger } from './logger';
@@ -182,6 +182,47 @@ export function getImmunitiesFromActor(actorId: string): Immunity[] {
     if (exceptions) imm.exceptions = exceptions;
     return imm;
   });
+}
+
+/** `system.attributes.speed` isn't on the prepared NPC type; read it through a narrow view of just the movement fields. */
+type ActorSpeedView = { speed?: { value?: number; otherSpeeds?: Array<{ type?: string; value?: number }> } };
+
+/**
+ * Get movement speeds from an actor: land off `speed.value`, the rest off `otherSpeeds`. The prepared
+ * PF2e `speed.value`/`otherSpeeds[].value` hold the base numbers, so this is a lossless read.
+ */
+export function getSpeedsFromActor(actorId: string): CreatureSpeeds {
+  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
+  const speed = (actor?.system?.attributes as ActorSpeedView | undefined)?.speed;
+  const speeds: CreatureSpeeds = { land: speed?.value ?? 25 };
+  for (const other of speed?.otherSpeeds ?? []) {
+    if (other.type && other.value != null) {
+      (speeds as unknown as Record<string, number>)[other.type] = other.value;
+    }
+  }
+  return speeds;
+}
+
+/** Get spoken languages from an actor's `system.details.languages.value`. */
+export function getLanguagesFromActor(actorId: string): string[] {
+  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
+  const languages = (actor?.system?.details as { languages?: { value?: string[] } } | undefined)?.languages?.value;
+  return Array.isArray(languages) ? [...languages] : [];
+}
+
+/** Get senses from an actor's `system.perception.senses`, dropping empty acuity/range. */
+export function getSensesFromActor(actorId: string): CreatureSense[] {
+  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
+  const raw = (actor?.system?.perception as { senses?: Array<{ type?: string; acuity?: string; range?: number | null }> } | undefined)?.senses ?? [];
+  const out: CreatureSense[] = [];
+  for (const s of raw) {
+    if (!s.type) continue;
+    const sense: CreatureSense = { type: s.type as SenseType };
+    if (s.acuity) sense.acuity = s.acuity as SenseAcuity;
+    if (typeof s.range === 'number' && Number.isFinite(s.range) && s.range > 0) sense.range = s.range;
+    out.push(sense);
+  }
+  return out;
 }
 
 /** The fields of a PF2e melee item we read — satisfied by embedded items and by the temporary
