@@ -57,15 +57,17 @@ Reached at `game.modules.get('pf2e-creature-crispr').api` after CRISPR's `ready`
 | `importCreatureFromCompendium` | `(uuid: string) => Promise<string>` | Copy a compendium NPC into the world (items intact, CRISPR-managed); resolves to the new actor id. |
 | `applyTroopToActor` | `(actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>` | Make a world NPC a PF2e troop (trait + weaknesses + glossary kit only); resolves to the actor id. Idempotent. |
 | `convertActorToTroop` | `(actorId: string, opts?: { providerId?: string; saveTargetId?: string } & TroopConversionOptions) => Promise<string>` | Headless **Convert to Troop**: runs the default engine (level bump, generated sweep/volley, cleared strikes, kit) and saves through a target. The editor button's non-UI twin. |
+| `rescaleActorToLevel` | `(actorId: string, level: number, opts?: { saveTargetId?: string }) => Promise<string>` | Headless level rescale — the editor's level stepper without the UI. Stats recompute from benchmarks; IWR, strikes, abilities, and spells resync at the new level. |
 | `exportActorSource` | `(actorId: string) => Promise<Record<string, unknown>>` | Full actor source (`actor.toObject()`) for compiling into your own pack. |
 | `exportActorSourceToFile` | `(actorId: string) => Promise<void>` | The same source, written to a JSON file via the save picker. |
 
-`searchBestiary`, `importCreatureFromCompendium`, `applyTroopToActor`, `convertActorToTroop`, and the two
-`exportActorSource*` methods are the **dev-time creature-library** surface — a developer uses them inside a
-running world to assemble a creature, then compiles the exported source into a shipped compendium. They are
-not a runtime import path (see "Building troops as a dev-time flow"). The search/import/export/
-`applyTroopToActor` set arrived at `api.version` `0.6.0` (gate on `>= 0.6.0`); the default conversion engine
-behind `convertActorToTroop` and the Convert-to-Troop button landed at `0.8.0` (gate on `>= 0.8.0` for it).
+`searchBestiary`, `importCreatureFromCompendium`, `applyTroopToActor`, `convertActorToTroop`,
+`rescaleActorToLevel`, and the two `exportActorSource*` methods are the **dev-time creature-library**
+surface — a developer uses them inside a running world to assemble a creature, then compiles the exported
+source into a shipped compendium. They are not a runtime import path (see "Building troops as a dev-time
+flow"). The search/import/export/`applyTroopToActor` set arrived at `api.version` `0.6.0` (gate on
+`>= 0.6.0`); the default conversion engine behind `convertActorToTroop` and the Convert-to-Troop button
+landed at `0.8.0` (gate on `>= 0.8.0`); `rescaleActorToLevel` landed at `0.9.0` (gate on `>= 0.9.0`).
 
 ```ts
 interface EditCreatureOptions {
@@ -321,6 +323,23 @@ presentation from the trait itself. Requires a world **NPC** (rejects other acto
 idempotent: re-running, or running on an imported published troop that already has trait, weaknesses,
 and abilities, changes nothing.
 
+### `rescaleActorToLevel(actorId, level, opts?)`
+
+Moves a world NPC to `level` (clamped −1..24) exactly as the editor's level stepper would, and
+resolves to the actor id: benchmark-driven stats (AC, HP, saves, attack/damage, DCs) recompute at
+the new level, raw resistance/weakness values keep their position in the new level's typical range,
+and strike, ability, and spellcasting items resync. `opts.saveTargetId` persists through a
+registered target instead of the active one.
+
+The troop use case: `convertActorToTroop`'s level bump is **once-only** — an actor that is already
+a troop (e.g. an imported published troop) keeps its printed level on conversion, deliberately. So
+an imported troop that should sit at a different level is moved with this after import:
+
+```ts
+const actorId = await crispr.importCreatureFromCompendium(orcRaidingPartyUuid); // level 5
+await crispr.rescaleActorToLevel(actorId, 10);                                  // now level 10
+```
+
 ### `exportActorSource(actorId)` / `exportActorSourceToFile(actorId)`
 
 `exportActorSource` returns the full actor source (`actor.toObject()`: `system`, `items`,
@@ -437,7 +456,9 @@ can't collide with the source doc; `importedFrom` provenance is kept.
 strike clearing), the kit, and the ` Troop` suffix all still run on a later Convert to Troop (the suffix is
 skipped only when the name already ends in ` Troop`). The genuine no-op is re-converting the *result of a
 full conversion*: strikes already cleared, name already suffixed, kit already present, level already bumped —
-nothing changes. Convert a **non**-troop that's still at base level to get the bump.
+nothing changes. Convert a **non**-troop that's still at base level to get the bump. To move an
+**already-troop** actor to a different level (an imported published troop at its printed level, say),
+use `rescaleActorToLevel` — the once-only gate is on the *bump*, not on rescaling.
 
 ---
 

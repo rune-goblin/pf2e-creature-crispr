@@ -6,7 +6,7 @@ import { sizeToPf2e } from '../logic/sizes';
 import { buildIwrSystem } from './crud';
 import { getWeaknessesFromActor } from './actorQueries';
 import { requireActor } from './folderManager';
-import { loadCreatureForEdit } from './editorHost';
+import { dropPlaceholderStrikes, loadCreatureForEdit } from './editorHost';
 import { getAbilityProviders } from './abilityProviderRegistry';
 import { getActiveSaveTarget, getSaveTarget } from './saveTargetRegistry';
 import { logger } from './logger';
@@ -105,6 +105,9 @@ export async function convertActorToTroop(
   const target = (saveTargetId && getSaveTarget(saveTargetId)) || getActiveSaveTarget();
   const creature = loadCreatureForEdit(actorId, target);
   if (!creature) throw new Error(`convertActorToTroop: actor not found (${actorId})`);
+  // Without this, re-converting an already-converted troop (strikes cleared on the first pass)
+  // regenerates a sweep from the placeholder — breaking the documented idempotence.
+  dropPlaceholderStrikes(creature);
 
   const recipe = getAbilityProviders(providerId ? [providerId] : undefined).find(
     (p) => p.troopConversion

@@ -11,6 +11,7 @@ import {
   importCreatureFromCompendium,
   applyTroopToActor,
   convertActorToTroop,
+  rescaleActorToLevel,
   exportActorSource,
   exportActorSourceToFile,
   type BestiaryEntry,
@@ -38,6 +39,10 @@ interface ModuleApi {
     actorId: string,
     opts?: { providerId?: string; saveTargetId?: string } & TroopConversionOptions
   ) => Promise<string>;
+  // Headless level rescale — the editor's level stepper without the UI. Needed because the troop
+  // conversion's level bump is once-only and skips already-troop actors, so an imported published
+  // troop that should sit at a different level is moved with this.
+  rescaleActorToLevel: (actorId: string, level: number, opts?: { saveTargetId?: string }) => Promise<string>;
   exportActorSource: (actorId: string) => Promise<Record<string, unknown>>;
   exportActorSourceToFile: (actorId: string) => Promise<void>;
 }
@@ -59,6 +64,7 @@ Hooks.once('ready', () => {
     importCreatureFromCompendium,
     applyTroopToActor,
     convertActorToTroop,
+    rescaleActorToLevel,
     exportActorSource,
     exportActorSourceToFile
   };

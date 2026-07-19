@@ -80,6 +80,17 @@ export function loadCreatureForEdit(
 }
 
 /**
+ * Drop the fabricated strike a strike-less actor loads with. `getStrikesFromActor` returns a no-id
+ * default "Melee Strike" so the editor always shows a row, but a save mints a real melee item from
+ * any id-less strike — so headless load→transform→save paths must call this, or rescaling/converting
+ * a strike-less actor (every published troop) plants a phantom strike. Real loaded strikes always
+ * carry their item id and survive.
+ */
+export function dropPlaceholderStrikes(creature: EditableCreature): void {
+  creature.strikes = creature.strikes.filter((s) => s.id);
+}
+
+/**
  * Read a PF2e NPC into an EditableCreature for the import flow: derive benchmarks from the supplied
  * stat snapshot (kernel analysis) and read items/IWR/speeds off the live actor. The Foundry-touching
  * head of the former store.startImport.
