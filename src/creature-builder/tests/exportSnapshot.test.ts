@@ -29,13 +29,18 @@ function stubGameActor(cfg: FakeActorConfig): void {
     system: {
       details: { level: { value: cfg.level ?? 3 }, creatureType: 'animal', languages: { value: cfg.languages ?? [] } },
       traits: { size: { value: 'med' }, value: ['animal'] },
+      // No `speed` here, faithfully to PF2e v8: preparation deletes the prepared
+      // `attributes.speed` (movement lives on `system.movement`), so a reader that still
+      // looks here gets the land-25 default — the regression these tests pin.
       attributes: {
-        speed: cfg.speed ?? { value: 35, otherSpeeds: [] },
         weaknesses: cfg.weaknesses ?? [],
         resistances: cfg.resistances ?? [],
         immunities: cfg.immunities ?? []
       },
       perception: { senses: cfg.senses ?? [] }
+    },
+    _source: {
+      system: { attributes: { speed: cfg.speed ?? { value: 35, otherSpeeds: [] } } }
     },
     // No CRISPR flag → snapshot falls back to default benchmarks, which is fine for this test.
     getFlag: () => undefined

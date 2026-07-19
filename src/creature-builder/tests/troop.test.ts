@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   withTroopTrait,
   troopWeaknesses,
@@ -6,7 +6,9 @@ import {
   troopAdjusted,
   applyTroopConversion
 } from '@/creature-builder/logic/troop';
-import { getTroopWeaknessValues } from '@/creature-builder/logic/creatureStatTables';
+import { convertActorToTroop } from '@/creature-builder/services/troop';
+import { registerSaveTarget, resetSaveTargets } from '@/creature-builder/services/saveTargetRegistry';
+import { getTroopWeaknessValues, calculateCreatureStats } from '@/creature-builder/logic/creatureStatTables';
 import { mergeSpecialAbilitiesByName } from '@/creature-builder/logic/customAbility';
 import { getDefaultBenchmarks } from '@/creature-builder/logic/models';
 import { editorStore } from '@/creature-builder/editor';
@@ -344,5 +346,64 @@ describe('conversion seam parity: editor store vs. kernel', () => {
     applyTroopConversion(viaKernel);
 
     expect(viaStore).toEqual(plain(viaKernel));
+  });
+});
+
+// The regression that shipped RM's flightless wyvern flight: PF2e v8 deletes the prepared
+// `system.attributes.speed` (movement moved to `system.movement`), so a reader of the prepared
+// location gets the land-25 default and the load→convert→save round-trip persists it — dropping
+// every non-land mode and flattening land to 25. The actor mock mirrors the real v8 shape: speed
+// exists ONLY on `_source`.
+describe('convertActorToTroop service — movement speed round-trip', () => {
+  const ACTOR_ID = 'wyvern1';
+
+  const v8Actor = () => ({
+    id: ACTOR_ID,
+    name: 'Wyvern',
+    img: 'icons/wyvern.webp',
+    prototypeToken: { texture: { src: 'tokens/wyvern.webp' } },
+    system: {
+      details: { level: { value: 6 }, creatureType: 'dragon', languages: { value: ['draconic'] } },
+      traits: { size: { value: 'lg' }, value: ['dragon'] },
+      attributes: { weaknesses: [], resistances: [], immunities: [] },
+      perception: { senses: [] }
+    },
+    _source: { system: { attributes: { speed: { value: 20, otherSpeeds: [{ type: 'fly', value: 60 }] } } } },
+    items: { contents: [] },
+    getFlag: () => undefined
+  });
+
+  afterEach(() => {
+    resetSaveTargets();
+    delete (globalThis as { game?: unknown }).game;
+  });
+
+  it('preserves land + fly through the headless load→convert→save round-trip', async () => {
+    (globalThis as { game?: unknown }).game = {
+      actors: { get: (id: string) => (id === ACTOR_ID ? v8Actor() : undefined) }
+    };
+
+    const saved: EditableCreature[] = [];
+    registerSaveTarget({
+      id: 'capture-target',
+      label: 'Capture',
+      loadCreatureData: () => ({
+        benchmarks: getDefaultBenchmarks(),
+        baseLevel: 6,
+        baseStats: calculateCreatureStats(6, getDefaultBenchmarks())
+      }),
+      createActor: async () => ACTOR_ID,
+      updateActor: async (_id, creature) => {
+        saved.push(creature);
+      },
+      cloneActor: async () => ACTOR_ID
+    });
+
+    await convertActorToTroop(ACTOR_ID, { saveTargetId: 'capture-target' });
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0].speeds).toEqual({ land: 20, fly: 60 });
+    expect(saved[0].level).toBe(11);
+    expect(saved[0].traits).toContain('troop');
   });
 });

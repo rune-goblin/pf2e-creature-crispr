@@ -137,6 +137,16 @@ describe('default conversion — Orc-Scrapper-like (L0, d6 melee + range-30 rang
     );
   });
 
+  // Paizo copies the source creature's movement profile verbatim onto its troops — of 162
+  // published troops, 39 keep fly/swim/climb/burrow at the base creature's exact values
+  // (Gargoyle Wing fly 40, Valkyrie Tempest fly 60) and land is never normalised to 25.
+  it('passes movement speeds through conversion untouched', () => {
+    const c = orc();
+    c.speeds = { land: 20, fly: 60, swim: 25 };
+    applyTroopConversion(c);
+    expect(c.speeds).toEqual({ land: 20, fly: 60, swim: 25 });
+  });
+
   it('never replaces an authored weakness with the standard value', () => {
     const c = orc();
     c.weaknesses = [{ type: 'splash-damage', value: 99 }];

@@ -184,16 +184,21 @@ export function getImmunitiesFromActor(actorId: string): Immunity[] {
   });
 }
 
-/** `system.attributes.speed` isn't on the prepared NPC type; read it through a narrow view of just the movement fields. */
-type ActorSpeedView = { speed?: { value?: number; otherSpeeds?: Array<{ type?: string; value?: number }> } };
+/** Narrow view of the stored NPC source's movement fields (not on the exported source types). */
+type ActorSpeedSourceView = {
+  _source?: { system?: { attributes?: { speed?: { value?: number; otherSpeeds?: Array<{ type?: string; value?: number }> } } } };
+};
 
 /**
- * Get movement speeds from an actor: land off `speed.value`, the rest off `otherSpeeds`. The prepared
- * PF2e `speed.value`/`otherSpeeds[].value` hold the base numbers, so this is a lossless read.
+ * Get movement speeds from an actor: land off `speed.value`, the rest off `otherSpeeds`.
+ * Must read `_source`: PF2e v8 prepares movement onto `system.movement.speeds` and *deletes* the
+ * prepared `system.attributes.speed`, so the prepared read silently yields the land-25 default —
+ * the bug that stripped every converted troop's fly/swim and flattened land to 25. The stored
+ * source keeps this shape and is where `buildSpeedSystem` writes, so it is the lossless location.
  */
 export function getSpeedsFromActor(actorId: string): CreatureSpeeds {
-  const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
-  const speed = (actor?.system?.attributes as ActorSpeedView | undefined)?.speed;
+  const actor = game.actors?.get(actorId) as unknown as ActorSpeedSourceView | undefined;
+  const speed = actor?._source?.system?.attributes?.speed;
   const speeds: CreatureSpeeds = { land: speed?.value ?? 25 };
   for (const other of speed?.otherSpeeds ?? []) {
     if (other.type && other.value != null) {

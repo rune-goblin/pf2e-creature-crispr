@@ -17,7 +17,14 @@ test.describe('Convert to Troop', () => {
       const actor = await (window as any).Actor.create({
         name: n,
         type: 'npc',
-        system: { details: { level: { value: 2 } }, attributes: { ac: { value: 16 }, hp: { value: 30, max: 30 } } },
+        system: {
+          details: { level: { value: 2 } },
+          attributes: {
+            ac: { value: 16 },
+            hp: { value: 30, max: 30 },
+            speed: { value: 20, otherSpeeds: [{ type: 'fly', value: 60 }] }
+          }
+        },
         items: [
           { name: 'Bite', type: 'melee', system: { bonus: { value: 9 }, damageRolls: { a: { damage: '1d6', damageType: 'piercing' } } } }
         ]
@@ -65,9 +72,16 @@ test.describe('Convert to Troop', () => {
         if (!actor) return null;
         const items = actor.items.contents as any[];
         const weaknesses = (actor.system?.attributes?.weaknesses ?? []) as any[];
+        // Speed must come off _source: PF2e v8 deletes the prepared attributes.speed, which is
+        // exactly the read that once reset every converted troop to a modeless land 25.
+        const speed = actor._source?.system?.attributes?.speed;
         return {
           level: actor.system?.details?.level?.value,
           traits: actor.system?.traits?.value ?? [],
+          speed: {
+            value: speed?.value,
+            otherSpeeds: (speed?.otherSpeeds ?? []).map((s: any) => ({ type: s.type, value: s.value }))
+          },
           meleeCount: items.filter((i) => i.type === 'melee').length,
           hasFlurry: items.some((i) => i.type === 'action' && /Flurry/.test(i.name)),
           volleyCount: items.filter((i) => i.type === 'action' && /Volley/.test(i.name)).length,
@@ -81,6 +95,7 @@ test.describe('Convert to Troop', () => {
       .toEqual({
         level: 7,
         traits: expect.arrayContaining(['troop']),
+        speed: { value: 20, otherSpeeds: [{ type: 'fly', value: 60 }] },
         meleeCount: 0,
         hasFlurry: true,
         volleyCount: 0,
@@ -104,11 +119,24 @@ test.describe('Convert to Troop', () => {
       async ({ uuid, mod }) => {
         const api = (window as any).game.modules.get(mod).api;
         const id = await api.importCreatureFromCompendium(uuid);
+        // Project to the value fields only — the save rewrites the speed object, so incidental
+        // source keys (labels, details) may normalize away without any speed being lost.
+        const readSpeed = () => {
+          const s = (window as any).game.actors.get(id)._source?.system?.attributes?.speed;
+          if (!s) return null;
+          return JSON.stringify({
+            value: s.value,
+            otherSpeeds: (s.otherSpeeds ?? []).map((o: any) => ({ type: o.type, value: o.value }))
+          });
+        };
+        const speedBefore = readSpeed();
         await api.convertActorToTroop(id, {});
         const items = (window as any).game.actors.get(id).items.contents as any[];
         const volley = items.find((i) => i.type === 'action' && /Volley/.test(i.name));
         return {
           id,
+          speedBefore,
+          speedAfter: readSpeed(),
           actionNames: items.filter((i) => i.type === 'action').map((i) => i.name),
           meleeCount: items.filter((i) => i.type === 'melee').length,
           volleyDescription: volley?.system?.description?.value ?? null
@@ -118,6 +146,7 @@ test.describe('Convert to Troop', () => {
     );
     trash.push(result.id);
 
+    expect(result.speedAfter).toBe(result.speedBefore);
     expect(result.actionNames).toContain('Horns Flurry');
     expect(result.actionNames).toContain('Living Bow Volley');
     expect(result.meleeCount).toBe(0);
