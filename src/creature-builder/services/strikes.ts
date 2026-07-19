@@ -103,7 +103,9 @@ export async function addBenchmarkFlagsToMeleeItems(actor: NPCPF2e, level: numbe
 export async function updateMeleeItems(
   actorId: string,
   strikes: CreatureStrike[],
-  level: number
+  level: number,
+  // Accepted so callers can wire it now; the same-level preserve-unedited-strike path reads it later.
+  opts: { levelChanged?: boolean } = { levelChanged: true }
 ): Promise<void> {
   const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) {

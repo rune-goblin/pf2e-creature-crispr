@@ -312,6 +312,7 @@ export async function createCreatureActor(
         [CREATURE_DATA_KEY]: {
           benchmarks,
           baseLevel: level,
+          baseStats: stats,
           createdAt: Date.now(),
           updatedAt: Date.now()
         }

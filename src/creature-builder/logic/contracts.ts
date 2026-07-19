@@ -55,8 +55,10 @@ export interface AbilityProvider {
 /** Persisted creature blob — the flag SHAPE is shared across targets; the flag SCOPE is per-target. */
 export interface StoredCreatureData {
   benchmarks: CreatureBenchmarks;
-  baseLevel: number; // level at which the creature was imported/created
-  baseStats: CreatureStats; // exact stats at baseLevel — used verbatim when level is unchanged
+  baseLevel: number; // level at which the creature was imported/created (the import anchor; never rebased on save)
+  // exact stats at baseLevel — written verbatim when level is unchanged. Cleared to undefined after a
+  // benchmark edit: reload then recomputes exactly from the stored benchmarks, so absence is correct.
+  baseStats?: CreatureStats;
   importedFrom?: string;
   createdAt?: number;
   updatedAt?: number;

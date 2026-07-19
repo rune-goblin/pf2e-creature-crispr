@@ -1,4 +1,4 @@
-import type { ActorPF2e, ItemPF2e } from 'foundry-pf2e';
+import type { ActorPF2e, ItemPF2e, NPCPF2e } from 'foundry-pf2e';
 import type { EditableCreature } from '../logic/editableCreature';
 import type { CreatureSaveTarget, StoredCreatureData } from '../logic/contracts';
 import { troopAdjusted } from '../logic/troop';
@@ -7,6 +7,10 @@ import { createCreatureActor, cloneCreatureActor, getCreatureData } from './crud
 import { updateCreature } from './sync';
 import { updateMeleeItems, updateAbilityItems } from './strikes';
 import { exportCreatureToFile } from './import';
+
+function actorLevel(actorId: string): number | undefined {
+  return (game.actors?.get(actorId) as NPCPF2e | undefined)?.system?.details?.level?.value;
+}
 
 // Relies on Foundry's toObject() preserving embedded-item order: the ith source item (within a
 // filter) maps to the ith clone item.
@@ -54,10 +58,16 @@ export const defaultSaveTarget: CreatureSaveTarget = {
 
   async updateActor(actorId: string, creature: EditableCreature): Promise<void> {
     const { traits, weaknesses } = troopAdjusted(creature);
+    // Read the level before updateCreature rewrites it — the strike sync must know whether this save
+    // is a real level change (recompute) or a same-level edit (preserve unedited attack/damage).
+    const previousLevel = actorLevel(actorId);
+    const levelChanged = previousLevel !== undefined && previousLevel !== creature.level;
     await updateCreature(actorId, {
       name: creature.name,
       level: creature.level,
       benchmarks: creature.benchmarks,
+      baseStats: creature.baseStats,
+      baseLevel: creature.baseLevel,
       size: creature.size,
       creatureType: creature.creatureType,
       traits,
@@ -70,7 +80,7 @@ export const defaultSaveTarget: CreatureSaveTarget = {
       languages: creature.languages,
       senses: creature.senses
     });
-    await updateMeleeItems(actorId, creature.strikes, creature.level);
+    await updateMeleeItems(actorId, creature.strikes, creature.level, { levelChanged });
     await updateAbilityItems(actorId, creature.specialAbilities, creature.level);
   },
 
@@ -92,10 +102,15 @@ export const defaultSaveTarget: CreatureSaveTarget = {
     const remappedAbilities = creature.specialAbilities.map((a) => (a.id && abilityMap[a.id] ? { ...a, id: abilityMap[a.id] } : a));
 
     const { traits, weaknesses } = troopAdjusted(creature);
+    // The clone is created at the source level; a Save-As at a different level is a genuine rescale.
+    const previousLevel = actorLevel(newActorId);
+    const levelChanged = previousLevel !== undefined && previousLevel !== creature.level;
     await updateCreature(newActorId, {
       name: newName,
       level: creature.level,
       benchmarks: creature.benchmarks,
+      baseStats: creature.baseStats,
+      baseLevel: creature.baseLevel,
       size: creature.size,
       creatureType: creature.creatureType,
       traits,
@@ -108,7 +123,7 @@ export const defaultSaveTarget: CreatureSaveTarget = {
       languages: creature.languages,
       senses: creature.senses
     });
-    await updateMeleeItems(newActorId, remappedStrikes, creature.level);
+    await updateMeleeItems(newActorId, remappedStrikes, creature.level, { levelChanged });
     await updateAbilityItems(newActorId, remappedAbilities, creature.level);
 
     return newActorId;

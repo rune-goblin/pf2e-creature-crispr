@@ -1,5 +1,5 @@
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
-import type { CreatureBenchmarks, CreatureSense, CreatureSpeeds, DamageModifier, Immunity } from '../logic/models';
+import type { CreatureBenchmarks, CreatureSense, CreatureSpeeds, CreatureStats, DamageModifier, Immunity } from '../logic/models';
 import { getDefaultBenchmarks } from '../logic/models';
 import { sizeToPf2e } from '../logic/sizes';
 import { calculateCreatureStats, calculateStrikeStats } from '../logic/creatureStatTables';
@@ -17,6 +17,8 @@ export async function updateCreature(
     name?: string;
     level?: number;
     benchmarks?: CreatureBenchmarks;
+    baseStats?: CreatureStats;
+    baseLevel?: number;
     size?: string;
     creatureType?: string;
     traits?: string[];
@@ -36,8 +38,14 @@ export async function updateCreature(
 
   const currentData = actor.getFlag(CREATURE_FLAG, CREATURE_DATA_KEY) as CreatureActorData | undefined;
   const benchmarks = updates.benchmarks || currentData?.benchmarks || getDefaultBenchmarks();
-  const level = updates.level ?? actor.system?.details?.level?.value ?? 1;
-  const stats = calculateCreatureStats(level, benchmarks);
+  const previousLevel = actor.system?.details?.level?.value;
+  const level = updates.level ?? previousLevel ?? 1;
+
+  // D1: mirror the editor's display rule — at baseLevel with captured baseStats, write them verbatim
+  // rather than recomputing (back-solve→forward clamps out-of-table values to the table boundary).
+  const stats = updates.baseStats && updates.baseLevel === level
+    ? updates.baseStats
+    : calculateCreatureStats(level, benchmarks);
 
   // Deeply-nested PF2e update payload assembled dynamically and validated by Foundry at
   // runtime; `any` here is construction-side, not an actor read.
@@ -47,6 +55,15 @@ export async function updateCreature(
       details: { level: { value: level } }
     }
   };
+
+  // D3: raise/lower max but keep the creature's current damage — an uninjured creature stays full,
+  // an injured one stays injured (clamped to the new max).
+  const oldValue = actor.system?.attributes?.hp?.value;
+  const oldMax = actor.system?.attributes?.hp?.max;
+  const hpValue = oldValue === undefined
+    ? stats.hp
+    : oldValue === oldMax ? stats.hp : Math.min(oldValue, stats.hp);
+  actorUpdate.system.attributes.hp = { value: hpValue, max: stats.hp };
 
   if (updates.name) actorUpdate.name = updates.name;
   if (updates.creatureType) actorUpdate.system.details.creatureType = updates.creatureType;
@@ -66,21 +83,40 @@ export async function updateCreature(
 
   await actor.update(actorUpdate);
 
-  const levelChanged = updates.level !== undefined && updates.level !== actor.system?.details?.level?.value;
-  if (levelChanged || updates.benchmarks) {
+  // D4: levelChanged is measured against the level captured BEFORE the update (reading it after would
+  // always see the freshly-written value and never fire). Creature-level benchmarks scale items only
+  // through a level change; spell DC/attack/slots benchmarks also move when the benchmarks themselves
+  // change — so gate each sync on the input it actually depends on. A true no-op save writes no items.
+  const levelChanged = updates.level !== undefined && updates.level !== previousLevel;
+  const benchmarksChanged = updates.benchmarks !== undefined && !deepEqual(updates.benchmarks, currentData?.benchmarks);
+  if (levelChanged) {
     await syncMeleeItemsForLevel(actor, level);
-    await syncSpellcastingEntriesForLevel(actor, level, benchmarks);
     await syncAbilityItemsForLevel(actor, level);
+  }
+  if (levelChanged || benchmarksChanged) {
+    await syncSpellcastingEntriesForLevel(actor, level, benchmarks);
   }
 
   await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {
     benchmarks,
+    // baseLevel is the import anchor for lazy-parsing legacy ability descriptions — never rebased on save.
     baseLevel: currentData?.baseLevel ?? level,
-    baseStats: currentData?.baseStats,
+    // D2: store exactly what the editor holds — undefined once a benchmark edit cleared it.
+    baseStats: updates.baseStats,
     importedFrom: currentData?.importedFrom,
     createdAt: currentData?.createdAt || Date.now(),
     updatedAt: Date.now()
   });
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ak = Object.keys(a as object);
+  const bk = Object.keys(b as object);
+  if (ak.length !== bk.length) return false;
+  return ak.every((k) => deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 }
 
 /**
