@@ -15,6 +15,7 @@ import {
   getWeaknessesFromActor
 } from './actorQueries';
 import { addBenchmarkFlagsToMeleeItems, addBenchmarkFlagsToAbilityItems } from './strikes';
+import { addBenchmarkFlagsToSpellcastingEntries } from './spells';
 import { CREATURE_FLAG, CREATURE_DATA_KEY } from './constants';
 import { canonicalizeItemOrder, type OrderableItemSource } from './canonicalItemOrder';
 
@@ -40,6 +41,7 @@ export async function importCreatureFromActor(
   }
   await addBenchmarkFlagsToMeleeItems(actor, level);
   await addBenchmarkFlagsToAbilityItems(actor, level);
+  await addBenchmarkFlagsToSpellcastingEntries(actor, level);
 
   await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {
     benchmarks,
@@ -89,6 +91,7 @@ export async function importCreatureFromCompendium(uuid: string): Promise<string
 
   await addBenchmarkFlagsToMeleeItems(actor, level);
   await addBenchmarkFlagsToAbilityItems(actor, level);
+  await addBenchmarkFlagsToSpellcastingEntries(actor, level);
 
   await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {
     benchmarks,

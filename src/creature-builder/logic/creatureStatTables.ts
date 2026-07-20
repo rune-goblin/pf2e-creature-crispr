@@ -932,7 +932,7 @@ export function getStatRangesForLevel(level: number): {
  * Interpolate a value for the 3-benchmark spell stat system (DC or Attack)
  * scalar: 0 = moderate, 0.5 = high, 1 = extreme
  */
-function interpolateSpellStat(scalar: number, range: SpellStatRange): number {
+export function interpolateSpellStat(scalar: number, range: SpellStatRange): number {
   const s = Math.max(0, Math.min(1, scalar));
 
   if (s <= 0.5) {

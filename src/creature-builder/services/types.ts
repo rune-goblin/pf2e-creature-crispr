@@ -18,6 +18,14 @@ export interface ItemBenchmarkData {
   customPersistentFormula?: string;
 }
 
+/** Per-entry benchmark data stored on spellcasting-entry items. `primary` marks the single entry
+ *  the editor's spellDC/spellAttack benchmark edits (the first non-innate entry, or first if all innate). */
+export interface SpellEntryBenchmarkData {
+  dcBenchmark?: number;
+  attackBenchmark?: number;
+  primary?: boolean;
+}
+
 /** Benchmark data stored on ability items (actions, feats with category: creature). */
 export interface AbilityBenchmarkData {
   descriptionTemplate?: string;       // parsed template with {0}, {1}, … placeholders

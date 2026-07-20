@@ -94,7 +94,7 @@ export async function updateCreature(
     await syncAbilityItemsForLevel(actor, level);
   }
   if (levelChanged || benchmarksChanged) {
-    await syncSpellcastingEntriesForLevel(actor, level, benchmarks);
+    await syncSpellcastingEntriesForLevel(actor, level, benchmarks, { previousLevel });
   }
 
   await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {

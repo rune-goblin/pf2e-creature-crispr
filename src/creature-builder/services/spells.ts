@@ -13,44 +13,74 @@ import {
   resizePreparedSlots,
   MAX_SPELL_RANK
 } from '../logic/spellSlotTables';
-import { calculateCreatureStats } from '../logic/creatureStatTables';
+import {
+  calculateCreatureStats,
+  getStatRangesForLevel,
+  spellStatToScalar,
+  interpolateSpellStat
+} from '../logic/creatureStatTables';
 import { logger } from './logger';
+import { CREATURE_FLAG, SPELL_BENCHMARK_KEY } from './constants';
+import type { SpellEntryBenchmarkData } from './types';
 
 /** Per-rank spell-slot record; computed `slot${rank}` keys aren't on the prepared entry type. */
 type SpellSlots = Record<string, { max?: number; prepared?: Array<{ id?: string | null; expended?: boolean }> }>;
 
+function getSpellcastingEntries(actor: NPCPF2e): SpellcastingEntryPF2e<NPCPF2e>[] {
+  return actor.items?.contents?.filter((i): i is SpellcastingEntryPF2e<NPCPF2e> => i.type === 'spellcastingEntry') ?? [];
+}
+
 /**
- * Extract the highest spell DC and spell attack from an actor's spellcasting entries.
- * NPCs can have multiple spellcasting entries (e.g., arcane prepared, divine innate).
- * We use the highest values found for benchmarking.
+ * The entry the editor's single spellDC/spellAttack benchmark edits: the first non-innate entry,
+ * or the first entry if all are innate. Chosen by this deterministic rule (not the stored flag) so
+ * import-time extraction, flag stamping, and level sync all agree — extraction runs before the flag
+ * is stamped, and legacy actors carry no flag at all.
+ */
+export function getPrimarySpellcastingEntry(entries: SpellcastingEntryPF2e<NPCPF2e>[]): SpellcastingEntryPF2e<NPCPF2e> | undefined {
+  if (entries.length === 0) return undefined;
+  return entries.find((e) => e.system?.prepared?.value !== 'innate') ?? entries[0];
+}
+
+/**
+ * The primary entry's spell DC and spell attack. The editor exposes a single spellDC/spellAttack
+ * benchmark, so it edits the primary entry only; every other entry keeps its own per-entry benchmark.
  */
 export function extractSpellcastingStats(actor: NPCPF2e): { spellDC?: number; spellAttack?: number } {
-  const spellcastingEntries = actor.items?.contents?.filter((i): i is SpellcastingEntryPF2e<NPCPF2e> => i.type === 'spellcastingEntry') ?? [];
+  const primary = getPrimarySpellcastingEntry(getSpellcastingEntries(actor));
+  if (!primary) return {};
+  return { spellDC: primary.system?.spelldc?.dc, spellAttack: primary.system?.spelldc?.value };
+}
 
-  if (spellcastingEntries.length === 0) {
-    return {};
-  }
+/**
+ * Stamp a per-entry benchmark flag on every spellcasting entry at import, mirroring the melee/ability
+ * stampers. Each entry's DC/attack back-solve to their own scalar so a later level change scales each
+ * entry independently; `primary: true` marks the entry the editor's single spell benchmark drives.
+ */
+export async function addBenchmarkFlagsToSpellcastingEntries(actor: NPCPF2e, level: number): Promise<void> {
+  const entries = getSpellcastingEntries(actor);
+  if (entries.length === 0) return;
 
-  let highestDC: number | undefined;
-  let highestAttack: number | undefined;
+  const ranges = getStatRangesForLevel(level);
+  const primary = getPrimarySpellcastingEntry(entries);
+  const updates: EmbeddedDocumentUpdateData[] = [];
 
-  for (const entry of spellcastingEntries) {
-    // PF2e stores spell DC and attack in system.spelldc
+  for (const entry of entries) {
     const dc = entry.system?.spelldc?.dc;
     const attack = entry.system?.spelldc?.value;
+    const data: SpellEntryBenchmarkData = {};
+    if (dc !== undefined) data.dcBenchmark = spellStatToScalar(dc, ranges.spellDC);
+    if (attack !== undefined) data.attackBenchmark = spellStatToScalar(attack, ranges.spellAttack);
+    if (entry.id === primary?.id) data.primary = true;
 
-    if (dc !== undefined && (highestDC === undefined || dc > highestDC)) {
-      highestDC = dc;
-    }
-    if (attack !== undefined && (highestAttack === undefined || attack > highestAttack)) {
-      highestAttack = attack;
-    }
+    updates.push({
+      _id: entry.id,
+      [`flags.${CREATURE_FLAG}.${SPELL_BENCHMARK_KEY}`]: data
+    });
   }
 
-  return {
-    spellDC: highestDC,
-    spellAttack: highestAttack
-  };
+  if (updates.length > 0) {
+    await actor.updateEmbeddedDocuments('Item', updates);
+  }
 }
 
 /**
@@ -153,26 +183,30 @@ function diffSlotOverrides(
 }
 
 /**
- * Update spellcasting entries on an actor for a new level using stored benchmarks.
- * Scales spell DC, spell attack, and spell slots based on the creature's benchmarks.
+ * Update spellcasting entries on an actor for a new level, per-entry (D6). The primary entry's DC/
+ * attack come from the creature's spellDC/spellAttack benchmarks and it alone gets the slot layout;
+ * every other entry scales from its OWN stored benchmark (or, unflagged, back-solves at
+ * `previousLevel`) and is rewritten only on a genuine level change — so a same-level benchmark edit
+ * touches the primary alone and can never flatten a distinct innate/secondary DC onto it.
  */
-export async function syncSpellcastingEntriesForLevel(actor: NPCPF2e, level: number, benchmarks: CreatureBenchmarks): Promise<void> {
-  const spellcastingEntries = actor.items?.contents?.filter((i): i is SpellcastingEntryPF2e<NPCPF2e> => i.type === 'spellcastingEntry') ?? [];
+export async function syncSpellcastingEntriesForLevel(
+  actor: NPCPF2e,
+  level: number,
+  benchmarks: CreatureBenchmarks,
+  opts: { previousLevel?: number } = {}
+): Promise<void> {
+  const entries = getSpellcastingEntries(actor);
+  if (entries.length === 0) return;
 
-  if (spellcastingEntries.length === 0) {
-    return;
-  }
+  const previousLevel = opts.previousLevel;
+  const levelChanged = previousLevel !== undefined && previousLevel !== level;
 
-  // Calculate new spell stats for this level
   const stats = calculateCreatureStats(level, benchmarks);
-
-  // If no spell benchmarks, nothing to scale
-  if (stats.spellDC === undefined && stats.spellAttack === undefined && stats.spellSlots === undefined) {
-    return;
-  }
-
-  // Compute spell slot layout if we have a progression
   const slotLayout = stats.spellSlots;
+  const ranges = getStatRangesForLevel(level);
+  const prevRanges = previousLevel !== undefined ? getStatRangesForLevel(previousLevel) : ranges;
+
+  const primaryId = getPrimarySpellcastingEntry(entries)?.id;
 
   // A binding whose spell item was deleted would otherwise be resized forward forever.
   const liveSpellIds = new Set(
@@ -181,48 +215,63 @@ export async function syncSpellcastingEntriesForLevel(actor: NPCPF2e, level: num
 
   const updates: EmbeddedDocumentUpdateData[] = [];
 
-  for (const entry of spellcastingEntries) {
+  for (const entry of entries) {
     const update: EmbeddedDocumentUpdateData = { _id: entry.id };
     const isInnate = entry.system?.prepared?.value === 'innate';
 
-    // Update spell DC if we have a benchmark
-    if (stats.spellDC !== undefined) {
-      update['system.spelldc.dc'] = stats.spellDC;
-    }
+    if (entry.id === primaryId) {
+      if (stats.spellDC !== undefined) update['system.spelldc.dc'] = stats.spellDC;
+      if (stats.spellAttack !== undefined) update['system.spelldc.value'] = stats.spellAttack;
 
-    // Update spell attack if we have a benchmark
-    if (stats.spellAttack !== undefined) {
-      update['system.spelldc.value'] = stats.spellAttack;
-    }
+      // Slot layout is the primary entry's alone. Only prepared entries bind spells to slots; a
+      // spontaneous repertoire and innate spells hang off the spell items' own `location.value`,
+      // so leaving them alone already preserves them.
+      if (slotLayout && !isInnate) {
+        const isPrepared = entry.system?.prepared?.value === 'prepared';
+        const slots = (entry.system?.slots ?? {}) as SpellSlots;
 
-    // Update spell slots for non-innate entries
-    if (slotLayout && !isInnate) {
-      // Only prepared entries bind spells to slots. A spontaneous repertoire and innate spells hang
-      // off the spell items' own `location.value`, so leaving them alone already preserves them.
-      const isPrepared = entry.system?.prepared?.value === 'prepared';
-      const slots = (entry.system?.slots ?? {}) as SpellSlots;
+        for (let rank = 0; rank <= MAX_SPELL_RANK; rank++) {
+          const slotKey = `slot${rank}`;
+          const slotCount = slotLayout[rank] ?? 0;
 
-      for (let rank = 0; rank <= MAX_SPELL_RANK; rank++) {
-        const slotKey = `slot${rank}`;
-        const slotCount = slotLayout[rank] ?? 0;
-
-        if (isPrepared) {
-          const assigned = (slots[slotKey]?.prepared ?? [])
-            .map((slot) => ({ id: slot.id ?? null, expended: slot.expended ?? false }))
-            .filter((slot) => slot.id === null || liveSpellIds.has(slot.id));
-          const prepared = resizePreparedSlots(assigned, slotCount);
-          update[`system.slots.${slotKey}.prepared`] = prepared;
-          // Length, not slotCount: resize widens past the computed count rather than drop a spell.
-          update[`system.slots.${slotKey}.max`] = prepared.length;
-          update[`system.slots.${slotKey}.value`] = prepared.length;
-        } else {
-          update[`system.slots.${slotKey}.max`] = slotCount;
-          update[`system.slots.${slotKey}.value`] = slotCount;
+          if (isPrepared) {
+            const assigned = (slots[slotKey]?.prepared ?? [])
+              .map((slot) => ({ id: slot.id ?? null, expended: slot.expended ?? false }))
+              .filter((slot) => slot.id === null || liveSpellIds.has(slot.id));
+            const prepared = resizePreparedSlots(assigned, slotCount);
+            update[`system.slots.${slotKey}.prepared`] = prepared;
+            // Length, not slotCount: resize widens past the computed count rather than drop a spell.
+            update[`system.slots.${slotKey}.max`] = prepared.length;
+            update[`system.slots.${slotKey}.value`] = prepared.length;
+          } else {
+            update[`system.slots.${slotKey}.max`] = slotCount;
+            update[`system.slots.${slotKey}.value`] = slotCount;
+          }
         }
+      }
+    } else {
+      // Non-primary entries scale only across a real level change; a same-level benchmark edit must
+      // leave their distinct DC/attack (and slots) untouched.
+      if (!levelChanged) continue;
+
+      const entryBenchmark = entry.getFlag(CREATURE_FLAG, SPELL_BENCHMARK_KEY) as SpellEntryBenchmarkData | undefined;
+      const dcScalar = entryBenchmark?.dcBenchmark;
+      const attackScalar = entryBenchmark?.attackBenchmark;
+
+      if (dcScalar !== undefined || attackScalar !== undefined) {
+        // Flagged: scale each entry from its own stored scalar benchmark.
+        if (dcScalar !== undefined) update['system.spelldc.dc'] = Math.round(interpolateSpellStat(dcScalar, ranges.spellDC));
+        if (attackScalar !== undefined) update['system.spelldc.value'] = Math.round(interpolateSpellStat(attackScalar, ranges.spellAttack));
+      } else {
+        // Unflagged (foreign entry): back-solve the current value at previousLevel, forward at level.
+        const curDC = entry.system?.spelldc?.dc;
+        const curAttack = entry.system?.spelldc?.value;
+        if (curDC !== undefined) update['system.spelldc.dc'] = Math.round(interpolateSpellStat(spellStatToScalar(curDC, prevRanges.spellDC), ranges.spellDC));
+        if (curAttack !== undefined) update['system.spelldc.value'] = Math.round(interpolateSpellStat(spellStatToScalar(curAttack, prevRanges.spellAttack), ranges.spellAttack));
       }
     }
 
-    updates.push(update);
+    if (Object.keys(update).length > 1) updates.push(update);
   }
 
   if (updates.length > 0) {

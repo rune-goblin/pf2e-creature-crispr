@@ -17,3 +17,6 @@ export const ITEM_BENCHMARK_KEY = 'itemBenchmarks';
 
 /** Flag key for benchmark data on ability items. */
 export const ABILITY_BENCHMARK_KEY = 'abilityBenchmarks';
+
+/** Flag key for per-entry benchmark data on spellcasting-entry items. */
+export const SPELL_BENCHMARK_KEY = 'spellBenchmarks';
