@@ -336,6 +336,8 @@
                         onCancel={cancelRemoveStrike}
                      />
                   </div>
+               {:else}
+                  <p class="attacks-empty">{game.i18n.localize('pf2e-creature-crispr.offense.troopEmpty')}</p>
                {/each}
             </div>
          </div>
@@ -404,6 +406,12 @@
       .attacks-list {
          grid-template-columns: 1fr;
       }
+   }
+
+   .attacks-empty {
+      grid-column: 1 / -1;
+      color: var(--text-muted);
+      font-size: var(--font-sm);
    }
 
    .attack-group {

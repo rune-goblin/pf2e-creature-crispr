@@ -7,6 +7,7 @@ export * from './strikes';
 export * from './import';
 export * from './troop';
 export * from './rescale';
+export * from './headless';
 export * from './actorQueries';
 export * from './actorStatsExtractor';
 export * from './bestiaryBrowser';

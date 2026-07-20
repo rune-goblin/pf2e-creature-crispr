@@ -9,6 +9,10 @@ import {
   registerSaveTarget,
   searchBestiary,
   importCreatureFromCompendium,
+  importCreatureFromActor,
+  importActorFromSource,
+  getEditableCreature,
+  saveEditableCreature,
   applyTroopToActor,
   convertActorToTroop,
   rescaleActorToLevel,
@@ -18,6 +22,7 @@ import {
   type BestiaryFilterOptions
 } from './creature-builder/services';
 import type { AbilityProvider, CreatureSaveTarget, TroopConversionOptions } from './creature-builder/logic/contracts';
+import type { EditableCreature } from './creature-builder/logic/editableCreature';
 import type { TroopSize } from './creature-builder/logic/models';
 
 interface ModuleApi {
@@ -30,6 +35,13 @@ interface ModuleApi {
   // export (see docs/api/README.md). searchBestiary self-initializes the index, so it can be called cold.
   searchBestiary: (options?: BestiaryFilterOptions, limit?: number) => Promise<BestiaryEntry[]>;
   importCreatureFromCompendium: (uuid: string) => Promise<string>;
+  // Create a CRISPR-managed world NPC from a submitted actor source (rejects non-npc), then get it
+  // as an EditableCreature, mutate, and saveEditableCreature — the full external-client loop without
+  // ever driving the editor UI. importCreatureFromActor marks an already-present world actor managed.
+  importActorFromSource: (source: Record<string, unknown>) => Promise<string>;
+  importCreatureFromActor: (actorId: string, opts?: { moveToFolder?: boolean }) => Promise<string>;
+  getEditableCreature: (actorId: string, opts?: { saveTargetId?: string }) => EditableCreature;
+  saveEditableCreature: (creature: EditableCreature, opts?: { saveTargetId?: string }) => Promise<string>;
   applyTroopToActor: (actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>;
   // Fully-automated Convert to Troop: runs CRISPR's default conversion engine (level bump + size +
   // generated sweep/volley + glossary kit) headlessly, so a consumer never has to drive the editor UI.
@@ -62,6 +74,10 @@ Hooks.once('ready', () => {
     registerSaveTarget,
     searchBestiary,
     importCreatureFromCompendium,
+    importActorFromSource,
+    importCreatureFromActor,
+    getEditableCreature,
+    saveEditableCreature,
     applyTroopToActor,
     convertActorToTroop,
     rescaleActorToLevel,

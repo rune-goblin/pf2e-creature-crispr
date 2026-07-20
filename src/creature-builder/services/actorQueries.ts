@@ -9,6 +9,7 @@ import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
 import type { CreatureStrike, SpecialAbility, ScalableValue, DamageModifier, Immunity, CreatureSpeeds, CreatureSense, SenseType, SenseAcuity } from '../logic/models';
 import { createDefaultStrike, BENCHMARK_VALUES_3 } from '../logic/models';
 import { getStatRangesForLevel, statToScalar4 } from '../logic/creatureStatTables';
+import { TROOP_TRAIT } from '../logic/troop';
 import { logger } from './logger';
 import {
   parseAbilityDescription,
@@ -351,7 +352,11 @@ export function getStrikesFromActor(actorId: string): CreatureStrike[] {
   const meleeItems = items.filter((i): i is MeleePF2e<NPCPF2e> => i.type === 'melee');
 
   if (meleeItems.length === 0) {
-    return [createDefaultStrike('Melee Strike')];
+    // Troops carry zero strike items — offense lives in action items — so the WYSIWYG placeholder
+    // row (commit e617965) is non-troop only. A troop loads an empty Offense and a save mints no
+    // phantom melee item; non-troops still get the single visible default row (D9).
+    const isTroop = (actor.system?.traits?.value ?? []).includes(TROOP_TRAIT);
+    return isTroop ? [] : [createDefaultStrike('Melee Strike')];
   }
 
   const level = actor.system?.details?.level?.value ?? 1;

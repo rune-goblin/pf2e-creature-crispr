@@ -55,6 +55,10 @@ Reached at `game.modules.get('pf2e-creature-crispr').api` after CRISPR's `ready`
 | `registerSaveTarget` | `(target: CreatureSaveTarget) => void` | Register a persistence backend selectable by `editCreature`. |
 | `searchBestiary` | `(options?: BestiaryFilterOptions, limit?: number) => Promise<BestiaryEntry[]>` | Search every loaded Actor compendium for NPCs. Self-initializing (builds/reuses its index on first call). |
 | `importCreatureFromCompendium` | `(uuid: string) => Promise<string>` | Copy a compendium NPC into the world (items intact, CRISPR-managed); resolves to the new actor id. |
+| `importActorFromSource` | `(source: Record<string, unknown>) => Promise<string>` | Create a CRISPR-managed world NPC from a **submitted actor source** (rejects non-`npc`, strips `_id`); resolves to the new actor id. `>= 0.9.0` |
+| `importCreatureFromActor` | `(actorId: string, opts?: { moveToFolder?: boolean }) => Promise<string>` | Mark an **already-present** world NPC CRISPR-managed (back-solves benchmarks, stamps the flag); resolves to the actor id. `moveToFolder` relocates it into the CRISPR folder. `>= 0.9.0` |
+| `getEditableCreature` | `(actorId: string, opts?: { saveTargetId?: string }) => EditableCreature` | Read an actor into a **detached** `EditableCreature` (deep clone — safe to mutate); throws on a missing actor. The headless twin of opening the editor. `>= 0.9.0` |
+| `saveEditableCreature` | `(creature: EditableCreature, opts?: { saveTargetId?: string }) => Promise<string>` | Persist an `EditableCreature` through a save target (create when it has no `actorId`, else update); validates first and **throws before any write** on failure. The headless twin of the editor's Save button. `>= 0.9.0` |
 | `applyTroopToActor` | `(actorId: string, opts?: { troopSize?: TroopSize; formUp?: boolean }) => Promise<string>` | Make a world NPC a PF2e troop (trait + weaknesses + glossary kit only); resolves to the actor id. Idempotent. |
 | `convertActorToTroop` | `(actorId: string, opts?: { providerId?: string; saveTargetId?: string } & TroopConversionOptions) => Promise<string>` | Headless **Convert to Troop**: runs the default engine (level bump, generated sweep/volley, cleared strikes, kit) and saves through a target. The editor button's non-UI twin. |
 | `rescaleActorToLevel` | `(actorId: string, level: number, opts?: { saveTargetId?: string }) => Promise<string>` | Headless level rescale — the editor's level stepper without the UI. Stats recompute from benchmarks; IWR, strikes, abilities, and spells resync at the new level. |
@@ -67,7 +71,30 @@ surface — a developer uses them inside a running world to assemble a creature,
 source into a shipped compendium. They are not a runtime import path (see "Building troops as a dev-time
 flow"). The search/import/export/`applyTroopToActor` set arrived at `api.version` `0.6.0` (gate on
 `>= 0.6.0`); the default conversion engine behind `convertActorToTroop` and the Convert-to-Troop button
-landed at `0.8.0` (gate on `>= 0.8.0`); `rescaleActorToLevel` landed at `0.9.0` (gate on `>= 0.9.0`).
+landed at `0.8.0` (gate on `>= 0.8.0`); `rescaleActorToLevel`, `importActorFromSource`,
+`importCreatureFromActor`, `getEditableCreature`, and `saveEditableCreature` landed at `0.9.0`
+(gate on `>= 0.9.0`).
+
+### External-client loop: submit → operate → save
+
+`importActorFromSource` + `getEditableCreature` + `saveEditableCreature` are the **headless twins** of
+the editor: create an actor from a submitted source, read it into a detached kernel creature, mutate it
+with the vendored kernel math, and save it back through the same save target the UI uses — identical
+results, no editor window. Loading an actor and saving it with **zero edits changes nothing observable**.
+
+```ts
+const crispr = game.modules.get('pf2e-creature-crispr')?.api;
+
+const actorId = await crispr.importActorFromSource(submittedNpcSource); // rejects non-npc; strips _id
+const creature = crispr.getEditableCreature(actorId);                   // detached — mutate freely
+creature.level = 12;                                                    // operate with the vendored kernel
+await crispr.saveEditableCreature(creature);                           // update through the active target
+const source = await crispr.exportActorSource(actorId);                // package the result
+```
+
+`saveEditableCreature` validates first and **throws before any write** when invalid (empty name,
+out-of-range level), so a rejected save never half-mutates the actor. A creature with no `actorId`
+creates; one carrying an `actorId` (as `getEditableCreature` returns) updates.
 
 ```ts
 interface EditCreatureOptions {
@@ -127,8 +154,8 @@ interface TroopConversionOptions {
 
 interface StoredCreatureData {     // the flag SHAPE is shared; each target owns its flag SCOPE
   benchmarks: CreatureBenchmarks;
-  baseLevel: number;
-  baseStats: CreatureStats;
+  baseLevel: number;               // the import anchor — never rebased on save
+  baseStats?: CreatureStats;       // exact stats at baseLevel; undefined once a benchmark edit clears it
   importedFrom?: string;
   createdAt?: number;
   updatedAt?: number;
@@ -152,6 +179,12 @@ editor edits (name, level, benchmarks, strikes, special abilities, IWR, speeds, 
 
 If `loadCreatureData` is omitted (or returns `undefined`), CRISPR back-solves benchmarks from the
 actor's live stats — so an actor saved under a different module's flag scope still opens sensibly.
+
+`baseStats` is **optional**. It holds the exact stats captured at `baseLevel` and is written to the
+actor verbatim when the creature is saved at that level (so out-of-table values don't drift through a
+back-solve→recompute). A benchmark edit clears it to `undefined` — on reload the stats recompute
+exactly from the stored `benchmarks`, so its absence is correct, not lossy. A save target that persists
+`StoredCreatureData` must treat `baseStats` as possibly-absent.
 
 ---
 
@@ -375,6 +408,12 @@ size or thresholds; the system owns them.**
 - **No immunities.** There is no troop *immunity* rule — the system reads only authored weaknesses at
   damage time. IWR beyond area/splash is creature-specific (the mindless-undead package on undead
   troops, etc.), so CRISPR stamps none.
+- **Zero strikes are valid.** Published troops carry **no** strike items — their offense is `action`
+  items with inline `@Damage`/`@Check`. So the editor lets a **troop** have an empty Offense: it shows
+  an empty-state message with the standard **Add Attack** affordance, and its Delete control can remove
+  the last strike. A troop that loads with no melee items gets **no** placeholder strike, and a save
+  mints **no** phantom "Melee Strike" item. **Non-troop** creatures are unchanged — they keep the
+  single WYSIWYG strike row that can't be deleted to zero (commit `e617965`).
 - `formUp: true` seeds the Form Up ability; troops with Form Up run **splash ≈ half the area value**
   (the published cluster is 5/2, 10/5, 15/8). On `applyTroopToActor` this is convention only, but the
   conversion engine (below) *pre-seeds* the half-splash value when `formUp` is set, so it survives the

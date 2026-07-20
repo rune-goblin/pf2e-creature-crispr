@@ -1,6 +1,9 @@
 {
   "pf2e-creature-crispr": {
     "title": "PF2E Creature CRISPR",
+    "offense": {
+      "troopEmpty": "No strikes. Troops deal damage through their actions — add a strike only if this troop also makes weapon Strikes."
+    },
     "troop": {
       "notNpc": "Cannot apply the troop template to a \"{type}\" actor — troops must be NPCs.",
       "abilityMissing": "Troop ability item not found ({uuid}). The PF2e bestiary glossary pack is missing or out of date.",

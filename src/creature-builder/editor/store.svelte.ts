@@ -25,6 +25,7 @@ import {
 import { MAX_SPELL_RANK } from '../logic/spellSlotTables';
 import type { TroopConversionOptions, TroopConversionRecipe } from '../logic/contracts';
 import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, rescaleCreatureIwr, stampTroopDefaults } from '../logic/troop';
+import { validateCreatureErrors } from '../logic/editableCreature';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
 import { ALL_SECTIONS } from './types';
@@ -198,9 +199,8 @@ class CreatureEditorStore {
   validate(): boolean {
     if (!this.creature) return false;
     this.validationErrors.clear();
-    if (!this.creature.name.trim()) this.validationErrors.set('name', 'Name is required');
-    if (this.creature.level < -1 || this.creature.level > 24) {
-      this.validationErrors.set('level', 'Level must be between -1 and 24');
+    for (const { field, message } of validateCreatureErrors(this.creature)) {
+      this.validationErrors.set(field, message);
     }
     return this.validationErrors.size === 0;
   }
@@ -329,7 +329,10 @@ class CreatureEditorStore {
   }
 
   removeStrike(index: number): void {
-    if (!this.creature || this.creature.strikes.length <= 1) return; // keep at least one
+    if (!this.creature) return;
+    // Non-troops keep the WYSIWYG single-row invariant; troops carry zero strikes (offense is in
+    // action items), so they may reach an empty Offense (D9).
+    if (!this.creature.isTroop && this.creature.strikes.length <= 1) return;
     if (index < 0 || index >= this.creature.strikes.length) return;
     this.mutateCreature((c) => {
       c.strikes.splice(index, 1);

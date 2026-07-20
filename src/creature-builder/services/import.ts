@@ -20,6 +20,29 @@ import { CREATURE_FLAG, CREATURE_DATA_KEY } from './constants';
 import { canonicalizeItemOrder, type OrderableItemSource } from './canonicalItemOrder';
 
 /**
+ * The shared import tail: back-solve the actor's benchmarks/baseStats, stamp per-item benchmark
+ * flags, and write the CRISPR data flag. Every import path (existing actor, submitted source,
+ * compendium) ends here so they mark an actor CRISPR-managed identically.
+ */
+async function stampCrisprManaged(actor: NPCPF2e, importedFrom: string): Promise<void> {
+  const level = actor.system?.details?.level?.value ?? 1;
+  const { baseStats, benchmarks } = readActorStatsAndBenchmarks(actor, level);
+
+  await addBenchmarkFlagsToMeleeItems(actor, level);
+  await addBenchmarkFlagsToAbilityItems(actor, level);
+  await addBenchmarkFlagsToSpellcastingEntries(actor, level);
+
+  await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {
+    benchmarks,
+    baseLevel: level,
+    baseStats,
+    importedFrom,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  });
+}
+
+/**
  * Import an existing world actor: back-solve its benchmarks and mark it CRISPR-managed.
  * Membership is the `creatureData` flag, so the actor stays wherever it lives — pass
  * `moveToFolder` only for the explicit "Move to CRISPR folder" action.
@@ -31,28 +54,35 @@ export async function importCreatureFromActor(
   const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) throw new Error(`Actor not found: ${actorId}`);
 
-  const level = actor.system?.details?.level?.value ?? 1;
-
-  const { baseStats, benchmarks } = readActorStatsAndBenchmarks(actor, level);
-
   if (moveToFolder) {
     const folderId = await ensureCreatureFolder();
     await actor.update({ folder: folderId });
   }
-  await addBenchmarkFlagsToMeleeItems(actor, level);
-  await addBenchmarkFlagsToAbilityItems(actor, level);
-  await addBenchmarkFlagsToSpellcastingEntries(actor, level);
-
-  await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {
-    benchmarks,
-    baseLevel: level,
-    baseStats,
-    importedFrom: actor.name,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  });
+  await stampCrisprManaged(actor, actor.name ?? 'Imported');
 
   logger.info(`Added actor to CRISPR: ${actor.name}`);
+  return actor.id;
+}
+
+/**
+ * Import a submitted actor source (the API's create-from-source path): reject non-NPC sources,
+ * strip any `_id` so Foundry mints a fresh one, `Actor.create`, then the same CRISPR stamping the
+ * other import paths use. Resolves to the new actor id.
+ */
+export async function importActorFromSource(source: Record<string, unknown>): Promise<string> {
+  if (source?.type !== 'npc') {
+    throw new Error(`importActorFromSource: source must be an NPC (got "${String(source?.type ?? 'unknown')}")`);
+  }
+
+  const data = { ...source };
+  delete data._id;
+
+  const actor = (await Actor.create(data as any)) as NPCPF2e | null;
+  if (!actor) throw new Error('importActorFromSource: Actor.create returned no actor');
+
+  await stampCrisprManaged(actor, actor.name ?? 'Imported');
+
+  logger.info(`Imported actor from source: ${actor.name}`);
   return actor.id;
 }
 
@@ -85,22 +115,7 @@ export async function importCreatureFromCompendium(uuid: string): Promise<string
     throw new Error(`Entry is not an NPC: ${actor.type}`);
   }
 
-  const level = actor.system?.details?.level?.value ?? 1;
-
-  const { baseStats, benchmarks } = readActorStatsAndBenchmarks(actor, level);
-
-  await addBenchmarkFlagsToMeleeItems(actor, level);
-  await addBenchmarkFlagsToAbilityItems(actor, level);
-  await addBenchmarkFlagsToSpellcastingEntries(actor, level);
-
-  await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {
-    benchmarks,
-    baseLevel: level,
-    baseStats,
-    importedFrom: `${actor.name} (Compendium)`,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  });
+  await stampCrisprManaged(actor, `${actor.name} (Compendium)`);
 
   logger.info(`Imported from compendium: ${actor.name}`);
   return actor.id;

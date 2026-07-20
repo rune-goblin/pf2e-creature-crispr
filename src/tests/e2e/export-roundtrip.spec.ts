@@ -56,4 +56,48 @@ test.describe('export round-trip fidelity', () => {
     expect(savedSnap.traits).toContain('troop');
     expect(savedSnap.weaknesses).toEqual(['area-damage:8', 'splash-damage:8']);
   });
+
+  // Cornerstone invariant, end-to-end through the headless API (D8): getEditableCreature →
+  // zero-edit saveEditableCreature must change nothing observable — the exported source before and
+  // after is identical modulo the flag's `updatedAt` and every doc/item `_stats` (Foundry's own
+  // modification bookkeeping, exempt by construction).
+  test('a headless get → zero-edit save leaves exportActorSource unchanged (cornerstone)', async ({ gmPage }) => {
+    const { before, after, id } = await gmPage.evaluate(
+      async ({ uuid, mod }) => {
+        const api = (window as any).game.modules.get(mod).api;
+
+        // Drop Foundry's own modification bookkeeping so a save's timestamp bump isn't a false diff.
+        const strip = (v: any): any => {
+          if (Array.isArray(v)) return v.map(strip);
+          if (v && typeof v === 'object') {
+            const out: Record<string, any> = {};
+            for (const [k, val] of Object.entries(v)) {
+              if (k === '_stats') continue;
+              out[k] = strip(val);
+            }
+            return out;
+          }
+          return v;
+        };
+        const normalize = (src: any) => {
+          const s = strip(src);
+          if (s?.flags?.[mod]?.creatureData) delete s.flags[mod].creatureData.updatedAt;
+          return s;
+        };
+
+        const id = await api.importCreatureFromCompendium(uuid);
+        const before = normalize(await api.exportActorSource(id));
+
+        const creature = api.getEditableCreature(id); // detached; NO edits
+        await api.saveEditableCreature(creature);
+
+        const after = normalize(await api.exportActorSource(id));
+        return { before, after, id };
+      },
+      { uuid: DIRE_WOLF, mod: MODULE_ID }
+    );
+    trash.push(id);
+
+    expect(after).toEqual(before);
+  });
 });
