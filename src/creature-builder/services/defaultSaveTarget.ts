@@ -4,8 +4,9 @@ import type { CreatureSaveTarget, StoredCreatureData } from '../logic/contracts'
 import { troopAdjusted } from '../logic/troop';
 import { MODULE_ID } from '@/constants';
 import { createCreatureActor, cloneCreatureActor, getCreatureData } from './crud';
-import { updateCreature } from './sync';
+import { updateCreature, selectSaveStats } from './sync';
 import { updateMeleeItems, updateAbilityItems } from './strikes';
+import { syncSkillItems, syncNativeSkills, loadedSkillSlugsFromFlag } from './skills';
 import { exportCreatureToFile } from './import';
 
 function actorLevel(actorId: string): number | undefined {
@@ -62,6 +63,11 @@ export const defaultSaveTarget: CreatureSaveTarget = {
     // is a real level change (recompute) or a same-level edit (preserve unedited attack/damage).
     const previousLevel = actorLevel(actorId);
     const levelChanged = previousLevel !== undefined && previousLevel !== creature.level;
+    // Read the pre-save flag before updateCreature overwrites it: a flagged actor loads its skills
+    // from the flag, so only those slugs are eligible for deletion (lore items / native core skills
+    // matched in their own slug space). Undefined => unflagged.
+    const preSaveData = getCreatureData(actorId);
+    const loadedSkills = preSaveData ? loadedSkillSlugsFromFlag(preSaveData) : undefined;
     await updateCreature(actorId, {
       name: creature.name,
       level: creature.level,
@@ -82,6 +88,12 @@ export const defaultSaveTarget: CreatureSaveTarget = {
     });
     await updateMeleeItems(actorId, creature.strikes, creature.level, { levelChanged });
     await updateAbilityItems(actorId, creature.specialAbilities, creature.level);
+    // Persist skills from the same stats object D1 selected (verbatim baseStats at baseLevel, else
+    // recomputed) — lore skills as lore items, native core skills to _source.system.skills — so a
+    // no-op save issues zero skill writes.
+    const stats = selectSaveStats(creature.level, creature.benchmarks, creature.baseStats, creature.baseLevel);
+    await syncSkillItems(actorId, stats.skills, loadedSkills?.lore);
+    await syncNativeSkills(actorId, stats.skills, loadedSkills?.native);
   },
 
   async cloneActor(sourceActorId: string, newName: string, creature: EditableCreature): Promise<string> {
@@ -105,6 +117,9 @@ export const defaultSaveTarget: CreatureSaveTarget = {
     // The clone is created at the source level; a Save-As at a different level is a genuine rescale.
     const previousLevel = actorLevel(newActorId);
     const levelChanged = previousLevel !== undefined && previousLevel !== creature.level;
+    // The clone carries the source's copied flag (its load-time skills); read it before updateCreature.
+    const preSaveData = getCreatureData(newActorId);
+    const loadedSkills = preSaveData ? loadedSkillSlugsFromFlag(preSaveData) : undefined;
     await updateCreature(newActorId, {
       name: newName,
       level: creature.level,
@@ -125,6 +140,9 @@ export const defaultSaveTarget: CreatureSaveTarget = {
     });
     await updateMeleeItems(newActorId, remappedStrikes, creature.level, { levelChanged });
     await updateAbilityItems(newActorId, remappedAbilities, creature.level);
+    const stats = selectSaveStats(creature.level, creature.benchmarks, creature.baseStats, creature.baseLevel);
+    await syncSkillItems(newActorId, stats.skills, loadedSkills?.lore);
+    await syncNativeSkills(newActorId, stats.skills, loadedSkills?.native);
 
     return newActorId;
   },

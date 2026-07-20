@@ -126,6 +126,39 @@ in full.
   "X Lore" items via `system.skills`; whatever is **not** loaded into the editor must never be
   deleted or modified. `createCreatureActor` creates lore items from its computed `stats.skills`.
   No-op save → zero lore writes.
+  - **Amendment (Mark, 2026-07-20) — "Full fix now".** The W4 executor's source check (against
+    `_pf2e-source`) established the premise above is imprecise: only **lore** skills are items; the 16
+    **core trained skills** live in `_source.system.skills[<coreSlug>]` and are *prepared* into
+    `system.skills` alongside lore. Both surface in `extractSkillsFromActor`, so the editor loads and
+    edits both. Mark chose the full fix over lore-only: persist **both**.
+    - Lore skills → lore items (rules above, unchanged; the native-skill guard stays so a core skill is
+      never lore-ified).
+    - Native core skills → write `_source.system.skills.<slug>.base` (verify the exact field and
+      sub-shape — `base` vs `value`, and the `special`/`note` siblings — against the pf2e
+      `NPCSystemSource` + `prepareSkills` before writing).
+    Rules, mirroring the lore path:
+    - Partial-update a single field (`system.skills.<slug>.base`); NEVER replace the whole skill
+      object — preserve `special` variant entries and any siblings.
+    - Write `system.skills.<slug>.base` **only when it differs** from the current `_source` value
+      (cornerstone: a no-op save writes nothing to `system.skills`).
+    - Delete a core skill only when it was loaded into the editor and removed there, via Foundry's
+      key-deletion syntax (`system.skills.-=<slug>`); never touch a core skill the editor didn't load.
+    - Adding a core-skill *name* from the dropdown (e.g. "Athletics") to an actor that lacks it writes
+      `system.skills.athletics.base`, NOT a lore item.
+    - Native mods come from the same `selectSaveStats` object D1 selects (verbatim baseStats at
+      baseLevel, else recomputed). `createCreatureActor` partitions the SAME way: core-skill names go
+      into the create payload as `system.skills.<slug>.base`; only genuine lore names become lore
+      items. (Correction, 2026-07-20: an earlier draft of this amendment said create stays lore-only —
+      that was wrong. It would lore-ify core skills, and because the flag then classifies them as
+      native, the next zero-edit save writes `system.skills` and leaves a permanent lore duplicate —
+      a cornerstone violation on the mainline create flow. Create must write core skills natively,
+      consistent with update/clone.)
+    - `syncNativeSkills` deletion needs a fallback for unflagged actors, mirroring the lore path: when
+      no load-time native set is available, treat the loaded native set as the actor's current
+      `_source.system.skills` keys with `base !== 0`, so a core skill removed in the editor is
+      untrained (`system.skills.-=<slug>`) rather than silently kept.
+    This makes F7 fully delivered (core + lore + added skills all reach the sheet). Wave-4 Done-when
+    extends: a native core-skill edit shows on the NPC sheet (assert via the `system.skills` write).
 - **D8 (F8).** New public API (all gated `>= 0.9.0` in docs — 0.9.0 is unreleased and already
   carries `rescaleActorToLevel`):
   - `importActorFromSource(source) → Promise<string>` — reject non-`npc` sources, strip `_id`,

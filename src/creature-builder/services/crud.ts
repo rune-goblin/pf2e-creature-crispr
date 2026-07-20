@@ -7,6 +7,7 @@ import { createNPCInFolder, ensureCreatureFolder, requireActor } from './folderM
 import { logger } from './logger';
 import { composeStrikeItemData } from './strikeItemBuilder';
 import { composeAbilityItemData } from './abilityItemBuilder';
+import { composeLoreItemSources, partitionSkills } from './skills';
 import { CREATURE_FOLDER, CREATURE_FLAG, CREATURE_DATA_KEY, DEFAULT_NPC_IMAGE } from './constants';
 import type { CreatureActorData, CreatureEntry } from './types';
 
@@ -294,6 +295,14 @@ export async function createCreatureActor(
   if (options.speeds) Object.assign(system.attributes as object, { speed: buildSpeedSystem(options.speeds) });
   if (options.senses) (system.perception as { senses?: unknown }).senses = buildSensesSystem(options.senses);
 
+  // Core skills are native (`_source.system.skills[<slug>].base`), NOT lore items — partition the same
+  // way the save path does so the immediately-following load+zero-edit save is a true no-op. A
+  // lore-ified core skill would be classified native on reload, minting a permanent lore duplicate.
+  const { native: nativeSkills, lore: loreSkills } = partitionSkills(stats.skills);
+  if (Object.keys(nativeSkills).length) {
+    system.skills = Object.fromEntries(Object.entries(nativeSkills).map(([slug, mod]) => [slug, { base: mod }]));
+  }
+
   // Only override what we compute; Foundry's NPC template provides every other default.
   const actorData = {
     img: portraitImg,
@@ -330,6 +339,8 @@ export async function createCreatureActor(
     const items = options.specialAbilities.map((ability) => composeAbilityItemData(ability, level));
     if (items.length) await actor.createEmbeddedDocuments('Item', items as any);
   }
+  const loreItemSources = composeLoreItemSources(loreSkills);
+  if (loreItemSources.length) await actor.createEmbeddedDocuments('Item', loreItemSources as any);
 
   return actor.id!;
 }

@@ -11,6 +11,18 @@ import { syncAbilityItemsForLevel } from './strikes';
 import { CREATURE_FLAG, CREATURE_DATA_KEY, ITEM_BENCHMARK_KEY } from './constants';
 import type { CreatureActorData, ItemBenchmarkData } from './types';
 
+// D1: mirror the editor's display rule — at baseLevel with captured baseStats, write them verbatim
+// rather than recomputing (back-solve→forward clamps out-of-table values to the table boundary).
+// Shared so the save target selects the same stats object for its skill sync as updateCreature does.
+export function selectSaveStats(
+  level: number,
+  benchmarks: CreatureBenchmarks,
+  baseStats: CreatureStats | undefined,
+  baseLevel: number | undefined
+): CreatureStats {
+  return baseStats && baseLevel === level ? baseStats : calculateCreatureStats(level, benchmarks);
+}
+
 export async function updateCreature(
   actorId: string,
   updates: {
@@ -41,11 +53,7 @@ export async function updateCreature(
   const previousLevel = actor.system?.details?.level?.value;
   const level = updates.level ?? previousLevel ?? 1;
 
-  // D1: mirror the editor's display rule — at baseLevel with captured baseStats, write them verbatim
-  // rather than recomputing (back-solve→forward clamps out-of-table values to the table boundary).
-  const stats = updates.baseStats && updates.baseLevel === level
-    ? updates.baseStats
-    : calculateCreatureStats(level, benchmarks);
+  const stats = selectSaveStats(level, benchmarks, updates.baseStats, updates.baseLevel);
 
   // Deeply-nested PF2e update payload assembled dynamically and validated by Foundry at
   // runtime; `any` here is construction-side, not an actor read.
