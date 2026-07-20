@@ -104,9 +104,11 @@ export async function updateMeleeItems(
   actorId: string,
   strikes: CreatureStrike[],
   level: number,
-  // Accepted so callers can wire it now; the same-level preserve-unedited-strike path reads it later.
+  // levelChanged defaults to today's behaviour (recompute every strike). When false, an unedited
+  // strike keeps its actual attack/damage verbatim (D5) instead of being re-derived from benchmarks.
   opts: { levelChanged?: boolean } = { levelChanged: true }
 ): Promise<void> {
+  const levelChanged = opts.levelChanged ?? true;
   const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) {
     throw new Error(`Actor not found: ${actorId}`);
@@ -142,41 +144,42 @@ export async function updateMeleeItems(
 
   // Update existing items
   if (toUpdate.length > 0) {
-    const updates = toUpdate.map(strike => {
-      const computed = calculateStrikeStats(
-        level,
-        strike.attackBenchmark,
-        strike.damageBenchmark,
-        strike.customDamageFormula,
-        strike.persistentBenchmark,
-        strike.customPersistentFormula
-      );
+    const ranges = getStatRangesForLevel(level);
 
-      // Find existing item to preserve its damage roll structure
+    const updates = toUpdate.map(strike => {
       const existingItem = existingItems.find((i) => i.id === strike.id);
       const existingRolls = existingItem?.system?.damageRolls ?? {};
-      const rollEntries = Object.entries(existingRolls);
-      const updatedRolls: Record<string, unknown> = {};
-      let primaryUpdated = false;
+      const storedBenchmark = existingItem?.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) as ItemBenchmarkData | undefined;
 
-      for (const [key, rollData] of rollEntries) {
-        if (rollData.category === 'persistent') {
-          if (computed.persistentDamage) {
-            updatedRolls[key] = { ...rollData, damage: computed.persistentDamage };
-          } else {
-            updatedRolls[key] = rollData;
-          }
-        } else if (!primaryUpdated) {
-          updatedRolls[key] = {
-            ...rollData,
-            damage: computed.damage,
-            damageType: strike.damageType || rollData.damageType || 'slashing'
-          };
-          primaryUpdated = true;
-        } else {
-          updatedRolls[key] = rollData;
-        }
+      // Preserve-when-unedited (D5): meleeItemToStrike loads attackBonus/damage via the same pure
+      // functions used here, so on a same-level no-edit save the loaded benchmark equals the
+      // recomputed scalar bit-for-bit (=== holds — no epsilon needed). Skipping the write keeps the
+      // item's actual value, including bonuses/formulas that back-solve→forward would clamp to a
+      // table boundary. The primary formula and the persistent rider share `system.damageRolls` but
+      // are edited independently, so they get separate edit signals — a persistent-only edit must not
+      // reshape an untouched off-table primary (e.g. 2d8+9), and vice versa.
+      const attackUnedited = !levelChanged &&
+        strike.attackBenchmark === statToScalar4(strike.attackBonus, ranges.strikeAttack);
+
+      // The loaded primary damageType is the last typed non-persistent roll (mirrors meleeItemToStrike);
+      // a damageType-only edit changes it while the benchmark/formula stay put.
+      let existingPrimaryType: string | undefined;
+      for (const roll of Object.values(existingRolls)) {
+        if (roll.category !== 'persistent' && roll.damageType) existingPrimaryType = roll.damageType;
       }
+
+      // Formula vs damageType are tracked apart: a damageType-only edit must update the type while
+      // leaving an off-table formula (e.g. 2d8+9) verbatim — only a benchmark/customDamageFormula
+      // change re-derives the formula from computed.damage.
+      const primaryFormulaEdited = levelChanged ||
+        strike.damageBenchmark !== damageToBenchmark(parseDiceFormulaAverage(strike.damage), level) ||
+        (strike.customDamageFormula ?? undefined) !== (storedBenchmark?.customDamageFormula ?? undefined);
+      const primaryTypeEdited = existingPrimaryType !== undefined && strike.damageType !== existingPrimaryType;
+      const primaryEdited = primaryFormulaEdited || primaryTypeEdited;
+      const persistentEdited = levelChanged ||
+        (strike.persistentBenchmark ?? undefined) !== (storedBenchmark?.persistentBenchmark ?? undefined) ||
+        (strike.customPersistentFormula ?? undefined) !== (storedBenchmark?.customPersistentFormula ?? undefined) ||
+        (strike.persistentDamageType ?? undefined) !== (storedBenchmark?.persistentDamageType ?? undefined);
 
       const benchmarkData: ItemBenchmarkData = {
         attackBenchmark: strike.attackBenchmark,
@@ -187,14 +190,53 @@ export async function updateMeleeItems(
       if (strike.customPersistentFormula) benchmarkData.customPersistentFormula = strike.customPersistentFormula;
       if (strike.persistentDamageType) benchmarkData.persistentDamageType = strike.persistentDamageType;
 
-      return {
+      const update: EmbeddedDocumentUpdateData = {
         _id: strike.id!, // toUpdate filters to strikes whose id exists on the actor
         name: strike.name,
-        'system.bonus.value': computed.attackBonus,
-        'system.damageRolls': updatedRolls,
         'system.traits.value': strike.traits || [],
         [`flags.${CREATURE_FLAG}.${ITEM_BENCHMARK_KEY}`]: benchmarkData
       };
+
+      if (attackUnedited && !primaryEdited && !persistentEdited) return update;
+
+      const computed = calculateStrikeStats(
+        level,
+        strike.attackBenchmark,
+        strike.damageBenchmark,
+        strike.customDamageFormula,
+        strike.persistentBenchmark,
+        strike.customPersistentFormula
+      );
+
+      if (!attackUnedited) update['system.bonus.value'] = computed.attackBonus;
+
+      if (primaryEdited || persistentEdited) {
+        const updatedRolls: Record<string, unknown> = {};
+        let primaryUpdated = false;
+
+        for (const [key, rollData] of Object.entries(existingRolls)) {
+          if (rollData.category === 'persistent') {
+            updatedRolls[key] = persistentEdited && computed.persistentDamage
+              ? { ...rollData, damage: computed.persistentDamage }
+              : rollData;
+          } else if (!primaryUpdated) {
+            updatedRolls[key] = primaryEdited
+              ? {
+                  ...rollData,
+                  ...(primaryFormulaEdited ? { damage: computed.damage } : {}),
+                  damageType: strike.damageType || rollData.damageType || 'slashing'
+                }
+              : rollData;
+            primaryUpdated = true;
+          } else {
+            updatedRolls[key] = rollData;
+          }
+        }
+
+        update['system.damageRolls'] = updatedRolls;
+      }
+
+      return update;
     });
 
     await actor.updateEmbeddedDocuments('Item', updates);

@@ -91,8 +91,17 @@ in full.
   - attack: if `strike.attackBenchmark === statToScalar4(strike.attackBonus, ranges.strikeAttack)`
     (the slider wasn't moved relative to the loaded bonus), omit `system.bonus.value` from the
     update — the item keeps its actual bonus, clamped-at-load values included.
-  - damage: if `strike.damageBenchmark === damageToBenchmark(parseDiceFormulaAverage(strike.damage), level)`
-    and `customDamageFormula` is unchanged vs the stored flag, leave `system.damageRolls` untouched.
+  - damage: two independent edit signals, because the primary formula and the persistent rider
+    share `system.damageRolls` but are edited independently (W2 executor finding, 2026-07-20):
+    - `primaryEdited` = `strike.damageBenchmark !== damageToBenchmark(parseDiceFormulaAverage(strike.damage), level)`
+      OR `customDamageFormula` changed vs the stored item flag OR `strike.damageType` differs from
+      the existing primary roll's `damageType`.
+    - `persistentEdited` = any of `persistentBenchmark` / `customPersistentFormula` /
+      `persistentDamageType` changed vs the stored item flag (normalized: absent ≡ undefined).
+    - Omit `system.damageRolls` only when neither is set. When rebuilding, the primary entry takes
+      `computed.damage` only if `primaryEdited` (else keeps its existing formula), and persistent
+      entries take `computed.persistentDamage` only if `persistentEdited` (else keep theirs) — so a
+      persistent-only edit can't normalize an untouched primary formula, and vice versa.
   - name/traits may always be included (Foundry's diff makes equal writes inert).
   When `levelChanged`, compute exactly as today. `meleeItemToStrike` already carries
   `attackBonus`/`damage` for this comparison.
