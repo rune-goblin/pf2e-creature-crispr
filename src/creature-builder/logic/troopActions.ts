@@ -21,39 +21,23 @@ export interface TroopSweepDamage {
   three: number;
 }
 
-/**
- * Per-level target averages for the three sweep damage lines. Published per-level medians
- * (162-troop corpus), smoothed monotonically; levels −1..1 and 17..24 extrapolated on the
- * same slope.
- */
-export const TROOP_SWEEP_DAMAGE: Record<CreatureLevel, TroopSweepDamage> = {
-  [-1]: { one: 3,    two: 7,    three: 10 },
-  [0]:  { one: 3,    two: 7.5,  three: 10.5 },
-  [1]:  { one: 3,    two: 8,    three: 11 },
-  [2]:  { one: 3.5,  two: 8.5,  three: 11.5 },
-  [3]:  { one: 3.5,  two: 9.5,  three: 13 },
-  [4]:  { one: 3.5,  two: 11,   three: 14 },
-  [5]:  { one: 4.5,  two: 12,   three: 16 },
-  [6]:  { one: 4.5,  two: 13,   three: 18 },
-  [7]:  { one: 5.5,  two: 15,   three: 20 },
-  [8]:  { one: 5.5,  two: 16.5, three: 22 },
-  [9]:  { one: 6.5,  two: 18,   three: 24.5 },
-  [10]: { one: 7,    two: 19.5, three: 26.5 },
-  [11]: { one: 7.5,  two: 21,   three: 28.5 },
-  [12]: { one: 8,    two: 22.5, three: 30 },
-  [13]: { one: 8.5,  two: 24,   three: 32 },
-  [14]: { one: 9,    two: 25.5, three: 33.5 },
-  [15]: { one: 9.5,  two: 26.5, three: 34.5 },
-  [16]: { one: 10,   two: 27.5, three: 36 },
-  [17]: { one: 10.5, two: 28.5, three: 37.5 },
-  [18]: { one: 11,   two: 29.5, three: 39 },
-  [19]: { one: 11.5, two: 30.5, three: 40.5 },
-  [20]: { one: 12,   two: 31.5, three: 42 },
-  [21]: { one: 12,   two: 32,   three: 43 },
-  [22]: { one: 12.5, two: 33,   three: 44 },
-  [23]: { one: 12.5, two: 33.5, three: 45 },
-  [24]: { one: 13,   two: 34,   three: 46 }
-};
+// The sweep lines are the strike-damage benchmark columns in disguise (2026-07-25 re-sweep of
+// all 156 published sweeps): 3-action = the high column (median 1.02× high), 2-action = 0.75×
+// of it (= 0.92× moderate), 1-action = 0.27× (bare weapon dice). Derived values land within ±1
+// of published per-level medians at every level with ≥5 statblocks, and extend past L20 (where
+// no troops are published) on the benchmark itself instead of a hand-drawn slope.
+const SWEEP_TWO_FACTOR = 0.75;
+const SWEEP_ONE_FACTOR = 0.27;
+
+const ALL_LEVELS = Array.from({ length: 26 }, (_, i) => (i - 1) as CreatureLevel);
+
+/** Per-level target averages for the three sweep damage lines, derived from the high strike column. */
+export const TROOP_SWEEP_DAMAGE: Record<CreatureLevel, TroopSweepDamage> = Object.fromEntries(
+  ALL_LEVELS.map((level) => {
+    const high = getStatRangesForLevel(level).strikeDamage.high.average;
+    return [level, { one: SWEEP_ONE_FACTOR * high, two: SWEEP_TWO_FACTOR * high, three: high }];
+  })
+) as Record<CreatureLevel, TroopSweepDamage>;
 
 export function getTroopSweepDamage(level: number): TroopSweepDamage {
   const clampedLevel = Math.max(-1, Math.min(24, Math.round(level))) as CreatureLevel;
@@ -177,9 +161,9 @@ const VOLLEY_RANGE_BANDS = [30, 40, 60, 80, 100, 120, 200];
 const DEFAULT_VOLLEY_RANGE = 60;
 const LONG_RANGE_THRESHOLD = 120;
 
-// Published volleys land at ~0.8× the 2-action sweep line — dice-only drops the sweep's flat
-// mod (hobgoblin 4d6=14 vs 2d8+9=18; skeleton-infantry 17 vs 20.5; L13 bolt salvos 18 vs 24).
-const VOLLEY_DAMAGE_FACTOR = 0.8;
+// Published volleys land at ~0.85× the 2-action sweep line (median 0.86 across all 62
+// volleys, IQR 0.75–0.93) — dice-only drops the sweep's flat mod (hobgoblin 4d6=14 vs 2d8+9=18).
+const VOLLEY_DAMAGE_FACTOR = 0.85;
 
 function snapToRangeBand(range: number | undefined): number {
   if (!range) return DEFAULT_VOLLEY_RANGE;

@@ -5,7 +5,7 @@ import {
   getTroopSweepDamage,
   TROOP_SWEEP_DAMAGE
 } from '@/creature-builder/logic/troopActions';
-import { getTroopWeaknessValues } from '@/creature-builder/logic/creatureStatTables';
+import { getStatRangesForLevel, getTroopWeaknessValues } from '@/creature-builder/logic/creatureStatTables';
 import type { CreatureLevel } from '@/creature-builder/logic/creatureStatTables';
 import { parseDiceFormulaAverage } from '@/creature-builder/logic/abilityScaling';
 import type { CreatureStrike } from '@/creature-builder/logic/models';
@@ -207,6 +207,16 @@ describe('TROOP_SWEEP_DAMAGE table', () => {
       const { one, two, three } = TROOP_SWEEP_DAMAGE[level];
       expect(two, `L${level}`).toBeGreaterThan(one);
       expect(three, `L${level}`).toBeGreaterThan(two);
+    }
+  });
+
+  it('derives every level from the high strike column: three = high, two = 0.75×, one = 0.27×', () => {
+    for (const level of levels) {
+      const high = getStatRangesForLevel(level).strikeDamage.high.average;
+      const { one, two, three } = TROOP_SWEEP_DAMAGE[level];
+      expect(three, `three at L${level}`).toBe(high);
+      expect(two, `two at L${level}`).toBeCloseTo(0.75 * high, 6);
+      expect(one, `one at L${level}`).toBeCloseTo(0.27 * high, 6);
     }
   });
 
