@@ -93,7 +93,7 @@ export const defaultSaveTarget: CreatureSaveTarget = {
     // no-op save issues zero skill writes.
     const stats = selectSaveStats(creature.level, creature.benchmarks, creature.baseStats, creature.baseLevel);
     await syncSkillItems(actorId, stats.skills, loadedSkills?.lore);
-    await syncNativeSkills(actorId, stats.skills, loadedSkills?.native);
+    await syncNativeSkills(actorId, stats.skills, loadedSkills?.native, { previousLevel, level: creature.level });
   },
 
   async cloneActor(sourceActorId: string, newName: string, creature: EditableCreature): Promise<string> {
@@ -142,7 +142,7 @@ export const defaultSaveTarget: CreatureSaveTarget = {
     await updateAbilityItems(newActorId, remappedAbilities, creature.level);
     const stats = selectSaveStats(creature.level, creature.benchmarks, creature.baseStats, creature.baseLevel);
     await syncSkillItems(newActorId, stats.skills, loadedSkills?.lore);
-    await syncNativeSkills(newActorId, stats.skills, loadedSkills?.native);
+    await syncNativeSkills(newActorId, stats.skills, loadedSkills?.native, { previousLevel, level: creature.level });
 
     return newActorId;
   },

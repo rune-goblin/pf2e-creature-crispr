@@ -10,6 +10,8 @@
 
 import type { NPCPF2e, ItemSourcePF2e } from 'foundry-pf2e';
 import type { StoredCreatureData } from '../logic/contracts';
+import type { SkillStatRange } from '../logic/creatureStatTables';
+import { getStatRangesForLevel, interpolateSkill, skillToScalar } from '../logic/creatureStatTables';
 import { logger } from './logger';
 
 // The 16 core skill slugs, verbatim from _pf2e-source/src/module/actor/values.ts `CORE_SKILL_SLUGS`.
@@ -188,6 +190,44 @@ interface NativeSkillSource {
   special?: unknown[];
 }
 
+// A thematic skill variant ("+20 in forests"): its `base` is a skill bonus in its own right, so a
+// level rescale must move it exactly as the skill's own base moves. Everything else (label,
+// predicate, anything PF2e adds later) rides along verbatim.
+interface NativeSkillSpecial {
+  base?: number;
+  [key: string]: unknown;
+}
+
+export interface NativeSkillSyncLevels {
+  previousLevel?: number;
+  level?: number;
+}
+
+/**
+ * Rescale each `special[].base` through the same positional round-trip the skill bases use, so a
+ * variant that was the "high" benchmark at the old level is the "high" benchmark at the new one.
+ * Returns undefined when nothing moves — Foundry can't partially update an array, so the whole array
+ * is written or none of it is (an unconditional write would break the zero-write no-op cornerstone).
+ */
+function rescaleSpecials(
+  special: unknown[] | undefined,
+  from: SkillStatRange,
+  to: SkillStatRange
+): NativeSkillSpecial[] | undefined {
+  if (!Array.isArray(special) || special.length === 0) return undefined;
+
+  let changed = false;
+  const scaled = special.map((entry) => {
+    const variant = entry as NativeSkillSpecial;
+    if (typeof variant?.base !== 'number') return variant;
+    const base = Math.round(interpolateSkill(skillToScalar(variant.base, from), to));
+    if (base !== variant.base) changed = true;
+    return { ...variant, base };
+  });
+
+  return changed ? scaled : undefined;
+}
+
 /**
  * Persist native (core) skills to `_source.system.skills[<slug>].base` (D7 amendment). Only core
  * skills (sluggified key in {@link CORE_SKILL_SLUGS}) are handled; lore keys are ignored (they go
@@ -196,11 +236,16 @@ interface NativeSkillSource {
  * `system.skills` writes); deletes a core skill (`system.skills.-=<slug>`) only when it was in the
  * editor's load-time native set (`loadedNativeSlugs`) and is now absent. A core skill the editor never
  * loaded is never touched.
+ *
+ * On a real level change (`levels.previousLevel !== levels.level`) a managed skill's `special`
+ * variants are rescaled alongside its base — otherwise a frozen "+20 in forests" ends up worse than
+ * a base rescaled to 23.
  */
 export async function syncNativeSkills(
   actorId: string,
   skills: Record<string, number>,
-  loadedNativeSlugs?: Set<string>
+  loadedNativeSlugs?: Set<string>,
+  levels: NativeSkillSyncLevels = {}
 ): Promise<void> {
   const actor = game.actors?.get(actorId) as NPCPF2e | undefined;
   if (!actor) throw new Error(`Actor not found: ${actorId}`);
@@ -212,11 +257,21 @@ export async function syncNativeSkills(
   const update: Record<string, unknown> = {};
   const desired = new Set<string>();
 
+  const { previousLevel, level } = levels;
+  const rescale =
+    previousLevel !== undefined && level !== undefined && previousLevel !== level
+      ? { from: getStatRangesForLevel(previousLevel).skills, to: getStatRangesForLevel(level).skills }
+      : undefined;
+
   for (const [name, mod] of Object.entries(skills)) {
     const slug = sluggify(name);
     if (!CORE_SKILL_SLUGS.has(slug)) continue;
     desired.add(slug);
     if (source[slug]?.base !== mod) update[`system.skills.${slug}.base`] = mod;
+    if (rescale) {
+      const special = rescaleSpecials(source[slug]?.special, rescale.from, rescale.to);
+      if (special) update[`system.skills.${slug}.special`] = special;
+    }
   }
 
   // Deletion set: for a flagged actor it's the editor's load-time native set; for an unflagged

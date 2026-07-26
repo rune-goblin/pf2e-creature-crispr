@@ -393,6 +393,37 @@ describe('defaultSaveTarget.updateActor — skill lore items (D7 + D1 interplay)
     expect(actor.deleteEmbeddedDocuments).not.toHaveBeenCalled();
   });
 
+  it('a level-change save writes both the scaled base and the scaled special variants', async () => {
+    const stealthBenchmarks: CreatureBenchmarks = {
+      ...getDefaultBenchmarks(),
+      skills: [{ skill: 'stealth', benchmark: 1 / 6 }]
+    };
+    const baseStats = calculateCreatureStats(9, stealthBenchmarks);
+    const flag = { benchmarks: stealthBenchmarks, baseLevel: 9, baseStats };
+    const actor = makeFullActor([], 9, stealthBenchmarks, {
+      nativeSkills: { stealth: { base: 16, special: [{ base: 20, label: 'in forests' }] } },
+      flag
+    });
+    install(actor);
+    const creature = makeCreature({
+      actorId: ACTOR_ID,
+      level: 14,
+      benchmarks: stealthBenchmarks,
+      baseStats,
+      baseLevel: 9
+    });
+
+    await defaultSaveTarget.updateActor(ACTOR_ID, creature);
+
+    expect(baseStats.skills.stealth).toBe(16);
+    expect(skillUpdateCalls(actor)).toEqual([
+      {
+        'system.skills.stealth.base': 23,
+        'system.skills.stealth.special': [{ base: 28, label: 'in forests' }]
+      }
+    ]);
+  });
+
   it('a no-op save on an actor with native skills issues zero system.skills writes (cornerstone)', async () => {
     const flag = {
       benchmarks,
@@ -464,6 +495,68 @@ describe('syncNativeSkills — native core-skill persistence (D7 amendment)', ()
     await syncNativeSkills(ACTOR_ID, { acrobatics: 12, athletics: 18 });
 
     expect(actor.update).not.toHaveBeenCalled();
+  });
+
+  it('scales special[] variants positionally on a level change, preserving label and predicate', async () => {
+    // Arboreal Copse (level 9): stealth 16 is exactly lowMax, its "in forests" 20 exactly high.
+    const actor = makeActor({
+      nativeSkills: {
+        stealth: { base: 16, note: 'keep me', special: [{ base: 20, label: 'in forests', predicate: ['terrain:forest'] }] }
+      }
+    });
+    install(actor);
+
+    await syncNativeSkills(ACTOR_ID, { stealth: 23 }, new Set(['stealth']), { previousLevel: 9, level: 14 });
+
+    expect(actor.update).toHaveBeenCalledTimes(1);
+    expect(actor.update).toHaveBeenCalledWith({
+      'system.skills.stealth.base': 23,
+      'system.skills.stealth.special': [{ base: 28, label: 'in forests', predicate: ['terrain:forest'] }]
+    });
+  });
+
+  it('scales an off-benchmark special by its position between high and extreme', async () => {
+    // Arboreal Warden: "14 to Impersonate" at level 4 sits two-thirds from high (12) to extreme (15).
+    const actor = makeActor({
+      nativeSkills: { deception: { base: 10, special: [{ base: 14, label: 'to Impersonate a tree' }] } }
+    });
+    install(actor);
+
+    await syncNativeSkills(ACTOR_ID, { deception: 18 }, new Set(['deception']), { previousLevel: 4, level: 9 });
+
+    expect(actor.update).toHaveBeenCalledWith({
+      'system.skills.deception.base': 18,
+      'system.skills.deception.special': [{ base: 22, label: 'to Impersonate a tree' }]
+    });
+  });
+
+  it('writes nothing on a same-level save of a skill carrying specials (cornerstone)', async () => {
+    const actor = makeActor({
+      nativeSkills: { stealth: { base: 16, special: [{ base: 20, label: 'in forests' }] } }
+    });
+    install(actor);
+
+    await syncNativeSkills(ACTOR_ID, { stealth: 16 }, new Set(['stealth']), { previousLevel: 9, level: 9 });
+
+    expect(actor.update).not.toHaveBeenCalled();
+  });
+
+  it('leaves the specials of a skill the editor never managed untouched on a level change', async () => {
+    const actor = makeActor({
+      nativeSkills: {
+        stealth: { base: 16, special: [{ base: 20, label: 'in forests' }] },
+        survival: { base: 15, special: [{ base: 19, label: 'to Track' }] }
+      }
+    });
+    install(actor);
+
+    await syncNativeSkills(ACTOR_ID, { stealth: 23 }, new Set(['stealth']), { previousLevel: 9, level: 14 });
+
+    expect(actor.update).toHaveBeenCalledTimes(1);
+    expect(Object.keys(actor.update.mock.calls[0][0] as object)).toEqual([
+      'system.skills.stealth.base',
+      'system.skills.stealth.special'
+    ]);
   });
 
   it('adds a core-skill name to an actor lacking it as a native base write, not a lore item', async () => {
