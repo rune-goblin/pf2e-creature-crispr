@@ -253,6 +253,78 @@ describe('applyTroopConversion', () => {
   });
 });
 
+describe('applyTroopConversion — spellcasting pinned at the base level', () => {
+  const casterCreature = (level = 8): EditableCreature => ({
+    name: 'War Mage',
+    level,
+    creatureType: 'humanoid',
+    size: 'medium',
+    traits: ['human'],
+    benchmarks: {
+      ...getDefaultBenchmarks(),
+      spellDC: 0.5,
+      spellAttack: 0.5,
+      spellProgression: 'fullPrepared'
+    },
+    speeds: { land: 25 },
+    languages: [],
+    senses: [],
+    strikes: [],
+    specialAbilities: [],
+    immunities: [],
+    resistances: [],
+    weaknesses: []
+  });
+
+  it('keeps spell DC/attack/slots at the pre-conversion level while martial stats scale', () => {
+    const c = casterCreature();
+    const before = calculateCreatureStats(c.level, c.benchmarks);
+    applyTroopConversion(c);
+    expect(c.level).toBe(13);
+    expect(c.benchmarks.spellcastingLevelOffset).toBe(-5);
+
+    const after = calculateCreatureStats(c.level, c.benchmarks);
+    expect(after.spellDC).toBe(before.spellDC);
+    expect(after.spellAttack).toBe(before.spellAttack);
+    expect(after.spellSlots).toEqual(before.spellSlots);
+    expect(after.ac).toBeGreaterThan(before.ac);
+    expect(after.hp).toBeGreaterThan(before.hp);
+  });
+
+  it('post-conversion level edits shift casting in step from the base level', () => {
+    const c = casterCreature();
+    applyTroopConversion(c);
+    // 13 → 15 with offset -5 casts as a level-10 version of the same benchmarks.
+    const at15 = calculateCreatureStats(15, c.benchmarks);
+    const plainL10 = calculateCreatureStats(10, { ...c.benchmarks, spellcastingLevelOffset: undefined });
+    expect(at15.spellDC).toBe(plainL10.spellDC);
+    expect(at15.spellAttack).toBe(plainL10.spellAttack);
+    expect(at15.spellSlots).toEqual(plainL10.spellSlots);
+  });
+
+  it('re-conversion does not stack the offset', () => {
+    const c = casterCreature();
+    applyTroopConversion(c);
+    applyTroopConversion(c);
+    expect(c.level).toBe(13);
+    expect(c.benchmarks.spellcastingLevelOffset).toBe(-5);
+  });
+
+  it('pins by the applied delta when the level bump clamps at 24', () => {
+    const c = casterCreature(22);
+    applyTroopConversion(c);
+    expect(c.level).toBe(24);
+    expect(c.benchmarks.spellcastingLevelOffset).toBe(-2);
+  });
+
+  it('sets no offset for a non-caster', () => {
+    const c = casterCreature();
+    c.benchmarks = getDefaultBenchmarks();
+    applyTroopConversion(c);
+    expect(c.benchmarks.spellcastingLevelOffset).toBeUndefined();
+  });
+});
+
 describe('store troop methods', () => {
   beforeEach(() => editorStore.resetEditor());
 

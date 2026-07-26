@@ -929,6 +929,15 @@ export function getStatRangesForLevel(level: number): {
 }
 
 /**
+ * The level spellcasting computes at: `level + benchmarks.spellcastingLevelOffset`, clamped to the
+ * stat tables' range. Only spell DC/attack interpolation and the slot curve read this; every other
+ * stat stays on the creature's own level.
+ */
+export function effectiveSpellcastingLevel(level: number, offset: number | undefined): number {
+  return Math.max(-1, Math.min(24, level + (offset ?? 0)));
+}
+
+/**
  * Interpolate a value for the 3-benchmark spell stat system (DC or Attack)
  * scalar: 0 = moderate, 0.5 = high, 1 = extreme
  */
@@ -1148,6 +1157,8 @@ export function calculateCreatureStats(
   benchmarks: CreatureBenchmarks
 ): CreatureStats {
   const ranges = getStatRangesForLevel(level);
+  const spellLevel = effectiveSpellcastingLevel(level, benchmarks.spellcastingLevelOffset);
+  const spellRanges = spellLevel === level ? ranges : getStatRangesForLevel(spellLevel);
 
   // Get the damage entry based on the benchmark scalar, preserving relative position
   const damageEntry = scaleStrikeDamage(benchmarks.strikeDamage, ranges.strikeDamage);
@@ -1183,19 +1194,20 @@ export function calculateCreatureStats(
       return acc;
     }, {} as Record<string, number>),
 
-    // Spell DC and Attack use 3-benchmark system (moderate=0, high=0.5, extreme=1)
+    // Spell DC and Attack use 3-benchmark system (moderate=0, high=0.5, extreme=1),
+    // interpolated at the effective spellcasting level (see effectiveSpellcastingLevel).
     spellDC: benchmarks.spellDC !== undefined
-      ? Math.round(interpolateSpellStat(benchmarks.spellDC, ranges.spellDC))
+      ? Math.round(interpolateSpellStat(benchmarks.spellDC, spellRanges.spellDC))
       : undefined,
     spellAttack: benchmarks.spellAttack !== undefined
-      ? Math.round(interpolateSpellStat(benchmarks.spellAttack, ranges.spellAttack))
+      ? Math.round(interpolateSpellStat(benchmarks.spellAttack, spellRanges.spellAttack))
       : undefined,
 
     // Spell slot layout computed from progression type (includes font slots if applicable)
     // Per-rank overrides from benchmarks.spellSlotOverrides replace the computed counts.
     spellSlots: benchmarks.spellProgression && benchmarks.spellProgression !== 'none' && benchmarks.spellProgression !== 'innate'
       ? applySpellSlotOverrides(
-          getSpellSlots(benchmarks.spellProgression, level, benchmarks.spellFont),
+          getSpellSlots(benchmarks.spellProgression, spellLevel, benchmarks.spellFont),
           benchmarks.spellSlotOverrides
         )
       : undefined

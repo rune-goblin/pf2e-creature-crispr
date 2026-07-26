@@ -91,6 +91,21 @@ export function rescaleCreatureIwr(creature: EditableCreature, fromLevel: number
 const DEFAULT_LEVEL_DELTA = 5; // published troop = base + 5 (corpus fact 1)
 const DEFAULT_NAME_SUFFIX = ' Troop';
 
+/**
+ * A troop fights five levels up but casts as it did before formation — massed bodies don't deepen
+ * anyone's magic (a level-8 caster in a level-13 troop keeps level-8 DCs and slot ranks). Shift the
+ * spellcasting offset opposite the applied level delta so DC/attack/slots keep computing at the
+ * pre-conversion level, while post-conversion level edits move casting and level in step.
+ */
+function pinSpellcastingLevel(creature: EditableCreature, appliedDelta: number): void {
+  const b = creature.benchmarks;
+  const isCaster = b.spellDC !== undefined || b.spellAttack !== undefined
+    || (b.spellProgression !== undefined && b.spellProgression !== 'none');
+  if (!isCaster || appliedDelta === 0) return;
+  const offset = (b.spellcastingLevelOffset ?? 0) - appliedDelta;
+  b.spellcastingLevelOffset = offset === 0 ? undefined : offset;
+}
+
 // The universal glossary kit as pure @Localize abilities — same name/actionType/description the editor's
 // `applyTroopToActor` embeds from the SRD glossary items, so the headless and editor paths converge.
 const TROOP_DEFENSES_DEF: CustomAbilityDefinition = {
@@ -139,7 +154,8 @@ function seedFormUpWeaknesses(creature: EditableCreature): void {
 
 /**
  * Convert an EditableCreature to a troop in place: CRISPR's default engine. Flags it, sizes it, bumps +
- * rescales the level, suffixes the name, and — the v2 core — generates the two published attack actions
+ * rescales the level (spellcasting stays pinned at the pre-conversion level — {@link pinSpellcastingLevel}),
+ * suffixes the name, and — the v2 core — generates the two published attack actions
  * from the pre-conversion strikes (best melee → 1-to-3 sweep, best ranged → 2-action volley), removes the
  * now-converted strikes (published troops carry zero strike items — corpus fact 2), and seeds the standard
  * glossary kit. The recipe is an override/additive layer (decision 5): its `levelDelta`/`nameSuffix`/
@@ -165,6 +181,8 @@ export function applyTroopConversion(
     const levelDelta = opts.levelDelta ?? recipe.levelDelta ?? DEFAULT_LEVEL_DELTA;
     const next = clampLevel(creature.level + levelDelta);
     rescaleCreatureIwr(creature, creature.level, next);
+    // The clamp can shrink the delta, so pin by the level change that actually happened.
+    pinSpellcastingLevel(creature, next - creature.level);
     creature.level = next;
   }
 

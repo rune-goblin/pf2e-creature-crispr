@@ -15,6 +15,7 @@ import {
 } from '../logic/spellSlotTables';
 import {
   calculateCreatureStats,
+  effectiveSpellcastingLevel,
   getStatRangesForLevel,
   spellStatToScalar,
   interpolateSpellStat
@@ -185,26 +186,33 @@ function diffSlotOverrides(
 /**
  * Update spellcasting entries on an actor for a new level, per-entry (D6). The primary entry's DC/
  * attack come from the creature's spellDC/spellAttack benchmarks and it alone gets the slot layout;
- * every other entry scales from its OWN stored benchmark (or, unflagged, back-solves at
- * `previousLevel`) and is rewritten only on a genuine level change — so a same-level benchmark edit
+ * every other entry scales from its OWN stored benchmark (or, unflagged, back-solves at the previous
+ * level) and is rewritten only on a genuine level change — so a same-level benchmark edit
  * touches the primary alone and can never flatten a distinct innate/secondary DC onto it.
+ *
+ * All level comparisons and stat ranges here use the EFFECTIVE spellcasting level
+ * (level + spellcastingLevelOffset): troop conversion moves level and offset in opposite directions,
+ * so its save is a same-spell-level edit and no entry gains casting power from the +5.
  */
 export async function syncSpellcastingEntriesForLevel(
   actor: NPCPF2e,
   level: number,
   benchmarks: CreatureBenchmarks,
-  opts: { previousLevel?: number } = {}
+  opts: { previousLevel?: number; previousSpellcastingLevelOffset?: number } = {}
 ): Promise<void> {
   const entries = getSpellcastingEntries(actor);
   if (entries.length === 0) return;
 
-  const previousLevel = opts.previousLevel;
-  const levelChanged = previousLevel !== undefined && previousLevel !== level;
+  const spellLevel = effectiveSpellcastingLevel(level, benchmarks.spellcastingLevelOffset);
+  const prevSpellLevel = opts.previousLevel !== undefined
+    ? effectiveSpellcastingLevel(opts.previousLevel, opts.previousSpellcastingLevelOffset)
+    : undefined;
+  const levelChanged = prevSpellLevel !== undefined && prevSpellLevel !== spellLevel;
 
   const stats = calculateCreatureStats(level, benchmarks);
   const slotLayout = stats.spellSlots;
-  const ranges = getStatRangesForLevel(level);
-  const prevRanges = previousLevel !== undefined ? getStatRangesForLevel(previousLevel) : ranges;
+  const ranges = getStatRangesForLevel(spellLevel);
+  const prevRanges = prevSpellLevel !== undefined ? getStatRangesForLevel(prevSpellLevel) : ranges;
 
   const primaryId = getPrimarySpellcastingEntry(entries)?.id;
 

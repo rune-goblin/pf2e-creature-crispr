@@ -3,7 +3,7 @@
    import { SPELL_BENCHMARK_VALUES, SPELL_TRADITIONS, type SpellBenchmarkLabel } from '@/creature-builder/logic/models';
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
-   import { getStatRangesForLevel, spellStatToScalar } from '@/creature-builder/logic/creatureStatTables';
+   import { effectiveSpellcastingLevel, getStatRangesForLevel, spellStatToScalar } from '@/creature-builder/logic/creatureStatTables';
    import {
       getSpellSlots,
       getMaxSpellRankForProgression,
@@ -42,6 +42,8 @@
 
    const spellcastingEnabled = $derived(creature.benchmarks.spellDC !== undefined);
 
+   const spellLevel = $derived(effectiveSpellcastingLevel(creature.level, creature.benchmarks.spellcastingLevelOffset));
+
    const usesSpellSlots = $derived(
       !!creature.benchmarks.spellProgression
          && creature.benchmarks.spellProgression !== 'none'
@@ -52,14 +54,14 @@
    // Used to compute reset values and detect which ranks are overridden.
    const calculatedSlots = $derived(
       usesSpellSlots
-         ? getSpellSlots(creature.benchmarks.spellProgression!, creature.level, creature.benchmarks.spellFont)
+         ? getSpellSlots(creature.benchmarks.spellProgression!, spellLevel, creature.benchmarks.spellFont)
          : undefined
    );
 
    const slotOverrides = $derived(creature.benchmarks.spellSlotOverrides);
 
    const maxRank = $derived(
-      getMaxSpellRankForProgression(creature.benchmarks.spellProgression, creature.level)
+      getMaxSpellRankForProgression(creature.benchmarks.spellProgression, spellLevel)
    );
 
    const slotEntries = $derived.by(() => {
@@ -96,7 +98,7 @@
 
    const fontSlotCount = $derived(
       creature.benchmarks.spellFont
-         ? (creature.level >= 15 ? 6 : creature.level >= 5 ? 5 : 4)
+         ? (spellLevel >= 15 ? 6 : spellLevel >= 5 ? 5 : 4)
          : 0
    );
 
@@ -107,6 +109,13 @@
       const ranks = Object.keys(calculatedSlots ?? {}).map(Number).filter((rank) => rank > 0);
       return ranks.length > 0 ? Math.max(...ranks) : 0;
    });
+
+   const casterOffset = $derived(creature.benchmarks.spellcastingLevelOffset ?? 0);
+
+   function adjustCasterLevel(delta: number): void {
+      const next = (creature.benchmarks.spellcastingLevelOffset ?? 0) + delta;
+      onUpdateBenchmark?.({ path: 'spellcastingLevelOffset', value: next === 0 ? undefined : next });
+   }
 
    function toggleSpellcasting(enabled: boolean): void {
       if (enabled) {
@@ -129,7 +138,7 @@
 
    function commitSpellDCEdit(): void {
       if (!creature) return;
-      const ranges = getStatRangesForLevel(creature.level);
+      const ranges = getStatRangesForLevel(spellLevel);
       const scalar = spellStatToScalar(editSpellDCValue, ranges.spellDC);
       onUpdateBenchmark?.({ path: 'spellDC', value: scalar });
       editingSpellDC = false;
@@ -147,7 +156,7 @@
 
    function commitSpellAttackEdit(): void {
       if (!creature) return;
-      const ranges = getStatRangesForLevel(creature.level);
+      const ranges = getStatRangesForLevel(spellLevel);
       const scalar = spellStatToScalar(editSpellAttackValue, ranges.spellAttack);
       onUpdateBenchmark?.({ path: 'spellAttack', value: scalar });
       editingSpellAttack = false;
@@ -232,7 +241,7 @@
                      }}
                   >
                      <option value="">— Select —</option>
-                     {#each SPELL_PROGRESSION_OPTIONS as opt}
+                     {#each SPELL_PROGRESSION_OPTIONS as opt (opt.value)}
                         <option value={opt.value}>{opt.label}</option>
                      {/each}
                   </select>
@@ -253,7 +262,7 @@
                      }}
                   >
                      <option value="">— Select —</option>
-                     {#each SPELL_TRADITIONS as t}
+                     {#each SPELL_TRADITIONS as t (t)}
                         <option value={t}>{SPELL_TRADITION_LABELS[t]}</option>
                      {/each}
                   </select>
@@ -268,11 +277,45 @@
                      tabindex={creature.benchmarks.spellProgression === 'fullPrepared' && creature.benchmarks.spellTradition === 'divine' ? 0 : -1}
                      onchange={(e) => onUpdateBenchmark?.({ path: 'spellFont', value: e.currentTarget.value || undefined })}
                   >
-                     {#each SPELL_FONT_OPTIONS as opt}
+                     {#each SPELL_FONT_OPTIONS as opt (opt.value)}
                         <option value={opt.value}>{opt.label}</option>
                      {/each}
                   </select>
                </div>
+            </div>
+
+            <div class="caster-level-row">
+               <span class="stat-label">Caster Level</span>
+               <div class="caster-level-controls">
+                  <button
+                     type="button"
+                     class="slot-btn"
+                     aria-label="Decrease caster level"
+                     title="Decrease caster level"
+                     disabled={spellLevel <= -1}
+                     onclick={() => adjustCasterLevel(-1)}
+                  ><i class="fas fa-minus"></i></button>
+                  <span class="caster-level-value" class:overridden={casterOffset !== 0}>{spellLevel}</span>
+                  <button
+                     type="button"
+                     class="slot-btn"
+                     aria-label="Increase caster level"
+                     title="Increase caster level"
+                     disabled={spellLevel >= 24}
+                     onclick={() => adjustCasterLevel(1)}
+                  ><i class="fas fa-plus"></i></button>
+                  <button
+                     type="button"
+                     class="slot-btn slot-reset"
+                     aria-label="Reset to creature level"
+                     title="Reset to creature level"
+                     disabled={casterOffset === 0}
+                     onclick={() => onUpdateBenchmark?.({ path: 'spellcastingLevelOffset', value: undefined })}
+                  ><i class="fas fa-rotate-left"></i></button>
+               </div>
+               {#if casterOffset !== 0}
+                  <span class="slot-note">(creature level {creature.level} {casterOffset < 0 ? '−' : '+'} {Math.abs(casterOffset)})</span>
+               {/if}
             </div>
 
             <div class="spell-stats-row">
@@ -343,7 +386,7 @@
                               {#if entry.exceedsLevel}
                                  <i
                                     class="fas fa-triangle-exclamation slot-warning"
-                                    title={`Rank ${entry.rank} is above rank ${maxRank}, the highest a level ${creature.level} caster normally reaches`}
+                                    title={`Rank ${entry.rank} is above rank ${maxRank}, the highest a level ${spellLevel} caster normally reaches`}
                                  ></i>
                               {/if}
                               <span class="slot-rank">{rankLabel(entry.rank)}</span>
@@ -473,6 +516,38 @@
 
       &.hidden {
          visibility: hidden;
+      }
+   }
+
+   .caster-level-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-8);
+      padding-left: var(--space-24);
+
+      .stat-label {
+         font-size: var(--font-sm);
+         font-weight: var(--font-weight-medium);
+         color: var(--text-secondary);
+         min-width: 5rem;
+      }
+   }
+
+   .caster-level-controls {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+   }
+
+   .caster-level-value {
+      font-weight: var(--font-weight-bold);
+      color: var(--text-primary);
+      min-width: 2rem;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+
+      &.overridden {
+         color: var(--color-primary);
       }
    }
 

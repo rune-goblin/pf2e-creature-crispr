@@ -151,6 +151,12 @@ export interface CreatureBenchmarks {
   spellFont?: SpellFont;
   /** Per-rank absolute slot count overrides. Keys are ranks, values replace the computed slot count. */
   spellSlotOverrides?: Record<number, number>;
+  /**
+   * Spellcasting computes at `level + offset` instead of `level`. Troop conversion sets it to
+   * -levelDelta so the +5 bump lifts martial stats without lifting casting; later level edits shift
+   * both in step (a 8→13 troop edited to 15 casts as a level 10).
+   */
+  spellcastingLevelOffset?: number;
 }
 
 /**
@@ -192,6 +198,7 @@ export interface ScalableValue {
   originalValue: string;       // Original value from import (e.g., "2d6+4" or "25")
   baseLevel?: number;          // Creature level at which this value was parsed. When the current level matches, the recommendation is the literal `originalValue` instead of the (lossy) benchmark-scaled form.
   damageType?: string;         // For damage/persistent: fire, cold, poison, etc.
+  healingKind?: 'fast-healing' | 'regeneration';  // For healing: which corpus curve scales it (regeneration runs a band higher and snaps to 5s). Absent on legacy data → treated as fast-healing.
   checkType?: string;          // For dc: the save type (will, fortitude, reflex) from @Check format
   conditionSlug?: string;      // For condition: the conditionitems slug, e.g. "Drained"
   conditionLabel?: string;     // For condition: the display name from the link label, e.g. "Drained"

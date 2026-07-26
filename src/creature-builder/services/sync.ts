@@ -102,7 +102,11 @@ export async function updateCreature(
     await syncAbilityItemsForLevel(actor, level);
   }
   if (levelChanged || benchmarksChanged) {
-    await syncSpellcastingEntriesForLevel(actor, level, benchmarks, { previousLevel });
+    await syncSpellcastingEntriesForLevel(actor, level, benchmarks, {
+      previousLevel,
+      // The pre-save offset comes from the stored flag; an unflagged actor was never saved with one.
+      previousSpellcastingLevelOffset: currentData?.benchmarks?.spellcastingLevelOffset
+    });
   }
 
   await actor.setFlag(CREATURE_FLAG, CREATURE_DATA_KEY, {
