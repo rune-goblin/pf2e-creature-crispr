@@ -24,6 +24,9 @@ export function editCreature(opts: EditCreatureOptions = {}): void {
   } else {
     editorStore.startCreate();
   }
+  // A host-bound session ends at save/cancel — close the window then instead of
+  // dropping into CRISPR's list view (still bound to the host's save target).
+  editorStore.closeOnEnd = true;
 
   CreatureCrisprApp.open();
 }

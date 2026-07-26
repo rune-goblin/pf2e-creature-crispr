@@ -34,6 +34,9 @@ const DEFAULT_EXPANDED: EditorSection[] = ['abilities', 'defenses', 'skills', 'o
 
 class CreatureEditorStore {
   active = $state(false);
+  // Host-launched sessions (editCreature) close the window when the edit ends;
+  // in-app sessions fall back to the list view.
+  closeOnEnd = $state(false);
   mode = $state<EditorMode>('create');
   creature = $state<EditableCreature | null>(null);
   originalCreature = $state<EditableCreature | null>(null);
@@ -240,6 +243,7 @@ class CreatureEditorStore {
 
   private reset(): void {
     this.active = false;
+    this.closeOnEnd = false;
     this.mode = 'create';
     this.creature = null;
     this.originalCreature = null;

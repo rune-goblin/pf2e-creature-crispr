@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ActorPF2e } from 'foundry-pf2e';
+  import type { CreatureCrisprApp } from '@/creature-builder/ui/CreatureCrisprApp';
   import { editorStore, dragDropState } from '@/creature-builder/editor';
   import { getActiveSaveTarget, defaultEditorEnvironment, getActiveProviders } from '@/creature-builder/services';
   import {
@@ -22,6 +23,8 @@
   import SpellcastingSection from './sections/SpellcastingSection.svelte';
   import SpecialAbilitiesSection from './sections/SpecialAbilitiesSection.svelte';
 
+  let { app }: { app: CreatureCrisprApp } = $props();
+
   const creature = $derived(editorStore.creature);
   const mode = $derived(editorStore.mode);
   const computedStats = $derived(editorStore.computedStats);
@@ -36,8 +39,15 @@
   let isSaving = $state(false);
   let isExporting = $state(false);
 
+  // reset() clears closeOnEnd, so capture it before ending the session.
+  function endSession(): void {
+    const closeApp = editorStore.closeOnEnd;
+    editorStore.resetEditor();
+    if (closeApp) void app.close();
+  }
+
   async function handleCancel(): Promise<void> {
-    if (await editorStore.confirmDiscardIfDirty(env)) editorStore.cancelEdit();
+    if (await editorStore.confirmDiscardIfDirty(env)) endSession();
   }
   let showSaveAsDialog = $state(false);
   let saveAsName = $state('');
@@ -66,7 +76,7 @@
         await target.onAfterSave?.(c.actorId, c, 'update');
       }
       env.notify.info(`Saved creature: ${c.name}`);
-      editorStore.resetEditor();
+      endSession();
     } catch (error) {
       console.error('[Creature CRISPR] Failed to save creature:', error);
       env.notify.error('Failed to save creature');
@@ -107,7 +117,7 @@
       await target.onAfterSave?.(newActorId, c, 'clone');
       env.notify.info(`Saved creature copy: ${trimmedName}`);
       showSaveAsDialog = false;
-      editorStore.resetEditor();
+      endSession();
     } catch (error) {
       console.error('[Creature CRISPR] Failed to save creature copy:', error);
       env.notify.error('Failed to save creature copy');

@@ -136,6 +136,18 @@ describe('CreatureEditorStore', () => {
     expect(editorStore.creature).toBeNull();
     expect(editorStore.computedStats).toBeNull();
   });
+
+  it('reset clears closeOnEnd so a host-bound session cannot leak into the next in-app one', () => {
+    editorStore.startCreate();
+    editorStore.closeOnEnd = true;
+    editorStore.resetEditor();
+    expect(editorStore.closeOnEnd).toBe(false);
+
+    editorStore.startEdit(makeEditable());
+    editorStore.closeOnEnd = true;
+    editorStore.cancelEdit();
+    expect(editorStore.closeOnEnd).toBe(false);
+  });
 });
 
 describe('confirmDiscardIfDirty (shared Cancel/close guard)', () => {

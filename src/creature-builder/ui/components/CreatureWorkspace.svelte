@@ -4,13 +4,12 @@
   import CreatureEditor from './CreatureEditor.svelte';
   import CreatureListView from './CreatureListView.svelte';
 
-  // The app shell passes itself in (mount contract); the workspace doesn't need it yet.
-  let { app: _app }: { app: CreatureCrisprApp } = $props();
+  let { app }: { app: CreatureCrisprApp } = $props();
 </script>
 
 <div class="creature-workspace">
   {#if editorStore.active}
-    <CreatureEditor />
+    <CreatureEditor {app} />
   {:else}
     <CreatureListView />
   {/if}
