@@ -4,6 +4,7 @@
    import BenchmarkButtons from '../widgets/BenchmarkButtons.svelte';
    import CollapsibleSection from '../widgets/CollapsibleSection.svelte';
    import { effectiveSpellcastingLevel, getStatRangesForLevel, spellStatToScalar } from '@/creature-builder/logic/creatureStatTables';
+   import { findTroopSpellcasting } from '@/creature-builder/logic/troop';
    import {
       getSpellSlots,
       getMaxSpellRankForProgression,
@@ -22,7 +23,8 @@
       onToggle,
       onUpdateBenchmark,
       onSetSpellSlotOverride,
-      onResetSpellSlotOverride
+      onResetSpellSlotOverride,
+      onSetSteadySpellcasting
    }: {
       creature: EditableCreature;
       computedStats: CreatureStats | null;
@@ -31,6 +33,7 @@
       onUpdateBenchmark?: (d: { path: string; value: number | string | undefined }) => void;
       onSetSpellSlotOverride?: (d: { rank: number; count: number }) => void;
       onResetSpellSlotOverride?: (d: { rank: number }) => void;
+      onSetSteadySpellcasting?: (d: { steady: boolean }) => void;
    } = $props();
 
    const SPELL_BENCHMARK_LABELS: SpellBenchmarkLabel[] = ['moderate', 'high', 'extreme'];
@@ -112,6 +115,8 @@
 
    const casterOffset = $derived(creature.benchmarks.spellcastingLevelOffset ?? 0);
 
+   const troopSpellcasting = $derived(findTroopSpellcasting(creature));
+
    function adjustCasterLevel(delta: number): void {
       const next = (creature.benchmarks.spellcastingLevelOffset ?? 0) + delta;
       onUpdateBenchmark?.({ path: 'spellcastingLevelOffset', value: next === 0 ? undefined : next });
@@ -138,7 +143,7 @@
 
    function commitSpellDCEdit(): void {
       if (!creature) return;
-      const ranges = getStatRangesForLevel(spellLevel);
+      const ranges = getStatRangesForLevel(creature.level);
       const scalar = spellStatToScalar(editSpellDCValue, ranges.spellDC);
       onUpdateBenchmark?.({ path: 'spellDC', value: scalar });
       editingSpellDC = false;
@@ -156,7 +161,7 @@
 
    function commitSpellAttackEdit(): void {
       if (!creature) return;
-      const ranges = getStatRangesForLevel(spellLevel);
+      const ranges = getStatRangesForLevel(creature.level);
       const scalar = spellStatToScalar(editSpellAttackValue, ranges.spellAttack);
       onUpdateBenchmark?.({ path: 'spellAttack', value: scalar });
       editingSpellAttack = false;
@@ -284,39 +289,52 @@
                </div>
             </div>
 
-            <div class="caster-level-row">
-               <span class="stat-label">Caster Level</span>
-               <div class="caster-level-controls">
-                  <button
-                     type="button"
-                     class="slot-btn"
-                     aria-label="Decrease caster level"
-                     title="Decrease caster level"
-                     disabled={spellLevel <= -1}
-                     onclick={() => adjustCasterLevel(-1)}
-                  ><i class="fas fa-minus"></i></button>
-                  <span class="caster-level-value" class:overridden={casterOffset !== 0}>{spellLevel}</span>
-                  <button
-                     type="button"
-                     class="slot-btn"
-                     aria-label="Increase caster level"
-                     title="Increase caster level"
-                     disabled={spellLevel >= 24}
-                     onclick={() => adjustCasterLevel(1)}
-                  ><i class="fas fa-plus"></i></button>
-                  <button
-                     type="button"
-                     class="slot-btn slot-reset"
-                     aria-label="Reset to creature level"
-                     title="Reset to creature level"
-                     disabled={casterOffset === 0}
-                     onclick={() => onUpdateBenchmark?.({ path: 'spellcastingLevelOffset', value: undefined })}
-                  ><i class="fas fa-rotate-left"></i></button>
-               </div>
-               {#if casterOffset !== 0}
+            {#if casterOffset !== 0}
+               <div class="caster-level-row">
+                  <span class="stat-label">Caster Level</span>
+                  <div class="caster-level-controls">
+                     <button
+                        type="button"
+                        class="slot-btn"
+                        aria-label="Decrease caster level"
+                        title="Decrease caster level"
+                        disabled={spellLevel <= -1}
+                        onclick={() => adjustCasterLevel(-1)}
+                     ><i class="fas fa-minus"></i></button>
+                     <span class="caster-level-value overridden">{spellLevel}</span>
+                     <button
+                        type="button"
+                        class="slot-btn"
+                        aria-label="Increase caster level"
+                        title="Increase caster level"
+                        disabled={spellLevel >= 24}
+                        onclick={() => adjustCasterLevel(1)}
+                     ><i class="fas fa-plus"></i></button>
+                     <button
+                        type="button"
+                        class="slot-btn slot-reset"
+                        aria-label="Reset to creature level"
+                        title="Reset to creature level"
+                        onclick={() => onUpdateBenchmark?.({ path: 'spellcastingLevelOffset', value: undefined })}
+                     ><i class="fas fa-rotate-left"></i></button>
+                  </div>
                   <span class="slot-note">(creature level {creature.level} {casterOffset < 0 ? '−' : '+'} {Math.abs(casterOffset)})</span>
-               {/if}
-            </div>
+               </div>
+            {/if}
+
+            {#if troopSpellcasting}
+               <div class="steady-toggle">
+                  <label class="spellcasting-toggle">
+                     <input
+                        type="checkbox"
+                        checked={troopSpellcasting.steady}
+                        onchange={(e) => onSetSteadySpellcasting?.({ steady: e.currentTarget.checked })}
+                     />
+                     <span>{game.i18n.localize('pf2e-creature-crispr.troop.spellcasting.steadyLabel')}</span>
+                  </label>
+                  <div class="steady-hint">{game.i18n.localize('pf2e-creature-crispr.troop.spellcasting.steadyHint')}</div>
+               </div>
+            {/if}
 
             <div class="spell-stats-row">
                <div class="spell-stat">
@@ -549,6 +567,20 @@
       &.overridden {
          color: var(--color-primary);
       }
+   }
+
+   .steady-toggle {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+      padding-left: var(--space-24);
+   }
+
+   .steady-hint {
+      font-size: var(--font-xs);
+      color: var(--text-muted);
+      font-style: italic;
+      padding-left: var(--space-24);
    }
 
    .spell-stats-row {

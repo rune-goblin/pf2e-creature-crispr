@@ -1,0 +1,418 @@
+<meta charset="utf-8">
+<title>Regeneration &amp; Fast Healing in Published PF2e</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --ink-1: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --critical: #d03b3b;
+    --proposed: #4a3aa7;
+    --band: rgba(235,104,52,0.10);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page);
+    color: var(--ink-1);
+    margin: 0;
+    padding: 32px 20px 64px;
+    line-height: 1.55;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d;
+      --ink-1: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+      --critical: #d03b3b; --proposed: #9085e9; --band: rgba(217,89,38,0.14);
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --page: #0d0d0d;
+    --ink-1: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+    --critical: #d03b3b; --proposed: #9085e9; --band: rgba(217,89,38,0.14);
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 40px 0 6px; }
+  .sub { color: var(--ink-2); margin: 0 0 24px; font-size: 15px; }
+  .caption { color: var(--ink-2); font-size: 14px; margin: 6px 0 0; }
+  .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0 8px; }
+  .tile {
+    flex: 1 1 180px; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .tile .v { font-size: 26px; font-weight: 650; }
+  .tile .k { font-size: 13.5px; color: var(--ink-2); margin-top: 2px; }
+  figure {
+    margin: 14px 0 0; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 16px 10px; position: relative;
+  }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13.5px; color: var(--ink-2); margin: 0 0 8px 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  .sw.dot { width: 9px; height: 9px; border-radius: 50%; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font-family: inherit; }
+  .tick { fill: var(--muted); font-size: 12px; }
+  .axis-name { fill: var(--muted); font-size: 12.5px; }
+  .dlabel { font-size: 12.5px; font-weight: 600; }
+  .tooltip {
+    position: absolute; pointer-events: none; background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
+    font-size: 13.5px; box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+    opacity: 0; transition: opacity .1s; max-width: 240px; z-index: 5;
+  }
+  .tooltip b { display: block; }
+  .tooltip .m { color: var(--ink-2); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden; color: var(--ink-1); }
+  th, td { padding: 6px 10px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-1); }
+  th { color: var(--ink-2); font-weight: 600; border-bottom: 1px solid var(--grid); }
+  td:first-child, th:first-child { text-align: left; }
+  tbody tr:nth-child(even) { background: rgba(137,135,129,0.10); }
+  .overflow { overflow-x: auto; }
+  .callout {
+    border-left: 3px solid var(--critical); background: var(--surface-1);
+    border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 18px 0; font-size: 14.5px;
+  }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  code { background: rgba(137,135,129,0.14); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+  .rec { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 4px 18px 14px; margin-top: 10px; }
+</style>
+<div class="viz-root"><div class="wrap">
+
+<h1>Regeneration &amp; Fast Healing in Published PF2e</h1>
+<p class="sub">Every <code>FastHealing</code> rule element across all bestiary packs in the PF2e system
+source (dedup&#8202;licated across reprints) — mapped against creature level, and against the CRISPR scaling
+table that currently drives both abilities.</p>
+
+<div class="tiles">
+  <div class="tile"><div class="v" id="t-regen"></div><div class="k">creatures with regeneration</div></div>
+  <div class="tile"><div class="v" id="t-fh"></div><div class="k">creatures with fast healing</div></div>
+  <div class="tile"><div class="v">50</div><div class="k">highest regeneration ever printed (Treerazer, L25)</div></div>
+  <div class="tile"><div class="v">20 @ L5</div><div class="k">the Troll spike — 2.4&times; the level-5 trend</div></div>
+</div>
+
+<h2>Regeneration by creature level</h2>
+<figure id="fig-regen">
+  <div class="legend">
+    <span><i class="sw dot" style="background:var(--series-1)"></i> published creature</span>
+    <span><i class="sw dot" style="background:var(--series-3)"></i> troll family</span>
+    <span><i class="sw" style="background:var(--series-1)"></i> corpus mean per level</span>
+    <span><i class="sw" style="background:var(--muted); height:2px"></i> linear trend</span>
+    <span><i class="sw" style="background:var(--series-2)"></i> CRISPR moderate (current table)</span>
+    <span><i class="sw" style="background:var(--band); height:10px; border:1px solid var(--series-2)"></i> CRISPR low–high band</span>
+    <span><i class="sw" style="background:var(--proposed)"></i> proposed 7 → 34</span>
+  </div>
+  <div id="chart-regen"></div>
+  <div class="tooltip" id="tip-regen"></div>
+  <figcaption class="caption">Hover a dot for the creature. The ✕ marks where CRISPR's current
+  ratio scaling puts a Forest Troll troop raised to level 14 — regeneration 50, a value the corpus
+  reserves for level 16+ apex creatures.</figcaption>
+</figure>
+
+<div class="callout" id="callout-troll"></div>
+
+<h2>Fast healing by creature level</h2>
+<figure id="fig-fh">
+  <div class="legend">
+    <span><i class="sw dot" style="background:var(--series-1)"></i> published creature</span>
+    <span><i class="sw" style="background:var(--series-1)"></i> corpus mean per level</span>
+    <span><i class="sw" style="background:var(--muted); height:2px"></i> linear trend</span>
+    <span><i class="sw" style="background:var(--series-2)"></i> CRISPR moderate (current table)</span>
+    <span><i class="sw" style="background:var(--band); height:10px; border:1px solid var(--series-2)"></i> CRISPR low–high band</span>
+    <span><i class="sw" style="background:var(--proposed)"></i> proposed (= trend)</span>
+  </div>
+  <div id="chart-fh"></div>
+  <div class="tooltip" id="tip-fh"></div>
+  <figcaption class="caption">Fast healing is a genuinely level-tracking stat — the corpus trend
+  (≈&#8202;0.8 per level) and the CRISPR moderate curve agree closely.</figcaption>
+</figure>
+
+<h2>Paizo's own answer: the troll family</h2>
+<figure id="fig-troll">
+  <div class="legend">
+    <span><i class="sw dot" style="background:var(--series-3)"></i> troll-family creature</span>
+    <span><i class="sw" style="background:var(--series-3)"></i> family progression</span>
+    <span><i class="sw" style="background:var(--critical); height:2px"></i> CRISPR ratio scaling from Troll (L5)</span>
+  </div>
+  <div id="chart-troll"></div>
+  <div class="tooltip" id="tip-troll"></div>
+  <figcaption class="caption">Eleven published troll-family creatures, level 3 → 18. Paizo grows the
+  family's signature regeneration <em>additively</em> — roughly +5 per 2–3 levels — while CRISPR's
+  multiplicative scaling races past the entire family by level 12.</figcaption>
+</figure>
+
+<h2>Per-level table</h2>
+<div class="overflow"><table id="stats-table"></table></div>
+<p class="caption">Corpus columns are deduplicated published creatures; CRISPR mod is the current
+<code>FAST_HEALING_TABLE</code> moderate value used for both abilities.</p>
+
+<h2>Findings</h2>
+<ul>
+  <li><b>Regeneration and fast healing are two different populations.</b> Regeneration runs a full
+  band higher at every level: trend ≈ <b>7.7 + 0.96&times;level</b>, versus fast healing's
+  ≈ <b>0.8 + 0.82&times;level</b>. The current table was fitted to the <em>combined</em> pool
+  (<code>docs/fast-healing-scaling.md</code>), so it under-shoots regeneration at low level and both
+  curves inherit each other's noise.</li>
+  <li><b>Regeneration grows additively, not proportionally.</b> The corpus mean rises ~1 point per
+  level from a ~8-point base. Its <em>ratio</em> to level collapses as level grows: regen 20 at L5 is
+  4&times; level; regen 30 at L20 is 1.5&times; level. Ratio-preserving rescaling
+  (<code>scaleProportionally</code>: <code>value &times; mod(target)/mod(base)</code>) therefore
+  systematically overshoots any upward rescale — and <em>explodes</em> on spikes.</li>
+  <li><b>Trolls are exactly the spike suspected.</b> At L3–8 the troll family carries regen 15–20
+  where the trend says 8–15. Paizo's own higher-level trolls answer how to scale it: Troll (L5) 20 →
+  Troll King (L10) 30 → Jotund Troll (L15) 40 → Misbegotten Troll (L18) 45. That is
+  <b>+25 over 13 levels</b> (~1.9/level) — not the &times;2.5-per-9-levels our ratio math applies.</li>
+  <li><b>Values are coarse.</b> Every printed regeneration ≥ 10 is a multiple of 5
+  (distinct values: 5, 7, 10, 15, 20, 25, 30, 40, 45, 50). Scaled output should snap to 5s.</li>
+  <li><b>There is a hard ceiling.</b> 50 is the maximum ever printed, and 40+ appears only at level 9+
+  (Nightwood Guardian being the earliest). Regeneration 50 belongs to Treerazer, Mu Spore, and the
+  Siktemporas — nothing a level-14 troop should carry.</li>
+</ul>
+
+<h2>Adopted adjustment (implemented)</h2>
+<div class="rec">
+  <p><b>Implemented in <code>abilityScaling.ts</code>:</b> flat healing values scale additively along
+  the proposed lines above, per ability kind (<code>healingKind</code> on the scalable value).</p>
+  <p><b>The rule: scale flat healing values additively along the trend, per ability kind.</b>
+  Replace the ratio step for <code>healing</code>-type flat values with a delta:
+  <code>new = old + (mod(target) − mod(base))</code>, snapped to the nearest 5 (for values ≥ 10) and
+  clamped to the corpus ceiling. This preserves a creature's spike as an <em>offset</em> rather than a
+  <em>multiplier</em>.</p>
+  <p>Forest Troll troop check: 20 + (mod(14) − mod(5)) ≈ 20 + 9 = 29 → <b>30</b> — exactly Troll King /
+  Mobogo territory, and one band under Troll Guard (L15, 40). Versus today's <b>50</b>.</p>
+  <p>Supporting changes worth discussing:</p>
+  <ul>
+    <li><b>Split the table:</b> a dedicated regeneration column following the proposed line plotted
+    above — <b>7 at level 0 rising to 34 at level 25</b> (≈ 7 + 1.08&times;level) — so tier buttons stop
+    treating regen 20 at L5 as "beyond high". Fast healing's moderate column moves onto its own corpus
+    trend (≈ 0.8 + 0.82&times;level), also plotted above.</li>
+    <li><b>Snap to 5s</b> above 10, and <b>cap at 50</b> (or at an observed-max envelope: ~30 through
+    L9, 40 through L14, 45 through L17, 50 beyond).</li>
+    <li>Fast healing keeps its current curve — the corpus supports it — but would also move from ratio
+    to delta scaling for consistency.</li>
+  </ul>
+</div>
+
+</div></div>
+<script>
+const DATA = {"regeneration":{"points":[{"l":21,"v":25,"name":"Lesser Jabberwock"},{"l":18,"v":45,"name":"The Misbegotten Troll"},{"l":14,"v":15,"name":"General Avinash Jurrg"},{"l":10,"v":30,"name":"Bloom of Lamashtu"},{"l":20,"v":45,"name":"Irovetti's Fetch"},{"l":20,"v":45,"name":"Fetch Behemoth"},{"l":5,"v":20,"name":"Gurija"},{"l":22,"v":50,"name":"Risen Fetch"},{"l":20,"v":20,"name":"Nightmare Rook"},{"l":18,"v":40,"name":"Fetch Stalker"},{"l":15,"v":40,"name":"Troll Guard"},{"l":8,"v":25,"name":"Hargulka"},{"l":11,"v":15,"name":"Elemental Thicket"},{"l":18,"v":15,"name":"Anemos"},{"l":2,"v":5,"name":"Moss Sloth"},{"l":9,"v":10,"name":"Painted Stag"},{"l":18,"v":15,"name":"Boreal, The North Wind"},{"l":18,"v":15,"name":"Eural, The East Wind"},{"l":18,"v":15,"name":"Austral, The South Wind"},{"l":9,"v":40,"name":"Nightwood Guardian"},{"l":18,"v":15,"name":"Zephyr, The West Wind"},{"l":14,"v":10,"name":"Tormented (Dislocation)"},{"l":14,"v":10,"name":"Tormented (Starvation)"},{"l":14,"v":10,"name":"Tormented (Impalement)"},{"l":14,"v":10,"name":"Tormented (Burning)"},{"l":14,"v":10,"name":"Tormented (Drowning)"},{"l":14,"v":10,"name":"Tormented (Crushing)"},{"l":5,"v":20,"name":"Troll"},{"l":12,"v":15,"name":"Kolyarut"},{"l":10,"v":30,"name":"Troll King"},{"l":21,"v":50,"name":"Mu Spore"},{"l":17,"v":30,"name":"Wendigo"},{"l":18,"v":50,"name":"Hatred Siktempora"},{"l":12,"v":20,"name":"Tidehawk"},{"l":16,"v":50,"name":"Love Siktempora"},{"l":12,"v":40,"name":"Misery Siktempora"},{"l":4,"v":5,"name":"Huldra"},{"l":14,"v":15,"name":"Mezlan"},{"l":13,"v":10,"name":"Amalgamite"},{"l":14,"v":40,"name":"Triumph Siktempora"},{"l":21,"v":50,"name":"Ouroboros"},{"l":15,"v":15,"name":"Marut"},{"l":23,"v":20,"name":"Solar"},{"l":17,"v":25,"name":"Thrasfyr"},{"l":16,"v":10,"name":"Fjord Linnorm"},{"l":11,"v":10,"name":"Isqulug"},{"l":15,"v":10,"name":"Shoal Linnorm"},{"l":23,"v":25,"name":"Jabberwock"},{"l":8,"v":7,"name":"Onidoshi"},{"l":19,"v":15,"name":"Taiga Linnorm"},{"l":18,"v":15,"name":"Cairn Linnorm"},{"l":16,"v":15,"name":"Planetar"},{"l":8,"v":10,"name":"Spring's Crown"},{"l":16,"v":15,"name":"Niesha"},{"l":15,"v":20,"name":"Phoenix"},{"l":20,"v":20,"name":"Norn"},{"l":21,"v":20,"name":"Tor Linnorm"},{"l":20,"v":20,"name":"Pleroma"},{"l":17,"v":10,"name":"Ice Linnorm"},{"l":14,"v":10,"name":"Crag Linnorm"},{"l":5,"v":20,"name":"Forest Troll"},{"l":15,"v":20,"name":"Morrigna"},{"l":25,"v":50,"name":"Treerazer"},{"l":20,"v":15,"name":"Tarn Linnorm"},{"l":10,"v":15,"name":"Dezullon"},{"l":10,"v":20,"name":"Troll Warleader"},{"l":19,"v":25,"name":"Terotricus"},{"l":20,"v":30,"name":"Nessari"},{"l":21,"v":30,"name":"Gorthoklek"},{"l":13,"v":10,"name":"Hellknight Amalgamite"},{"l":15,"v":30,"name":"Dezullon Thicket"},{"l":16,"v":15,"name":"Bythos"},{"l":20,"v":20,"name":"Bikkhasura"},{"l":20,"v":25,"name":"Eremite"},{"l":4,"v":15,"name":"Ice Troll"},{"l":5,"v":5,"name":"Ostiarius"},{"l":6,"v":10,"name":"Evangelist"},{"l":6,"v":20,"name":"Cavern Troll"},{"l":10,"v":10,"name":"Sacristan"},{"l":8,"v":20,"name":"Two-Headed Troll"},{"l":15,"v":40,"name":"Jotund Troll"},{"l":24,"v":25,"name":"Sorvuth-Ka"},{"l":1,"v":5,"name":"Augur"},{"l":12,"v":20,"name":"Interlocutor"},{"l":14,"v":20,"name":"Doprillu"},{"l":3,"v":15,"name":"Trollhound"},{"l":10,"v":30,"name":"Mobogo"},{"l":22,"v":25,"name":"Volnagur"},{"l":24,"v":30,"name":"Verex-That-Was"},{"l":15,"v":10,"name":"Weaver of Webs"},{"l":23,"v":30,"name":"Agyra"},{"l":25,"v":30,"name":"Oliphaunt of Jandelay"}],"stats":[{"level":1,"n":1,"mean":5.0,"median":5,"min":5,"max":5},{"level":2,"n":1,"mean":5.0,"median":5,"min":5,"max":5},{"level":3,"n":1,"mean":15.0,"median":15,"min":15,"max":15},{"level":4,"n":2,"mean":10.0,"median":10.0,"min":5,"max":15},{"level":5,"n":4,"mean":16.25,"median":20.0,"min":5,"max":20},{"level":6,"n":2,"mean":15.0,"median":15.0,"min":10,"max":20},{"level":8,"n":4,"mean":15.5,"median":15.0,"min":7,"max":25},{"level":9,"n":2,"mean":25.0,"median":25.0,"min":10,"max":40},{"level":10,"n":6,"mean":22.5,"median":25.0,"min":10,"max":30},{"level":11,"n":2,"mean":12.5,"median":12.5,"min":10,"max":15},{"level":12,"n":4,"mean":23.75,"median":20.0,"min":15,"max":40},{"level":13,"n":2,"mean":10.0,"median":10.0,"min":10,"max":10},{"level":14,"n":11,"mean":14.55,"median":10,"min":10,"max":40},{"level":15,"n":8,"mean":23.12,"median":20.0,"min":10,"max":40},{"level":16,"n":5,"mean":21.0,"median":15,"min":10,"max":50},{"level":17,"n":3,"mean":21.67,"median":25,"min":10,"max":30},{"level":18,"n":9,"mean":25.0,"median":15,"min":15,"max":50},{"level":19,"n":2,"mean":20.0,"median":20.0,"min":15,"max":25},{"level":20,"n":9,"mean":26.67,"median":20,"min":15,"max":45},{"level":21,"n":5,"mean":35.0,"median":30,"min":20,"max":50},{"level":22,"n":2,"mean":37.5,"median":37.5,"min":25,"max":50},{"level":23,"n":3,"mean":25.0,"median":25,"min":20,"max":30},{"level":24,"n":2,"mean":27.5,"median":27.5,"min":25,"max":30},{"level":25,"n":2,"mean":40.0,"median":40.0,"min":30,"max":50}],"fit":{"a":7.683,"b":0.961},"n":92},"fast-healing":{"points":[{"l":8,"v":10,"name":"Skeletal Tiger Lord"},{"l":21,"v":20,"name":"The Wriggling Man"},{"l":18,"v":15,"name":"Mandragora Swarm"},{"l":11,"v":10,"name":"Lintwerth"},{"l":19,"v":15,"name":"Primal Bandersnatch"},{"l":19,"v":20,"name":"Kargstaad"},{"l":15,"v":15,"name":"Kargstaad's Giant"},{"l":18,"v":15,"name":"Leng Envoy"},{"l":12,"v":10,"name":"Zorek"},{"l":1,"v":2,"name":"Metal Scamp"},{"l":11,"v":10,"name":"Provincial Jiang-shi"},{"l":14,"v":10,"name":"Minister Of Tumult"},{"l":11,"v":10,"name":"Vetalarana Manipulator"},{"l":8,"v":10,"name":"Vetalarana Emergent"},{"l":1,"v":2,"name":"Air Mephit"},{"l":1,"v":2,"name":"Fire Mephit"},{"l":1,"v":2,"name":"Water Mephit"},{"l":1,"v":2,"name":"Earth Mephit"},{"l":9,"v":5,"name":"Giant Tardigrade"},{"l":14,"v":10,"name":"Worm That Walks Cultist"},{"l":6,"v":5,"name":"Skrik Nettle"},{"l":13,"v":10,"name":"Leng Spider"},{"l":1,"v":2,"name":"Steam Mephit"},{"l":8,"v":10,"name":"Moonflower"},{"l":1,"v":2,"name":"Ice Mephit"},{"l":1,"v":2,"name":"Dust Mephit"},{"l":4,"v":1,"name":"Calathgar"},{"l":1,"v":2,"name":"Ooze Mephit"},{"l":5,"v":10,"name":"Redcap"},{"l":5,"v":5,"name":"Hedvend VI"},{"l":7,"v":7,"name":"Ezio Gaeta"},{"l":19,"v":15,"name":"Alktherisa and Omprisgor"},{"l":18,"v":10,"name":"Thulgant"},{"l":1,"v":1,"name":"Voidworm"},{"l":9,"v":10,"name":"Vampire Mastermind"},{"l":5,"v":2,"name":"Azuretzi"},{"l":1,"v":2,"name":"Air Scamp"},{"l":6,"v":7,"name":"Vampire Count"},{"l":17,"v":10,"name":"Keketar"},{"l":1,"v":2,"name":"Earth Scamp"},{"l":20,"v":20,"name":"Yamaraj"},{"l":4,"v":5,"name":"Vampire Servitor"},{"l":10,"v":2,"name":"Ofalth"},{"l":1,"v":2,"name":"Fire Scamp"},{"l":17,"v":15,"name":"Bandersnatch"},{"l":7,"v":5,"name":"Dullahan"},{"l":1,"v":2,"name":"Water Scamp"},{"l":18,"v":20,"name":"Magma Worm"},{"l":10,"v":10,"name":"Zalavexus"},{"l":10,"v":10,"name":"Strigoi Servant"},{"l":11,"v":10,"name":"Bishop Keppira D'Bear"},{"l":13,"v":10,"name":"Strigoi Progenitor"},{"l":15,"v":15,"name":"Aliriel"},{"l":12,"v":8,"name":"Protean Tumult"},{"l":6,"v":6,"name":"Scamp Whirlwind"},{"l":10,"v":20,"name":"Redcap Brigade"},{"l":6,"v":6,"name":"Scamp Flood"},{"l":6,"v":6,"name":"Scamp Inferno"},{"l":6,"v":6,"name":"Scamp Shrapnel"},{"l":6,"v":6,"name":"Scamp Tangle"},{"l":6,"v":6,"name":"Scamp Avalanche"},{"l":15,"v":10,"name":"Ofalth Stampede"},{"l":11,"v":5,"name":"Garadasura"},{"l":17,"v":20,"name":"Kadamel"},{"l":1,"v":5,"name":"Shade (Abaddon)"},{"l":8,"v":5,"name":"Nosferatu Thrall"},{"l":8,"v":5,"name":"Denizen of Leng"},{"l":1,"v":5,"name":"Shade (Creation's Forge)"},{"l":15,"v":15,"name":"Nosferatu Overlord"},{"l":3,"v":1,"name":"Akizendri"},{"l":20,"v":20,"name":"Izfiitar"},{"l":12,"v":10,"name":"Resurrection Dragon (Adult)"},{"l":18,"v":20,"name":"Shoggoth"},{"l":17,"v":15,"name":"Resurrection Dragon (Ancient, Spellcaster)"},{"l":19,"v":15,"name":"Tzitzimitl"},{"l":8,"v":5,"name":"Resurrection Dragon (Young, Spellcaster)"},{"l":10,"v":10,"name":"Nosferatu Malefactor"},{"l":7,"v":2,"name":"Naunet"},{"l":8,"v":5,"name":"Resurrection Dragon (Young)"},{"l":17,"v":15,"name":"Resurrection Dragon (Ancient)"},{"l":10,"v":5,"name":"Imentesh"},{"l":12,"v":10,"name":"Resurrection Dragon (Adult, Spellcaster)"}],"stats":[{"level":1,"n":16,"mean":2.31,"median":2.0,"min":1,"max":5},{"level":3,"n":1,"mean":1.0,"median":1,"min":1,"max":1},{"level":4,"n":2,"mean":3.0,"median":3.0,"min":1,"max":5},{"level":5,"n":3,"mean":5.67,"median":5,"min":2,"max":10},{"level":6,"n":8,"mean":6.0,"median":6.0,"min":5,"max":7},{"level":7,"n":3,"mean":4.67,"median":5,"min":2,"max":7},{"level":8,"n":7,"mean":7.14,"median":5,"min":5,"max":10},{"level":9,"n":2,"mean":7.5,"median":7.5,"min":5,"max":10},{"level":10,"n":6,"mean":9.5,"median":10.0,"min":2,"max":20},{"level":11,"n":5,"mean":9.0,"median":10,"min":5,"max":10},{"level":12,"n":4,"mean":9.5,"median":10.0,"min":8,"max":10},{"level":13,"n":2,"mean":10.0,"median":10.0,"min":10,"max":10},{"level":14,"n":2,"mean":10.0,"median":10.0,"min":10,"max":10},{"level":15,"n":4,"mean":13.75,"median":15.0,"min":10,"max":15},{"level":17,"n":5,"mean":15.0,"median":15,"min":10,"max":20},{"level":18,"n":5,"mean":16.0,"median":15,"min":10,"max":20},{"level":19,"n":4,"mean":16.25,"median":15.0,"min":15,"max":20},{"level":20,"n":2,"mean":20.0,"median":20.0,"min":20,"max":20},{"level":21,"n":1,"mean":20.0,"median":20,"min":20,"max":20}],"fit":{"a":0.821,"b":0.821},"n":82},"trollFamily":[{"l":3,"v":15,"name":"Trollhound"},{"l":4,"v":15,"name":"Ice Troll"},{"l":5,"v":20,"name":"Troll"},{"l":5,"v":20,"name":"Forest Troll"},{"l":6,"v":20,"name":"Cavern Troll"},{"l":8,"v":20,"name":"Two-Headed Troll"},{"l":10,"v":30,"name":"Troll King"},{"l":10,"v":20,"name":"Troll Warleader"},{"l":15,"v":40,"name":"Troll Guard"},{"l":15,"v":40,"name":"Jotund Troll"},{"l":18,"v":45,"name":"The Misbegotten Troll"}]};
+const CRISPR = {0:[1,1,2],1:[1,2,3],2:[2,3,5],3:[2,4,6],4:[3,5,8],5:[4,6,10],6:[4,7,11],7:[5,8,13],8:[5,9,14],9:[6,10,16],10:[7,11,18],11:[7,12,19],12:[8,13,21],13:[8,14,22],14:[9,15,24],15:[10,16,26],16:[10,17,27],17:[11,18,29],18:[11,19,30],19:[12,20,32],20:[13,21,34],21:[14,23,37],22:[15,25,40],23:[16,27,43],24:[18,30,48]};
+
+document.getElementById('t-regen').textContent = DATA.regeneration.n;
+document.getElementById('t-fh').textContent = DATA['fast-healing'].n;
+document.getElementById('callout-troll').innerHTML =
+  '<b>The bug in one line:</b> a Forest Troll (L5, regeneration 20) converted to a troop and raised ' +
+  'to level 14 is rescaled by mod(14)/mod(5) = 15/6 = <b>&times;2.5 → regeneration 50</b>. The corpus at ' +
+  'level 14 runs median 10, max 40 — and 50 is the all-time ceiling, first reached at level 16.';
+
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function css(v) { return getComputedStyle(document.querySelector('.viz-root')).getPropertyValue(v).trim(); }
+
+function drawChart(opts) {
+  const { mount, tip, data, yMax, yStep, xMax, showCrispr, highlightTroll, annotate } = opts;
+  const W = 920, H = 380, M = { t: 18, r: 118, b: 42, l: 46 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const X = l => M.l + (l / xMax) * iw;
+  const Y = v => M.t + ih - (v / yMax) * ih;
+  const host = document.getElementById(mount);
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' }, host);
+  const clipId = mount + '-clip';
+  const clip = el('clipPath', { id: clipId }, el('defs', {}, svg));
+  el('rect', { x: M.l, y: M.t, width: iw, height: ih }, clip);
+
+  for (let v = 0; v <= yMax; v += yStep) {
+    el('line', { x1: M.l, x2: M.l + iw, y1: Y(v), y2: Y(v), stroke: 'var(--grid)', 'stroke-width': 1 }, svg);
+    el('text', { x: M.l - 8, y: Y(v) + 4, 'text-anchor': 'end', class: 'tick' }, svg).textContent = v;
+  }
+  for (let l = 0; l <= xMax; l += 5) {
+    el('text', { x: X(l), y: M.t + ih + 18, 'text-anchor': 'middle', class: 'tick' }, svg).textContent = l;
+  }
+  el('line', { x1: M.l, x2: M.l + iw, y1: Y(0), y2: Y(0), stroke: 'var(--baseline)', 'stroke-width': 1 }, svg);
+  el('text', { x: M.l + iw / 2, y: H - 6, 'text-anchor': 'middle', class: 'axis-name' }, svg).textContent = 'creature level';
+  el('text', { x: M.l - 8, y: 10, class: 'axis-name' }, svg).textContent = 'per turn';
+
+  if (showCrispr) {
+    let band = '';
+    const lvls = Object.keys(CRISPR).map(Number).filter(l => l <= xMax);
+    for (const l of lvls) band += `${band ? 'L' : 'M'}${X(l)},${Y(CRISPR[l][0])}`;
+    for (const l of [...lvls].reverse()) band += `L${X(l)},${Y(CRISPR[l][2])}`;
+    el('path', { d: band + 'Z', fill: 'var(--band)', 'clip-path': `url(#${clipId})` }, svg);
+    const mod = lvls.map((l, i) => `${i ? 'L' : 'M'}${X(l)},${Y(CRISPR[l][1])}`).join('');
+    el('path', { d: mod, fill: 'none', stroke: 'var(--series-2)', 'stroke-width': 2, 'clip-path': `url(#${clipId})` }, svg);
+    el('text', {
+      x: M.l + iw + 6, y: Math.max(M.t + 10, Y(CRISPR[24][1])) + 4,
+      class: 'dlabel', fill: 'var(--series-2)'
+    }, svg).textContent = 'CRISPR mod';
+  }
+
+  if (opts.proposed) {
+    const pr = opts.proposed;
+    el('line', {
+      x1: X(0), y1: Y(pr.y0), x2: X(xMax), y2: Y(pr.y1),
+      stroke: 'var(--proposed)', 'stroke-width': 2.5, 'clip-path': `url(#${clipId})`
+    }, svg);
+    el('text', { x: M.l + iw + 6, y: Y(pr.y1) + (pr.labelDy ?? 4), class: 'dlabel', fill: 'var(--proposed)' }, svg)
+      .textContent = pr.label;
+  }
+
+  const fit = data.fit;
+  el('line', {
+    x1: X(0), y1: Y(Math.max(0, fit.a)), x2: X(xMax), y2: Y(Math.min(yMax, fit.a + fit.b * xMax)),
+    stroke: 'var(--muted)', 'stroke-width': 2, 'stroke-dasharray': '5 4'
+  }, svg);
+  el('text', { x: M.l + iw + 6, y: Y(fit.a + fit.b * xMax) + 4, class: 'dlabel', fill: 'var(--muted)' }, svg)
+    .textContent = `trend +${fit.b.toFixed(2)}/lvl`;
+
+  const mean = data.stats.map((s, i) => `${i ? 'L' : 'M'}${X(s.level)},${Y(s.mean)}`).join('');
+  el('path', { d: mean, fill: 'none', stroke: 'var(--series-1)', 'stroke-width': 2 }, svg);
+  data.stats.forEach(s => el('circle', {
+    cx: X(s.level), cy: Y(s.mean), r: 3.5, fill: 'var(--series-1)', stroke: 'var(--surface-1)', 'stroke-width': 2
+  }, svg));
+  const last = data.stats[data.stats.length - 1];
+  el('text', { x: M.l + iw + 6, y: Y(last.mean) + 4, class: 'dlabel', fill: 'var(--series-1)' }, svg)
+    .textContent = 'corpus mean';
+
+  const groups = {};
+  data.points.forEach(p => { (groups[p.l + ':' + p.v] ??= []).push(p); });
+  const tipEl = document.getElementById(tip);
+  const fig = tipEl.parentElement;
+  for (const key in groups) {
+    const g = groups[key];
+    g.forEach((p, i) => {
+      const jitter = (i - (g.length - 1) / 2) * 5;
+      const isTroll = highlightTroll && /troll/i.test(p.name);
+      const c = el('circle', {
+        cx: X(p.l) + jitter, cy: Y(p.v), r: 4.5,
+        fill: isTroll ? 'var(--series-3)' : 'var(--series-1)',
+        'fill-opacity': isTroll ? 0.95 : 0.4,
+        stroke: 'var(--surface-1)', 'stroke-width': 1
+      }, svg);
+      c.style.cursor = 'default';
+      c.addEventListener('mouseenter', ev => {
+        tipEl.innerHTML = `<b>${p.name}</b><span class="m">Level ${p.l} — ${opts.kindLabel} ${p.v}</span>`;
+        tipEl.style.opacity = 1;
+        const fr = fig.getBoundingClientRect(), cr = c.getBoundingClientRect();
+        tipEl.style.left = Math.min(cr.left - fr.left + 12, fr.width - 250) + 'px';
+        tipEl.style.top = (cr.top - fr.top - 44) + 'px';
+      });
+      c.addEventListener('mouseleave', () => tipEl.style.opacity = 0);
+    });
+  }
+
+  if (annotate) {
+    el('line', {
+      x1: X(5), y1: Y(20), x2: X(14), y2: Y(50),
+      stroke: 'var(--critical)', 'stroke-width': 1.5, 'stroke-dasharray': '3 4', 'stroke-opacity': 0.7
+    }, svg);
+    const ax = X(14), ay = Y(50);
+    el('path', {
+      d: `M${ax - 5},${ay - 5}L${ax + 5},${ay + 5}M${ax - 5},${ay + 5}L${ax + 5},${ay - 5}`,
+      stroke: 'var(--critical)', 'stroke-width': 2.5
+    }, svg);
+    el('text', { x: ax - 12, y: ay + 4, 'text-anchor': 'end', class: 'dlabel', fill: 'var(--critical)' }, svg)
+      .textContent = 'CRISPR today: troop @14 → 50';
+  }
+  return svg;
+}
+
+drawChart({ mount: 'chart-regen', tip: 'tip-regen', data: DATA.regeneration, kindLabel: 'regeneration',
+  yMax: 55, yStep: 10, xMax: 25, showCrispr: true, highlightTroll: true, annotate: true,
+  proposed: { y0: 7, y1: 34, label: 'proposed 7 → 34' } });
+const FH_FIT = DATA['fast-healing'].fit;
+drawChart({ mount: 'chart-fh', tip: 'tip-fh', data: DATA['fast-healing'], kindLabel: 'fast healing',
+  yMax: 25, yStep: 5, xMax: 25, showCrispr: true,
+  proposed: { y0: FH_FIT.a, y1: FH_FIT.a + FH_FIT.b * 25, label: 'proposed = trend', labelDy: -8 } });
+
+(function trollChart() {
+  const W = 920, H = 300, M = { t: 18, r: 118, b: 42, l: 46 };
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const xMax = 19, yMax = 55;
+  const X = l => M.l + (l / xMax) * iw;
+  const Y = v => M.t + ih - (v / yMax) * ih;
+  const host = document.getElementById('chart-troll');
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img' }, host);
+  for (let v = 0; v <= yMax; v += 10) {
+    el('line', { x1: M.l, x2: M.l + iw, y1: Y(v), y2: Y(v), stroke: 'var(--grid)' }, svg);
+    el('text', { x: M.l - 8, y: Y(v) + 4, 'text-anchor': 'end', class: 'tick' }, svg).textContent = v;
+  }
+  for (let l = 0; l <= xMax; l += 5) {
+    el('text', { x: X(l), y: M.t + ih + 18, 'text-anchor': 'middle', class: 'tick' }, svg).textContent = l;
+  }
+  el('line', { x1: M.l, x2: M.l + iw, y1: Y(0), y2: Y(0), stroke: 'var(--baseline)' }, svg);
+  el('text', { x: M.l + iw / 2, y: H - 6, 'text-anchor': 'middle', class: 'axis-name' }, svg).textContent = 'creature level';
+
+  const fam = DATA.trollFamily;
+  const byL = {};
+  fam.forEach(p => { (byL[p.l] ??= []).push(p.v); });
+  const famLine = Object.keys(byL).map(Number).sort((a, b) => a - b)
+    .map((l, i) => `${i ? 'L' : 'M'}${X(l)},${Y(byL[l].reduce((a, b) => a + b) / byL[l].length)}`).join('');
+  el('path', { d: famLine, fill: 'none', stroke: 'var(--series-3)', 'stroke-width': 2 }, svg);
+
+  const ratio = [];
+  for (let l = 5; l <= 14; l++) {
+    const factor = CRISPR[l][1] / CRISPR[5][1];
+    ratio.push(`${l === 5 ? 'M' : 'L'}${X(l)},${Y(Math.min(yMax, 20 * factor))}`);
+  }
+  el('path', { d: ratio.join(''), fill: 'none', stroke: 'var(--critical)', 'stroke-width': 2, 'stroke-dasharray': '5 4' }, svg);
+  el('text', { x: X(14) - 10, y: Y(50) + 4, 'text-anchor': 'end', class: 'dlabel', fill: 'var(--critical)' }, svg).textContent = 'ratio scaling ×2.5';
+  el('text', { x: X(12.5), y: Y(24), class: 'dlabel', fill: 'var(--series-3)' }, svg).textContent = 'the family: +25 over 13 levels';
+
+  const tipEl = document.getElementById('tip-troll');
+  const fig = tipEl.parentElement;
+  fam.forEach(p => {
+    const twin = fam.filter(q => q.l === p.l && q.v === p.v);
+    const jitter = twin.length > 1 ? (twin.indexOf(p) - (twin.length - 1) / 2) * 6 : 0;
+    const c = el('circle', {
+      cx: X(p.l) + jitter, cy: Y(p.v), r: 5, fill: 'var(--series-3)',
+      stroke: 'var(--surface-1)', 'stroke-width': 1.5
+    }, svg);
+    c.addEventListener('mouseenter', () => {
+      tipEl.innerHTML = `<b>${p.name}</b><span class="m">Level ${p.l} — regeneration ${p.v}</span>`;
+      tipEl.style.opacity = 1;
+      const fr = fig.getBoundingClientRect(), cr = c.getBoundingClientRect();
+      tipEl.style.left = Math.min(cr.left - fr.left + 12, fr.width - 250) + 'px';
+      tipEl.style.top = (cr.top - fr.top - 44) + 'px';
+    });
+    c.addEventListener('mouseleave', () => tipEl.style.opacity = 0);
+  });
+})();
+
+(function table() {
+  const t = document.getElementById('stats-table');
+  const levels = [...new Set([
+    ...DATA.regeneration.stats.map(s => s.level),
+    ...DATA['fast-healing'].stats.map(s => s.level)
+  ])].sort((a, b) => a - b);
+  const rMap = Object.fromEntries(DATA.regeneration.stats.map(s => [s.level, s]));
+  const fMap = Object.fromEntries(DATA['fast-healing'].stats.map(s => [s.level, s]));
+  let html = '<thead><tr><th>Level</th><th>Regen n</th><th>mean</th><th>median</th><th>min–max</th>' +
+    '<th>FH n</th><th>mean</th><th>median</th><th>min–max</th><th>CRISPR mod</th></tr></thead><tbody>';
+  for (const l of levels) {
+    const r = rMap[l], f = fMap[l];
+    const cell = s => s ? `<td>${s.n}</td><td>${s.mean}</td><td>${s.median}</td><td>${s.min}–${s.max}</td>`
+                       : '<td>—</td><td>—</td><td>—</td><td>—</td>';
+    html += `<tr><td>${l}</td>${cell(r)}${cell(f)}<td>${l <= 24 ? CRISPR[l][1] : '—'}</td></tr>`;
+  }
+  t.innerHTML = html + '</tbody>';
+})();
+</script>

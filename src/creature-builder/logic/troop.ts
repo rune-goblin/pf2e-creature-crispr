@@ -1,4 +1,5 @@
 import type { CreatureStrike, DamageModifier, SpecialAbility } from './models';
+import { SPELL_BENCHMARK_VALUES } from './models';
 import type { EditableCreature } from './editableCreature';
 import type { CustomAbilityDefinition, TroopConversionOptions, TroopConversionRecipe } from './contracts';
 import { calculateEffectiveDamage, getTroopWeaknessValues, parseDiceFormulaAverage, scaleResistanceWeakness } from './creatureStatTables';
@@ -91,19 +92,88 @@ export function rescaleCreatureIwr(creature: EditableCreature, fromLevel: number
 const DEFAULT_LEVEL_DELTA = 5; // published troop = base + 5 (corpus fact 1)
 const DEFAULT_NAME_SUFFIX = ' Troop';
 
+function isCaster(b: EditableCreature['benchmarks']): boolean {
+  return b.spellDC !== undefined || b.spellAttack !== undefined
+    || (b.spellProgression !== undefined && b.spellProgression !== 'none');
+}
+
 /**
- * A troop fights five levels up but casts as it did before formation — massed bodies don't deepen
- * anyone's magic (a level-8 caster in a level-13 troop keeps level-8 DCs and slot ranks). Shift the
- * spellcasting offset opposite the applied level delta so DC/attack/slots keep computing at the
- * pre-conversion level, while post-conversion level edits move casting and level in step.
+ * A troop's casting matches the published pattern (corpus scan 2026-07-26): DC/attack land on the
+ * Moderate benchmark at the TROOP's level — the tier every sideline-caster troop uses — while spell
+ * ranks/slots stay those of the constituent members (massed bodies don't deepen anyone's magic).
+ * So: shift the spellcasting offset opposite the applied delta (pins ranks/slots at the
+ * pre-conversion level; later level edits move both in step) and default the DC/attack tier to
+ * Moderate, which then recomputes at whatever level the troop is.
  */
 function pinSpellcastingLevel(creature: EditableCreature, appliedDelta: number): void {
   const b = creature.benchmarks;
-  const isCaster = b.spellDC !== undefined || b.spellAttack !== undefined
-    || (b.spellProgression !== undefined && b.spellProgression !== 'none');
-  if (!isCaster || appliedDelta === 0) return;
+  if (!isCaster(b) || appliedDelta === 0) return;
   const offset = (b.spellcastingLevelOffset ?? 0) - appliedDelta;
   b.spellcastingLevelOffset = offset === 0 ? undefined : offset;
+  if (b.spellDC !== undefined) b.spellDC = SPELL_BENCHMARK_VALUES.moderate;
+  if (b.spellAttack !== undefined) b.spellAttack = SPELL_BENCHMARK_VALUES.moderate;
+}
+
+export const TROOP_SPELLCASTING_NAME = 'Troop Spellcasting';
+export const STEADY_TROOP_SPELLCASTING_NAME = 'Steady Troop Spellcasting';
+
+// The published area-size ItemAlterations every caster troop carries (surveyed 2026-07-26: all 11).
+// Keep in sync with the compendium twins in packs/_source/abilities/*.json.
+const TROOP_SPELLCASTING_RULES: Array<Record<string, unknown>> = [
+  {
+    itemType: 'spell', key: 'ItemAlteration', mode: 'add',
+    predicate: ['item:area:type:burst', 'item:duration:0', { gte: ['item:area:size', 10] }],
+    property: 'area-size', value: 5
+  },
+  {
+    itemType: 'spell', key: 'ItemAlteration', mode: 'add',
+    predicate: ['item:duration:0', { or: ['item:area:type:cone', 'item:area:type:line'] }, { lte: ['item:area:size', 15] }],
+    priority: 110, property: 'area-size', value: 5
+  },
+  {
+    itemType: 'spell', key: 'ItemAlteration', mode: 'add',
+    predicate: ['item:duration:0', { or: ['item:area:type:cone', 'item:area:type:line'] }, { gt: ['item:area:size', 15] }],
+    priority: 100, property: 'area-size', value: 10
+  }
+];
+
+const TROOP_SPELLCASTING_DEF: CustomAbilityDefinition = {
+  slug: 'troop-spellcasting', name: TROOP_SPELLCASTING_NAME, img: 'systems/pf2e/icons/actions/Passive.webp',
+  group: TROOP_ACTION_GROUP, description: '<p>@Localize[pf2e-creature-crispr.troop.spellcasting.description]</p>',
+  actionType: 'passive', traits: [], rules: TROOP_SPELLCASTING_RULES
+};
+const STEADY_TROOP_SPELLCASTING_DEF: CustomAbilityDefinition = {
+  slug: 'steady-troop-spellcasting', name: STEADY_TROOP_SPELLCASTING_NAME, img: 'systems/pf2e/icons/actions/Passive.webp',
+  group: TROOP_ACTION_GROUP,
+  description: '<p>@Localize[pf2e-creature-crispr.troop.spellcasting.description]</p>\n<p>@Localize[pf2e-creature-crispr.troop.spellcasting.steadyRider]</p>',
+  actionType: 'passive', traits: [], rules: TROOP_SPELLCASTING_RULES
+};
+
+/** The Troop Spellcasting variant the creature currently carries, if any. */
+export function findTroopSpellcasting(creature: EditableCreature): { ability: SpecialAbility; steady: boolean } | undefined {
+  for (const ability of creature.specialAbilities) {
+    const name = ability.name.toLowerCase();
+    if (name === TROOP_SPELLCASTING_NAME.toLowerCase()) return { ability, steady: false };
+    if (name === STEADY_TROOP_SPELLCASTING_NAME.toLowerCase()) return { ability, steady: true };
+  }
+  return undefined;
+}
+
+/**
+ * Give the creature the requested Troop Spellcasting variant. The two variants occupy one slot:
+ * setting one replaces the other in place, keeping the existing ability id so the save path updates
+ * the embedded item (rename + new prose) instead of delete-and-recreate — the item's area-size rules
+ * are identical for both variants and survive untouched.
+ */
+export function setTroopSpellcastingVariant(creature: EditableCreature, steady: boolean): void {
+  const def = steady ? STEADY_TROOP_SPELLCASTING_DEF : TROOP_SPELLCASTING_DEF;
+  const existing = findTroopSpellcasting(creature);
+  const replacement = customAbilityToSpecialAbility(def, creature.level, existing?.ability.id ?? def.slug);
+  if (existing) {
+    creature.specialAbilities[creature.specialAbilities.indexOf(existing.ability)] = replacement;
+  } else {
+    creature.specialAbilities.push(replacement);
+  }
 }
 
 // The universal glossary kit as pure @Localize abilities — same name/actionType/description the editor's
@@ -208,6 +278,13 @@ export function applyTroopConversion(
     ? recipe.generateAbilities(creature).map((def) => customAbilityToSpecialAbility(def, creature.level, def.slug))
     : [];
   creature.specialAbilities = mergeSpecialAbilitiesByName(creature.specialAbilities, [...generated, ...kit, ...extras]);
+
+  // Casters get the Troop Spellcasting passive: fresh conversions seed the basic variant unless
+  // `steadySpellcasting` opts into Steady; a re-conversion without the option keeps what's there.
+  if (isCaster(creature.benchmarks)) {
+    const steady = opts.steadySpellcasting ?? findTroopSpellcasting(creature)?.steady ?? false;
+    setTroopSpellcastingVariant(creature, steady);
+  }
 
   // Order is load-bearing: both seeders are seed-if-missing, so Form Up's divergent half-splash
   // must land before the standard values, which then skip the types already present.

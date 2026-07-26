@@ -1,0 +1,78 @@
+{
+  "_id": "crisprSteadySpel",
+  "_key": "!items!crisprSteadySpel",
+  "name": "Steady Troop Spellcasting",
+  "type": "action",
+  "img": "systems/pf2e/icons/actions/Passive.webp",
+  "system": {
+    "actionType": {
+      "value": "passive"
+    },
+    "actions": {
+      "value": null
+    },
+    "category": "offensive",
+    "description": {
+      "value": "<p>@Localize[pf2e-creature-crispr.troop.spellcasting.description]</p>\n<p>@Localize[pf2e-creature-crispr.troop.spellcasting.steadyRider]</p>"
+    },
+    "publication": {
+      "license": "ORC",
+      "remaster": true,
+      "title": ""
+    },
+    "rules": [
+      {
+        "itemType": "spell",
+        "key": "ItemAlteration",
+        "mode": "add",
+        "predicate": [
+          "item:area:type:burst",
+          "item:duration:0",
+          {
+            "gte": ["item:area:size", 10]
+          }
+        ],
+        "property": "area-size",
+        "value": 5
+      },
+      {
+        "itemType": "spell",
+        "key": "ItemAlteration",
+        "mode": "add",
+        "predicate": [
+          "item:duration:0",
+          {
+            "or": ["item:area:type:cone", "item:area:type:line"]
+          },
+          {
+            "lte": ["item:area:size", 15]
+          }
+        ],
+        "priority": 110,
+        "property": "area-size",
+        "value": 5
+      },
+      {
+        "itemType": "spell",
+        "key": "ItemAlteration",
+        "mode": "add",
+        "predicate": [
+          "item:duration:0",
+          {
+            "or": ["item:area:type:cone", "item:area:type:line"]
+          },
+          {
+            "gt": ["item:area:size", 15]
+          }
+        ],
+        "priority": 100,
+        "property": "area-size",
+        "value": 10
+      }
+    ],
+    "slug": "steady-troop-spellcasting",
+    "traits": {
+      "value": []
+    }
+  }
+}

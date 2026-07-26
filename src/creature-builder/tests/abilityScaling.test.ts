@@ -416,6 +416,53 @@ describe('fast healing / regeneration scaling', () => {
   });
 });
 
+describe('regeneration scaling (kind-aware)', () => {
+  const regenSV = (overrides: Partial<ScalableValue> = {}): ScalableValue => ({
+    type: 'healing',
+    healingKind: 'regeneration',
+    benchmark: healingToBenchmark(20, 5, 'regeneration'),
+    originalValue: '20',
+    baseLevel: 5,
+    ...overrides
+  });
+
+  it('regeneration ranges run a band above fast healing at every level', () => {
+    for (const level of [1, 5, 10, 15, 20, 24]) {
+      expect(getFastHealingRange(level, 'regeneration').moderate)
+        .toBeGreaterThan(getFastHealingRange(level).moderate);
+    }
+  });
+
+  it('scales the troll additively: Regeneration 20 @ L5 → 30 @ L14, not ×2.5 → 50', () => {
+    expect(getEffectiveValue(regenSV(), 14)).toBe('30');
+  });
+
+  it('scales down additively along the same line', () => {
+    expect(getEffectiveValue(regenSV(), 2)).toBe('15');
+  });
+
+  it('snaps scaled regeneration ≥ 10 to multiples of 5', () => {
+    for (const level of [8, 11, 17, 20]) {
+      expect(Number(getEffectiveValue(regenSV(), level)) % 5).toBe(0);
+    }
+  });
+
+  it('caps scaled regeneration at the corpus ceiling of 50', () => {
+    const sv = regenSV({ originalValue: '45', baseLevel: 18, benchmark: healingToBenchmark(45, 18, 'regeneration') });
+    expect(getEffectiveValue(sv, 25)).toBe('50');
+  });
+
+  it('tier values for regeneration are 5-snapped and capped', () => {
+    expect(scaleHealing(0.5, 14, 'regeneration') % 5).toBe(0);
+    expect(scaleHealing(1, 24, 'regeneration')).toBeLessThanOrEqual(50);
+  });
+
+  it('a healing value without healingKind still scales on the fast-healing curve', () => {
+    const sv = healingSV(); // no kind → legacy data
+    expect(Number(getEffectiveValue(sv, 20))).toBeLessThan(30);
+  });
+});
+
 describe('fast healing / regeneration rule-element helpers', () => {
   it('reads a numeric regeneration rule with its deactivation types', () => {
     const rules = [{ key: 'FastHealing', type: 'regeneration', value: 25, deactivatedBy: ['fire', 'acid'] }];
@@ -682,7 +729,7 @@ describe('scaleProportionally', () => {
 
   it('falls back to tier-snap healing when baseLevel is missing', () => {
     const sv: ScalableValue = { type: 'healing', benchmark: 0.5, originalValue: '12' };
-    expect(scaleProportionally(sv, 10)).toBe('11');
+    expect(scaleProportionally(sv, 10)).toBe('9');
   });
 });
 
@@ -723,7 +770,7 @@ describe('getTierInfo', () => {
 
   it('classifies healing and DC customValues against their level rows', () => {
     const heal = healingSV({ baseLevel: 10 });
-    expect(getTierInfo({ ...heal, customValue: '11' }, 10)).toEqual({ label: 'moderate', exact: true });
+    expect(getTierInfo({ ...heal, customValue: '9' }, 10)).toEqual({ label: 'moderate', exact: true });
     expect(getTierInfo({ ...heal, customValue: '10' }, 10)).toEqual({ label: 'moderate', exact: false });
     expect(getTierInfo({ ...heal, customValue: '100' }, 10)).toEqual({ label: 'high', exact: false });
     expect(getTierInfo(dcSV({ customValue: '26' }), 10)).toEqual({ label: 'moderate', exact: true });

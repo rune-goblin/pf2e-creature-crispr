@@ -4,11 +4,16 @@ import {
   troopWeaknesses,
   withTroopWeaknesses,
   troopAdjusted,
-  applyTroopConversion
+  applyTroopConversion,
+  findTroopSpellcasting,
+  setTroopSpellcastingVariant,
+  TROOP_SPELLCASTING_NAME,
+  STEADY_TROOP_SPELLCASTING_NAME
 } from '@/creature-builder/logic/troop';
+import { composeAbilityItemData } from '@/creature-builder/services/abilityItemBuilder';
 import { convertActorToTroop } from '@/creature-builder/services/troop';
 import { registerSaveTarget, resetSaveTargets } from '@/creature-builder/services/saveTargetRegistry';
-import { getTroopWeaknessValues, calculateCreatureStats } from '@/creature-builder/logic/creatureStatTables';
+import { getTroopWeaknessValues, calculateCreatureStats, getStatRangesForLevel, interpolateSpellStat } from '@/creature-builder/logic/creatureStatTables';
 import { mergeSpecialAbilitiesByName } from '@/creature-builder/logic/customAbility';
 import { getDefaultBenchmarks } from '@/creature-builder/logic/models';
 import { editorStore } from '@/creature-builder/editor';
@@ -276,38 +281,42 @@ describe('applyTroopConversion — spellcasting pinned at the base level', () =>
     weaknesses: []
   });
 
-  it('keeps spell DC/attack/slots at the pre-conversion level while martial stats scale', () => {
+  it('pins slot ranks at the base level and defaults DC/attack to troop-level moderate', () => {
     const c = casterCreature();
     const before = calculateCreatureStats(c.level, c.benchmarks);
     applyTroopConversion(c);
     expect(c.level).toBe(13);
     expect(c.benchmarks.spellcastingLevelOffset).toBe(-5);
+    expect(c.benchmarks.spellDC).toBe(0);
+    expect(c.benchmarks.spellAttack).toBe(0);
 
     const after = calculateCreatureStats(c.level, c.benchmarks);
-    expect(after.spellDC).toBe(before.spellDC);
-    expect(after.spellAttack).toBe(before.spellAttack);
     expect(after.spellSlots).toEqual(before.spellSlots);
+    const r13 = getStatRangesForLevel(13);
+    expect(after.spellDC).toBe(Math.round(interpolateSpellStat(0, r13.spellDC)));
+    expect(after.spellAttack).toBe(Math.round(interpolateSpellStat(0, r13.spellAttack)));
     expect(after.ac).toBeGreaterThan(before.ac);
     expect(after.hp).toBeGreaterThan(before.hp);
   });
 
-  it('post-conversion level edits shift casting in step from the base level', () => {
+  it('post-conversion level edits shift slot ranks in step from the base level; DC tracks the troop level', () => {
     const c = casterCreature();
     applyTroopConversion(c);
-    // 13 → 15 with offset -5 casts as a level-10 version of the same benchmarks.
+    // 13 → 15 with offset -5 slots as a level-10 version of the same benchmarks.
     const at15 = calculateCreatureStats(15, c.benchmarks);
     const plainL10 = calculateCreatureStats(10, { ...c.benchmarks, spellcastingLevelOffset: undefined });
-    expect(at15.spellDC).toBe(plainL10.spellDC);
-    expect(at15.spellAttack).toBe(plainL10.spellAttack);
     expect(at15.spellSlots).toEqual(plainL10.spellSlots);
+    expect(at15.spellDC).toBe(Math.round(interpolateSpellStat(0, getStatRangesForLevel(15).spellDC)));
   });
 
-  it('re-conversion does not stack the offset', () => {
+  it('re-conversion keeps a hand-tuned DC tier and does not stack the offset', () => {
     const c = casterCreature();
     applyTroopConversion(c);
+    c.benchmarks.spellDC = 0.5;
     applyTroopConversion(c);
     expect(c.level).toBe(13);
     expect(c.benchmarks.spellcastingLevelOffset).toBe(-5);
+    expect(c.benchmarks.spellDC).toBe(0.5);
   });
 
   it('pins by the applied delta when the level bump clamps at 24', () => {
@@ -322,6 +331,58 @@ describe('applyTroopConversion — spellcasting pinned at the base level', () =>
     c.benchmarks = getDefaultBenchmarks();
     applyTroopConversion(c);
     expect(c.benchmarks.spellcastingLevelOffset).toBeUndefined();
+  });
+
+  it('seeds the basic Troop Spellcasting passive for casters; non-casters get neither variant', () => {
+    const caster = casterCreature();
+    applyTroopConversion(caster);
+    expect(findTroopSpellcasting(caster)).toMatchObject({ steady: false });
+    expect(findTroopSpellcasting(caster)!.ability.name).toBe(TROOP_SPELLCASTING_NAME);
+
+    const martial = casterCreature();
+    martial.benchmarks = getDefaultBenchmarks();
+    applyTroopConversion(martial);
+    expect(findTroopSpellcasting(martial)).toBeUndefined();
+  });
+
+  it('steadySpellcasting option seeds the Steady variant instead', () => {
+    const c = casterCreature();
+    applyTroopConversion(c, {}, { steadySpellcasting: true });
+    const found = findTroopSpellcasting(c);
+    expect(found?.steady).toBe(true);
+    expect(found?.ability.name).toBe(STEADY_TROOP_SPELLCASTING_NAME);
+  });
+
+  it('re-conversion without the option keeps the existing variant and never duplicates', () => {
+    const c = casterCreature();
+    applyTroopConversion(c, {}, { steadySpellcasting: true });
+    applyTroopConversion(c);
+    expect(findTroopSpellcasting(c)?.steady).toBe(true);
+    const variants = c.specialAbilities.filter((a) =>
+      [TROOP_SPELLCASTING_NAME, STEADY_TROOP_SPELLCASTING_NAME].includes(a.name)
+    );
+    expect(variants).toHaveLength(1);
+  });
+
+  it('setTroopSpellcastingVariant swaps in place, preserving the ability id', () => {
+    const c = casterCreature();
+    applyTroopConversion(c);
+    const before = findTroopSpellcasting(c)!;
+    setTroopSpellcastingVariant(c, true);
+    const after = findTroopSpellcasting(c)!;
+    expect(after.steady).toBe(true);
+    expect(after.ability.id).toBe(before.ability.id);
+    setTroopSpellcastingVariant(c, false);
+    expect(findTroopSpellcasting(c)!.ability.name).toBe(TROOP_SPELLCASTING_NAME);
+  });
+
+  it('the composed item ships the area-size ItemAlteration rules', () => {
+    const c = casterCreature();
+    applyTroopConversion(c);
+    const ability = findTroopSpellcasting(c)!.ability;
+    const item = composeAbilityItemData(ability, c.level);
+    expect(item.system.rules).toHaveLength(3);
+    expect(item.system.rules!.every((r) => r.key === 'ItemAlteration' && r.property === 'area-size')).toBe(true);
   });
 });
 

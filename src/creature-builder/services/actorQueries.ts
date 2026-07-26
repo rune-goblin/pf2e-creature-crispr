@@ -452,12 +452,16 @@ export function actionItemToSpecialAbility(item: AbilityItemView, parseLevel: nu
     };
     if (fastHealing.value !== null) {
       const stored = (benchmarkData.scalableValues ?? ability.scalableValues)?.find((v) => v.type === 'healing');
-      const healingValue: ScalableValue = stored ?? {
-        type: 'healing',
-        benchmark: healingToBenchmark(fastHealing.value, parseLevel),
-        originalValue: String(fastHealing.value),
-        baseLevel: parseLevel
-      };
+      // Legacy stored values predate healingKind — stamp it so regeneration scales on its own curve.
+      const healingValue: ScalableValue = stored
+        ? { ...stored, healingKind: stored.healingKind ?? fastHealing.kind }
+        : {
+            type: 'healing',
+            benchmark: healingToBenchmark(fastHealing.value, parseLevel, fastHealing.kind),
+            originalValue: String(fastHealing.value),
+            baseLevel: parseLevel,
+            healingKind: fastHealing.kind
+          };
       const others = (ability.scalableValues ?? []).filter((v) => v.type !== 'healing');
       ability.scalableValues = [...others, healingValue];
     }

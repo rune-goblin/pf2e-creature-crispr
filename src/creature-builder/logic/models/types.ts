@@ -152,9 +152,9 @@ export interface CreatureBenchmarks {
   /** Per-rank absolute slot count overrides. Keys are ranks, values replace the computed slot count. */
   spellSlotOverrides?: Record<number, number>;
   /**
-   * Spellcasting computes at `level + offset` instead of `level`. Troop conversion sets it to
-   * -levelDelta so the +5 bump lifts martial stats without lifting casting; later level edits shift
-   * both in step (a 8→13 troop edited to 15 casts as a level 10).
+   * Spell RANKS/SLOTS compute at `level + offset` instead of `level`; DC/attack always follow the
+   * creature's own level. Troop conversion sets it to -levelDelta so the +5 bump doesn't deepen the
+   * casting; later level edits shift both in step (an 8→13 troop edited to 15 slots as a level 10).
    */
   spellcastingLevelOffset?: number;
 }
@@ -219,6 +219,9 @@ export interface SpecialAbility {
   actionType: 'action' | 'reaction' | 'free' | 'passive';
   actions?: 1 | 2 | 3;  // Number of actions if actionType is 'action'
   traits?: string[];
+  /** PF2e rule elements to stamp onto the item at create time (e.g. Troop Spellcasting's area-size
+   *  ItemAlterations). Opaque to the kernel; already-embedded items keep their own rules on update. */
+  rules?: Array<Record<string, unknown>>;
   /**
    * Present when the ability carries a PF2e FastHealing rule element (fast healing / regeneration).
    * The healing amount itself is a `ScalableValue` of type 'healing' in `scalableValues`; this marker

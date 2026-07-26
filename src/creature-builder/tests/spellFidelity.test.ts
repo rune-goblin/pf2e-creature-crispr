@@ -182,8 +182,12 @@ describe('syncSpellcastingEntriesForLevel — spellcastingLevelOffset (troop pin
   const slotsAt = (level: number) =>
     calculateCreatureStats(level, { ...benchmarks, spellProgression: 'fullPrepared' as const }).spellSlots!;
 
-  it('a troop conversion save (+5 level, -5 offset) rewrites no entry to a higher level', async () => {
-    const troopBenchmarks = { ...benchmarks, spellProgression: 'fullPrepared' as const, spellcastingLevelOffset: -5 };
+  it('a troop conversion save pins slot ranks but moves the primary DC/attack to troop-level moderate', async () => {
+    // What conversion produces: +5 level, -5 offset, DC/attack benchmarks reset to moderate.
+    const troopBenchmarks = {
+      ...benchmarks, spellDC: 0, spellAttack: 0,
+      spellProgression: 'fullPrepared' as const, spellcastingLevelOffset: -5
+    };
     const primary = spellEntry({
       id: 'e-prepared', prepared: 'prepared', dc: 36, attack: 24,
       benchmark: { dcBenchmark: primaryDcScalar, attackBenchmark: primaryAttackScalar, primary: true }
@@ -194,18 +198,19 @@ describe('syncSpellcastingEntriesForLevel — spellcastingLevelOffset (troop pin
     await syncSpellcastingEntriesForLevel(actor as any, LEVEL + 5, troopBenchmarks, { previousLevel: LEVEL });
 
     const byId = Object.fromEntries(updatesOf(actor).map((u) => [u._id, u]));
-    // Effective spell level is unchanged (12): the primary re-writes its level-12 values...
-    expect(byId['e-prepared']['system.spelldc.dc']).toBe(36);
-    expect(byId['e-prepared']['system.spelldc.value']).toBe(24);
+    const r17 = getStatRangesForLevel(LEVEL + 5);
+    // Primary DC/attack land on moderate at the troop's level...
+    expect(byId['e-prepared']['system.spelldc.dc']).toBe(Math.round(interpolateSpellStat(0, r17.spellDC)));
+    expect(byId['e-prepared']['system.spelldc.value']).toBe(Math.round(interpolateSpellStat(0, r17.spellAttack)));
+    // ...while the slot layout stays the level-12 one, gaining none of the level-17 ranks...
     expect(byId['e-prepared']['system.slots.slot1.max']).toBe(slotsAt(LEVEL)[1]);
-    // ...gains none of the level-17 ranks...
     expect(byId['e-prepared']['system.slots.slot7.max'] ?? 0).toBe(0);
-    // ...and the innate entry is not rewritten at all.
+    // ...and the innate entry is not rewritten at all (effective spell level unchanged).
     expect(byId['e-innate']).toBeUndefined();
   });
 
-  it('a post-conversion level edit scales every entry from the base casting level', async () => {
-    const troopBenchmarks = { ...benchmarks, spellcastingLevelOffset: -5 };
+  it('a post-conversion level edit scales secondary entries from the base casting level', async () => {
+    const troopBenchmarks = { ...benchmarks, spellDC: 0, spellAttack: 0, spellcastingLevelOffset: -5 };
     const primary = spellEntry({
       id: 'e-prepared', prepared: 'prepared', dc: 36, attack: 24,
       benchmark: { dcBenchmark: primaryDcScalar, attackBenchmark: primaryAttackScalar, primary: true }
@@ -213,14 +218,14 @@ describe('syncSpellcastingEntriesForLevel — spellcastingLevelOffset (troop pin
     const innate = spellEntry({ id: 'e-innate', prepared: 'innate', dc: 32, benchmark: { dcBenchmark: innateDcScalar } });
     const actor = makeActor([primary, innate]);
 
-    // Troop 17 → 19 casts as 12 → 14: identical numbers to the plain +2 rescale above.
+    // Troop 17 → 19: the innate entry slots as 12 → 14; the primary tracks the troop's own level.
     await syncSpellcastingEntriesForLevel(actor as any, LEVEL + 7, troopBenchmarks, {
       previousLevel: LEVEL + 5,
       previousSpellcastingLevelOffset: -5
     });
 
     const byId = Object.fromEntries(updatesOf(actor).map((u) => [u._id, u]));
-    expect(byId['e-prepared']['system.spelldc.dc']).toBe(39);
+    expect(byId['e-prepared']['system.spelldc.dc']).toBe(Math.round(interpolateSpellStat(0, getStatRangesForLevel(LEVEL + 7).spellDC)));
     expect(byId['e-innate']['system.spelldc.dc']).toBe(34);
   });
 });

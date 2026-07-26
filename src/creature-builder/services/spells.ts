@@ -190,9 +190,11 @@ function diffSlotOverrides(
  * level) and is rewritten only on a genuine level change — so a same-level benchmark edit
  * touches the primary alone and can never flatten a distinct innate/secondary DC onto it.
  *
- * All level comparisons and stat ranges here use the EFFECTIVE spellcasting level
- * (level + spellcastingLevelOffset): troop conversion moves level and offset in opposite directions,
- * so its save is a same-spell-level edit and no entry gains casting power from the +5.
+ * Non-primary gating and ranges use the EFFECTIVE spellcasting level (level +
+ * spellcastingLevelOffset): troop conversion moves level and offset in opposite directions, so its
+ * save is a same-spell-level edit and secondary/innate entries gain nothing from the +5. The
+ * primary's DC/attack come from `stats`, which computes them at the creature's own level (only
+ * ranks/slots are offset-pinned).
  */
 export async function syncSpellcastingEntriesForLevel(
   actor: NPCPF2e,

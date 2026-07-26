@@ -20,6 +20,7 @@ export function customAbilityToSpecialAbility(
     actions: def.actionType === 'action' ? def.actions : undefined,
     traits: def.traits ? [...def.traits] : []
   };
+  if (def.rules) ability.rules = def.rules.map((r) => ({ ...r }));
 
   const parsed = parseAbilityDescription(def.description, level);
   if (parsed.scalableValues.length > 0) {

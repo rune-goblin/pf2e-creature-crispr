@@ -24,7 +24,7 @@ import {
 } from '../logic/creatureStatTables';
 import { MAX_SPELL_RANK } from '../logic/spellSlotTables';
 import type { TroopConversionOptions, TroopConversionRecipe } from '../logic/contracts';
-import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, rescaleCreatureIwr, stampTroopDefaults } from '../logic/troop';
+import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, findTroopSpellcasting, rescaleCreatureIwr, setTroopSpellcastingVariant, stampTroopDefaults } from '../logic/troop';
 import { validateCreatureErrors } from '../logic/editableCreature';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
@@ -614,6 +614,12 @@ class CreatureEditorStore {
     this.mutateCreature((c) => {
       c.troopSize = size;
     });
+  }
+
+  /** Swap the Troop Spellcasting passive between the basic and Steady variants (id-preserving). */
+  setSteadyTroopSpellcasting(steady: boolean): void {
+    if (!this.creature || !findTroopSpellcasting(this.creature)) return;
+    this.mutateCreature((c) => setTroopSpellcastingVariant(c, steady));
   }
 
   /**

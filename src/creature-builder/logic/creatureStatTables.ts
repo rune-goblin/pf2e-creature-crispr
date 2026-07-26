@@ -929,9 +929,10 @@ export function getStatRangesForLevel(level: number): {
 }
 
 /**
- * The level spellcasting computes at: `level + benchmarks.spellcastingLevelOffset`, clamped to the
- * stat tables' range. Only spell DC/attack interpolation and the slot curve read this; every other
- * stat stays on the creature's own level.
+ * The level spell RANKS compute at: `level + benchmarks.spellcastingLevelOffset`, clamped to the
+ * stat tables' range. Only the slot curve and the max-rank threshold read this — spell DC/attack
+ * benchmarks interpolate at the creature's own level (published caster troops keep own-level DCs;
+ * corpus scan 2026-07-26).
  */
 export function effectiveSpellcastingLevel(level: number, offset: number | undefined): number {
   return Math.max(-1, Math.min(24, level + (offset ?? 0)));
@@ -1158,7 +1159,6 @@ export function calculateCreatureStats(
 ): CreatureStats {
   const ranges = getStatRangesForLevel(level);
   const spellLevel = effectiveSpellcastingLevel(level, benchmarks.spellcastingLevelOffset);
-  const spellRanges = spellLevel === level ? ranges : getStatRangesForLevel(spellLevel);
 
   // Get the damage entry based on the benchmark scalar, preserving relative position
   const damageEntry = scaleStrikeDamage(benchmarks.strikeDamage, ranges.strikeDamage);
@@ -1194,16 +1194,17 @@ export function calculateCreatureStats(
       return acc;
     }, {} as Record<string, number>),
 
-    // Spell DC and Attack use 3-benchmark system (moderate=0, high=0.5, extreme=1),
-    // interpolated at the effective spellcasting level (see effectiveSpellcastingLevel).
+    // Spell DC and Attack use 3-benchmark system (moderate=0, high=0.5, extreme=1) at the
+    // creature's own level — the spellcastingLevelOffset pins ranks/slots, never the DC.
     spellDC: benchmarks.spellDC !== undefined
-      ? Math.round(interpolateSpellStat(benchmarks.spellDC, spellRanges.spellDC))
+      ? Math.round(interpolateSpellStat(benchmarks.spellDC, ranges.spellDC))
       : undefined,
     spellAttack: benchmarks.spellAttack !== undefined
-      ? Math.round(interpolateSpellStat(benchmarks.spellAttack, spellRanges.spellAttack))
+      ? Math.round(interpolateSpellStat(benchmarks.spellAttack, ranges.spellAttack))
       : undefined,
 
-    // Spell slot layout computed from progression type (includes font slots if applicable)
+    // Spell slot layout computed from progression type (includes font slots if applicable), at the
+    // effective spellcasting level (see effectiveSpellcastingLevel).
     // Per-rank overrides from benchmarks.spellSlotOverrides replace the computed counts.
     spellSlots: benchmarks.spellProgression && benchmarks.spellProgression !== 'none' && benchmarks.spellProgression !== 'innate'
       ? applySpellSlotOverrides(

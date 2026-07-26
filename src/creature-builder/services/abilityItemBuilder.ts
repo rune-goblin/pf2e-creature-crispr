@@ -49,6 +49,7 @@ function applyFastHealingToItem(itemData: AbilityItemData, ability: SpecialAbili
   if (!ability.fastHealing) return null;
   const healingSV = ability.scalableValues?.find((v) => v.type === 'healing');
   if (!healingSV) return null;
+  healingSV.healingKind ??= ability.fastHealing.kind;
   const amount = parseInt(getEffectiveValue(healingSV, level), 10);
   if (!Number.isFinite(amount)) return null;
   itemData.name = composeFastHealingName(ability.name, amount);
@@ -93,6 +94,7 @@ export function composeAbilityItemData(ability: SpecialAbility, level: number): 
       traits: { value: ability.traits || [] }
     }
   };
+  if (ability.rules?.length) itemData.system.rules = ability.rules;
 
   // Parse the description and stamp scalable values onto the benchmark flag so
   // the editor can tier-step damage/DC and so syncAbilityItemsForLevel rescales
@@ -146,6 +148,7 @@ export function composeAbilityItemForExport(ability: SpecialAbility, level: numb
       traits: { value: ability.traits || [] }
     }
   };
+  if (ability.rules?.length) itemData.system.rules = ability.rules;
 
   // Bake the user's current fast-healing edit into the exported item's name + rule.
   const healingSV = applyFastHealingToItem(itemData, ability, level);

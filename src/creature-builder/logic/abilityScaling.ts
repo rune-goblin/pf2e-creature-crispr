@@ -133,12 +133,17 @@ const PERSISTENT_DAMAGE_TABLE: Record<CreatureLevel, PersistentDamageRange> = {
 };
 
 // ============================================================================
-// FAST HEALING / REGENERATION TABLE
-// PF2e publishes no benchmark table for fast healing / regeneration, so this is
-// derived from analysis of bestiary creatures across levels: the typical amount
-// tracks creature level closely (moderate ≈ level), with low/high bracketing the
-// observed spread. 3-benchmark system (low / moderate / high).
+// FAST HEALING / REGENERATION MODERATE LINES
+// PF2e publishes no benchmark table for either ability, so both moderate lines
+// are fitted to the published bestiary corpus (docs/regeneration-analysis.html):
+//   - fast healing:  0.82 + 0.82×level — the corpus linear trend, adopted exactly
+//   - regeneration:  7 → 34 across levels 0–25 (7 + 1.08×level) — regeneration
+//     runs a full band above fast healing on a large flat base; the two are
+//     different populations and must not share a curve.
+// Low/high bracket the observed spread. 3-benchmark system (low/moderate/high).
 // ============================================================================
+
+export type HealingKind = 'fast-healing' | 'regeneration';
 
 interface FastHealingRange {
   low: number;
@@ -146,38 +151,30 @@ interface FastHealingRange {
   high: number;
 }
 
-const FAST_HEALING_TABLE: Record<CreatureLevel, FastHealingRange> = {
-  [-1]: { low:  1, moderate:  1, high:  2 },
-  [0]:  { low:  1, moderate:  1, high:  2 },
-  [1]:  { low:  1, moderate:  2, high:  3 },
-  [2]:  { low:  2, moderate:  3, high:  5 },
-  [3]:  { low:  2, moderate:  4, high:  6 },
-  [4]:  { low:  3, moderate:  5, high:  8 },
-  [5]:  { low:  4, moderate:  6, high: 10 },
-  [6]:  { low:  4, moderate:  7, high: 11 },
-  [7]:  { low:  5, moderate:  8, high: 13 },
-  [8]:  { low:  5, moderate:  9, high: 14 },
-  [9]:  { low:  6, moderate: 10, high: 16 },
-  [10]: { low:  7, moderate: 11, high: 18 },
-  [11]: { low:  7, moderate: 12, high: 19 },
-  [12]: { low:  8, moderate: 13, high: 21 },
-  [13]: { low:  8, moderate: 14, high: 22 },
-  [14]: { low:  9, moderate: 15, high: 24 },
-  [15]: { low: 10, moderate: 16, high: 26 },
-  [16]: { low: 10, moderate: 17, high: 27 },
-  [17]: { low: 11, moderate: 18, high: 29 },
-  [18]: { low: 11, moderate: 19, high: 30 },
-  [19]: { low: 12, moderate: 20, high: 32 },
-  [20]: { low: 13, moderate: 21, high: 34 },
-  [21]: { low: 14, moderate: 23, high: 37 },
-  [22]: { low: 15, moderate: 25, high: 40 },
-  [23]: { low: 16, moderate: 27, high: 43 },
-  [24]: { low: 18, moderate: 30, high: 48 }
-};
+// Highest regeneration ever printed (Treerazer, L25); nothing scaled should exceed it.
+const REGEN_MAX = 50;
 
-function getFastHealingRange(level: number): FastHealingRange {
-  const clampedLevel = Math.max(-1, Math.min(24, Math.round(level))) as CreatureLevel;
-  return FAST_HEALING_TABLE[clampedLevel];
+function healingModerateAt(level: number, kind: HealingKind): number {
+  const L = Math.max(-1, Math.min(25, level));
+  return kind === 'regeneration' ? 7 + 1.08 * L : 0.82 + 0.82 * L;
+}
+
+/** Printed regeneration ≥ 10 is (near-)always a multiple of 5 and never exceeds REGEN_MAX. */
+function snapHealingValue(value: number, kind: HealingKind): number {
+  if (kind === 'regeneration') {
+    const v = Math.min(REGEN_MAX, value);
+    if (v >= 10) return Math.round(v / 5) * 5;
+    return Math.max(1, Math.round(v));
+  }
+  return Math.max(1, Math.round(value));
+}
+
+function getFastHealingRange(level: number, kind: HealingKind = 'fast-healing'): FastHealingRange {
+  const mod = healingModerateAt(level, kind);
+  const moderate = Math.max(1, Math.round(mod));
+  const low = Math.max(1, Math.round(0.6 * mod));
+  const high = Math.max(moderate + 1, Math.round((kind === 'regeneration' ? 1.6 : 1.5) * mod));
+  return { low, moderate, high: kind === 'regeneration' ? Math.min(REGEN_MAX, high) : high };
 }
 
 // ============================================================================
@@ -552,8 +549,8 @@ export function getPersistentBenchmarkLabel(scalar: number): 'low' | 'moderate' 
  * Determine the benchmark scalar for a fast-healing / regeneration amount at a given level.
  * Uses a 3-benchmark system (0 = low, 0.5 = moderate, 1 = high).
  */
-export function healingToBenchmark(amount: number, level: number): number {
-  const range = getFastHealingRange(level);
+export function healingToBenchmark(amount: number, level: number, kind: HealingKind = 'fast-healing'): number {
+  const range = getFastHealingRange(level, kind);
   if (amount <= range.low) return 0;
   if (amount >= range.high) return 1;
   if (amount <= range.moderate) {
@@ -568,11 +565,10 @@ export function healingToBenchmark(amount: number, level: number): number {
  * Calculate the scaled fast-healing / regeneration amount for a benchmark at a new level.
  * Maps the scalar to the nearest tier (0-0.33 low, 0.33-0.67 moderate, 0.67-1 high).
  */
-export function scaleHealing(benchmark: number, newLevel: number): number {
-  const range = getFastHealingRange(newLevel);
-  if (benchmark < 0.33) return range.low;
-  if (benchmark < 0.67) return range.moderate;
-  return range.high;
+export function scaleHealing(benchmark: number, newLevel: number, kind: HealingKind = 'fast-healing'): number {
+  const range = getFastHealingRange(newLevel, kind);
+  const raw = benchmark < 0.33 ? range.low : benchmark < 0.67 ? range.moderate : range.high;
+  return snapHealingValue(raw, kind);
 }
 
 /**
@@ -642,8 +638,8 @@ function getPersistentTierAveragesForLevel(level: number): TierAverages {
 /**
  * Tier averages for fast healing / regeneration (3-tier table). No `extreme`.
  */
-function getHealingTierAveragesForLevel(level: number): TierAverages {
-  const row = getFastHealingRange(level);
+function getHealingTierAveragesForLevel(level: number, kind: HealingKind = 'fast-healing'): TierAverages {
+  const row = getFastHealingRange(level, kind);
   return { low: row.low, mod: row.moderate, high: row.high };
 }
 
@@ -711,20 +707,31 @@ export function scaleProportionally(sv: ScalableValue, level: number): string {
     return scalesWithLevel(sv) ? String(scaleDC(sv.benchmark, level)) : sv.originalValue;
   }
 
-  // Flat numeric values — fast-healing/regeneration amounts, and flat damage like
-  // @Damage[7[piercing]] / @Damage[5[persistent,acid]] — have no dice to reshape. Scale the
-  // integer by the level-to-level factor and keep it flat.
+  // Flat healing (fast-healing / regeneration rule amounts) scales ADDITIVELY along its
+  // corpus moderate line — new = old + (mod(target) − mod(base)) — preserving a spike as an
+  // offset, then snaps to the published grain. Ratio scaling is wrong here: regeneration's
+  // ratio-to-level collapses as level grows (docs/regeneration-analysis.html), so multiplying
+  // a spike like the troll's Regeneration 20 @ L5 explodes (×2.5 → 50 at L14, the corpus
+  // all-time ceiling reserved for level-16+ apex creatures).
+  if (sv.type === 'healing' && /^\s*\d+\s*$/.test(sv.originalValue) && sv.baseLevel !== undefined) {
+    const kind = sv.healingKind ?? 'fast-healing';
+    const delta = healingModerateAt(level, kind) - healingModerateAt(sv.baseLevel, kind);
+    return String(snapHealingValue(parseInt(sv.originalValue, 10) + delta, kind));
+  }
+
+  // Other flat numeric values — flat damage like @Damage[7[piercing]] /
+  // @Damage[5[persistent,acid]] — have no dice to reshape. Scale the integer by the
+  // level-to-level factor and keep it flat.
   if (/^\s*\d+\s*$/.test(sv.originalValue) && sv.baseLevel !== undefined) {
     const original = parseInt(sv.originalValue, 10);
-    const kind = sv.type === 'persistent' ? 'persistent' : sv.type === 'healing' ? 'healing' : 'damage';
-    const factor = computeLevelScaleFactor(kind, sv.baseLevel, level);
+    const factor = computeLevelScaleFactor(sv.type === 'persistent' ? 'persistent' : 'damage', sv.baseLevel, level);
     return String(Math.max(1, Math.round(original * factor)));
   }
 
   const components = parseDiceComponents(sv.originalValue);
   if (!components || sv.baseLevel === undefined) {
     if (sv.type === 'damage') return scaleDamage(sv.benchmark, level);
-    if (sv.type === 'healing') return String(scaleHealing(sv.benchmark, level));
+    if (sv.type === 'healing') return String(scaleHealing(sv.benchmark, level, sv.healingKind));
     return scalePersistentDamage(sv.benchmark, level);
   }
 
@@ -767,7 +774,7 @@ export function getTierInfo(
     if (sv.type === 'healing') {
       const amount = parseInt(sv.customValue, 10);
       if (Number.isNaN(amount)) return null;
-      return classifyHealingByValue(amount, level);
+      return classifyHealingByValue(amount, level, sv.healingKind);
     }
     const components = parseDiceComponents(sv.customValue);
     if (!components) return null;
@@ -838,9 +845,10 @@ function classifyDamageByAverage(
 
 function classifyHealingByValue(
   amount: number,
-  level: number
+  level: number,
+  kind: HealingKind = 'fast-healing'
 ): { label: 'low' | 'moderate' | 'high'; exact: boolean } {
-  const range = getFastHealingRange(level);
+  const range = getFastHealingRange(level, kind);
   const entries: Array<{ label: 'low' | 'moderate' | 'high'; avg: number }> = [
     { label: 'low', avg: range.low },
     { label: 'moderate', avg: range.moderate },
@@ -969,7 +977,7 @@ export function getDisplayBenchmark(sv: ScalableValue, level: number): number {
     if (sv.type === 'healing') {
       const amount = parseInt(sv.customValue, 10);
       if (Number.isNaN(amount)) return sv.benchmark;
-      return healingToBenchmark(amount, level);
+      return healingToBenchmark(amount, level, sv.healingKind);
     }
     const avg = parseDiceFormulaAverage(sv.customValue);
     if (avg === 0) return sv.benchmark; // unparseable formula — fall back
@@ -1551,7 +1559,7 @@ export function getEffectiveValue(sv: ScalableValue, level: number): string {
       return cleanTierFormula(sv, level, sv.override)
         ?? (sv.type === 'damage' ? scaleDamage(sv.override, level) : scalePersistentDamage(sv.override, level));
     }
-    if (sv.type === 'healing') return String(scaleHealing(sv.override, level));
+    if (sv.type === 'healing') return String(scaleHealing(sv.override, level, sv.healingKind));
     if (sv.type === 'dc') return String(scaleDC(sv.override, level));
     // condition: no tier override — fall through to the recommendation
   }

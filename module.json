@@ -30,6 +30,13 @@
       "label": "PF2E Creature CRISPR Macros",
       "path": "packs/macros",
       "type": "Macro"
+    },
+    {
+      "name": "abilities",
+      "label": "PF2E Creature CRISPR Abilities",
+      "path": "packs/abilities",
+      "type": "Item",
+      "system": "pf2e"
     }
   ],
   "relationships": {

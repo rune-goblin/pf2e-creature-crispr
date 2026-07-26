@@ -399,6 +399,7 @@
           onUpdateBenchmark={(d) => editorStore.updateBenchmark(d.path, d.value)}
           onSetSpellSlotOverride={(d) => editorStore.setSpellSlotOverride(d.rank, d.count)}
           onResetSpellSlotOverride={(d) => editorStore.resetSpellSlotOverride(d.rank)}
+          onSetSteadySpellcasting={(d) => editorStore.setSteadyTroopSpellcasting(d.steady)}
         />
 
         <SpecialAbilitiesSection

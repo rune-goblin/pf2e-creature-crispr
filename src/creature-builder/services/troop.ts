@@ -12,12 +12,17 @@ import { getActiveSaveTarget, getSaveTarget } from './saveTargetRegistry';
 import { logger } from './logger';
 
 // Canonical generic glossary items — pure @Localize wrappers, no creature-specific values (see the
-// troop-build plan, fact 5). Defenses + Movement define troop-ness; Form Up is opt-in.
+// troop-build plan, fact 5). Defenses + Movement define troop-ness; Form Up is opt-in. The two
+// spellcasting variants are CRISPR's own compendium items (PF2e ships no glossary entry for them).
 const TROOP_ABILITY_UUIDS = {
   defenses: 'Compendium.pf2e.bestiary-ability-glossary-srd.Item.EawOw47nHueUPnYc',
   movement: 'Compendium.pf2e.bestiary-ability-glossary-srd.Item.MXI6zwrvbQNIv7ji',
-  formUp: 'Compendium.pf2e.bestiary-ability-glossary-srd.Item.OvqohW9YuahnFaiX'
+  formUp: 'Compendium.pf2e.bestiary-ability-glossary-srd.Item.OvqohW9YuahnFaiX',
+  spellcasting: 'Compendium.pf2e-creature-crispr.abilities.Item.crisprTroopSpell',
+  steadySpellcasting: 'Compendium.pf2e-creature-crispr.abilities.Item.crisprSteadySpel'
 } as const;
+
+const TROOP_SPELLCASTING_SLUGS = ['troop-spellcasting', 'steady-troop-spellcasting'];
 
 /**
  * Make a world NPC a PF2e troop: add the `troop` trait, seed missing area/splash weaknesses, set the
@@ -28,7 +33,7 @@ const TROOP_ABILITY_UUIDS = {
  */
 export async function applyTroopToActor(
   actorId: string,
-  opts: { troopSize?: TroopSize; formUp?: boolean } = {}
+  opts: { troopSize?: TroopSize; formUp?: boolean; steadySpellcasting?: boolean } = {}
 ): Promise<string> {
   const troopSize = opts.troopSize ?? 'gargantuan';
   const formUp = opts.formUp ?? false;
@@ -73,6 +78,13 @@ export async function applyTroopToActor(
 
   // Fall back to a sluggified name so a null-slug item still dedups instead of double-embedding.
   const existingSlugs = new Set(npc.items.contents.map((i) => i.slug ?? game.pf2e.system.sluggify(i.name)));
+
+  // Casters get Troop Spellcasting. The two variants occupy one slot: if either is already on the
+  // actor (authored or from a prior run), embed neither — don't stack the other variant beside it.
+  const casts = npc.items.contents.some((i) => i.type === 'spellcastingEntry');
+  if (casts && !TROOP_SPELLCASTING_SLUGS.some((slug) => existingSlugs.has(slug))) {
+    uuids.push(opts.steadySpellcasting ? TROOP_ABILITY_UUIDS.steadySpellcasting : TROOP_ABILITY_UUIDS.spellcasting);
+  }
   const toEmbed: object[] = [];
   for (const uuid of uuids) {
     const source = (await fromUuid(uuid)) as ItemPF2e | null;

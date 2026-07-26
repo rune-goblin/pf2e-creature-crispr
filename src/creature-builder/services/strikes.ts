@@ -346,6 +346,7 @@ export async function updateAbilityItems(
     // edited) healing scalable value. Done here rather than via the description because the amount
     // lives on the rule + name, not in the prose.
     if (ability.fastHealing && healingSV) {
+      healingSV.healingKind ??= ability.fastHealing.kind;
       const amount = parseInt(getEffectiveValue(healingSV, level), 10);
       if (Number.isFinite(amount)) {
         update['system.rules'] = setFastHealingRuleValue(
@@ -497,6 +498,7 @@ export async function syncAbilityItemsForLevel(actor: NPCPF2e, level: number): P
     const healingSV = benchmarkData.scalableValues.find((v) => v.type === 'healing');
     const fh = readFastHealingRule(item.system?.rules as Array<Record<string, unknown>> | undefined);
     if (healingSV && fh) {
+      healingSV.healingKind ??= fh.kind;
       const amount = parseInt(getEffectiveValue(healingSV, level), 10);
       if (Number.isFinite(amount)) {
         update['system.rules'] = setFastHealingRuleValue(

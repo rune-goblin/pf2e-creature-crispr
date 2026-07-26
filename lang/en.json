@@ -7,6 +7,12 @@
     "troop": {
       "notNpc": "Cannot apply the troop template to a \"{type}\" actor — troops must be NPCs.",
       "abilityMissing": "Troop ability item not found ({uuid}). The PF2e bestiary glossary pack is missing or out of date.",
+      "spellcasting": {
+        "description": "When the troop Casts a Spell, its constituent members combine their efforts into casting a more powerful version of the spell than any one member could achieve alone. When Casting a Spell that has an area of a burst, cone, or line and doesn't have a duration, increase the area of that spell. Add 5 feet to the radius of a burst that normally has a radius of at least 10 feet (a burst with a smaller radius isn't affected). Add 5 feet to the length of a cone or line that's normally 15 feet long or smaller, and add 10 feet to the length of a larger cone or line.",
+        "steadyRider": "If a reaction would disrupt the troop's spellcasting action, the troop attempts a @Check[flat|dc:12]. On a success, the action isn't disrupted.",
+        "steadyLabel": "Steady Troop Spellcasting",
+        "steadyHint": "Reactions can't easily disrupt the troop's spellcasting — it attempts a DC 12 flat check to ignore the disruption."
+      },
       "convert": {
         "button": "Convert to Troop",
         "dialogTitle": "Convert to Troop",

@@ -18,6 +18,7 @@ export interface CustomAbilityDefinition {
   actions?: 1 | 2 | 3;
   traits?: string[];
   referenceUuid?: string; // opaque string; resolution (fromUuid) is host-side if ever needed
+  rules?: Array<Record<string, unknown>>; // PF2e rule elements stamped onto the created item (opaque to the kernel)
 }
 
 /** A provider's "Convert to Troop" recipe: overrides layered on CRISPR's default conversion engine.
@@ -42,6 +43,9 @@ export interface TroopConversionOptions {
   keepStrikes?: boolean;
   sweepName?: string;
   volleyName?: string;
+  /** Casters get the Troop Spellcasting passive; true seeds the Steady variant instead. Omitted on
+   *  a re-conversion keeps whichever variant the troop already carries. */
+  steadySpellcasting?: boolean;
 }
 
 export interface AbilityProvider {
