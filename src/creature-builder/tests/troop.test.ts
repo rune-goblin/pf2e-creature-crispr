@@ -7,6 +7,11 @@ import {
   applyTroopConversion,
   findTroopSpellcasting,
   setTroopSpellcastingVariant,
+  stampTroopDefaults,
+  troopThresholdsLine,
+  upsertTroopThresholdsLine,
+  refreshTroopDefensesThresholds,
+  TROOP_DEFENSES_NAME,
   TROOP_SPELLCASTING_NAME,
   STEADY_TROOP_SPELLCASTING_NAME
 } from '@/creature-builder/logic/troop';
@@ -255,6 +260,119 @@ describe('applyTroopConversion', () => {
     expect(names).toContain('Arrow Storm');
     expect(names).not.toContain('Jaws Flurry');
     expect(names).not.toContain('Shortbow Volley');
+  });
+});
+
+// Published thresholds are floor(2/3 · max HP) / floor(1/3): 102 of the 106 official troops that
+// state them match exactly (the 4 misses are Paizo copy-paste errors), and the system derives its
+// structured system.attributes.hp.thresholds with the same floors.
+describe('troop defenses thresholds', () => {
+  const GLOSSARY = '<p>@Localize[PF2E.NPC.Abilities.Glossary.TroopDefenses]</p>';
+
+  const troopCreature = (over: Partial<EditableCreature> = {}): EditableCreature => ({
+    name: 'Wolf',
+    level: 3,
+    creatureType: 'animal',
+    size: 'medium',
+    traits: ['animal'],
+    benchmarks: getDefaultBenchmarks(),
+    speeds: { land: 35 },
+    languages: [],
+    senses: [],
+    strikes: [],
+    specialAbilities: [],
+    immunities: [],
+    resistances: [],
+    weaknesses: [],
+    ...over
+  });
+
+  it('renders the published grammar with floored 2/3 and 1/3', () => {
+    expect(troopThresholdsLine(240)).toBe('<p><strong>Thresholds</strong> 160 (3 segments), 80 (2 segments)</p>');
+    expect(troopThresholdsLine(100)).toBe('<p><strong>Thresholds</strong> 66 (3 segments), 33 (2 segments)</p>');
+  });
+
+  it('prepends the line to a glossary-only description', () => {
+    expect(upsertTroopThresholdsLine(GLOSSARY, 240)).toBe(
+      `<p><strong>Thresholds</strong> 160 (3 segments), 80 (2 segments)</p>\n<hr />\n${GLOSSARY}`
+    );
+  });
+
+  it('replaces an existing line instead of stacking, with or without the <hr />', () => {
+    const published = `<p><strong>Thresholds</strong> 90 (3 segments), 45 (2 segments)</p>\n<hr />\n${GLOSSARY}`;
+    expect(upsertTroopThresholdsLine(published, 240)).toBe(
+      `<p><strong>Thresholds</strong> 160 (3 segments), 80 (2 segments)</p>\n<hr />\n${GLOSSARY}`
+    );
+    const noHr = `<p><strong>Thresholds</strong> 90 (3 segments), 45 (2 segments)</p>${GLOSSARY}`;
+    const out = upsertTroopThresholdsLine(noHr, 240);
+    expect(out).toContain('160 (3 segments), 80 (2 segments)');
+    expect(out.match(/Thresholds<\/strong>/g)).toHaveLength(1);
+  });
+
+  it('conversion seeds the line from the troop-level HP', () => {
+    const c = troopCreature();
+    applyTroopConversion(c);
+    const hp = calculateCreatureStats(c.level, c.benchmarks).hp;
+    const defenses = c.specialAbilities.find((a) => a.name === TROOP_DEFENSES_NAME)!;
+    expect(defenses.description).toContain(
+      `<strong>Thresholds</strong> ${Math.floor((hp * 2) / 3)} (3 segments), ${Math.floor(hp / 3)} (2 segments)`
+    );
+    expect(defenses.description).toContain(GLOSSARY);
+  });
+
+  it('stampTroopDefaults refreshes a stale line after a level change (the rescale path)', () => {
+    const c = troopCreature();
+    applyTroopConversion(c);
+    const before = c.specialAbilities.find((a) => a.name === TROOP_DEFENSES_NAME)!.description;
+    c.level += 4;
+    stampTroopDefaults(c);
+    const hp = calculateCreatureStats(c.level, c.benchmarks).hp;
+    const after = c.specialAbilities.find((a) => a.name === TROOP_DEFENSES_NAME)!.description;
+    expect(after).not.toBe(before);
+    expect(after).toContain(`${Math.floor((hp * 2) / 3)} (3 segments), ${Math.floor(hp / 3)} (2 segments)`);
+    expect(after.match(/Thresholds<\/strong>/g)).toHaveLength(1);
+  });
+
+  it('uses baseStats HP verbatim at baseLevel (D1) — an imported published troop keeps its printed values', () => {
+    const c = troopCreature({
+      isTroop: true,
+      level: 10,
+      baseLevel: 10,
+      baseStats: { ...calculateCreatureStats(10, getDefaultBenchmarks()), hp: 220 },
+      specialAbilities: [{ id: 'td', name: TROOP_DEFENSES_NAME, description: GLOSSARY, actionType: 'passive' }]
+    });
+    refreshTroopDefensesThresholds(c);
+    expect(c.specialAbilities[0].description).toContain(
+      '<strong>Thresholds</strong> 146 (3 segments), 73 (2 segments)'
+    );
+  });
+
+  it('rewrites a customDescriptionTemplate override too', () => {
+    const c = troopCreature({
+      isTroop: true,
+      specialAbilities: [{
+        id: 'td', name: TROOP_DEFENSES_NAME, actionType: 'passive',
+        description: GLOSSARY,
+        customDescriptionTemplate: `<p><strong>Thresholds</strong> 1 (3 segments), 0 (2 segments)</p>\n<hr />\n<p>Custom prose.</p>`
+      }]
+    });
+    refreshTroopDefensesThresholds(c);
+    const hp = calculateCreatureStats(c.level, c.benchmarks).hp;
+    const line = troopThresholdsLine(hp);
+    expect(c.specialAbilities[0].customDescriptionTemplate).toBe(`${line}\n<hr />\n<p>Custom prose.</p>`);
+    expect(c.specialAbilities[0].description).toContain(line);
+  });
+
+  it('no-ops for non-troops and when no Troop Defenses ability exists', () => {
+    const nonTroop = troopCreature({
+      specialAbilities: [{ id: 'td', name: TROOP_DEFENSES_NAME, description: GLOSSARY, actionType: 'passive' }]
+    });
+    refreshTroopDefensesThresholds(nonTroop);
+    expect(nonTroop.specialAbilities[0].description).toBe(GLOSSARY);
+
+    const noDefenses = troopCreature({ isTroop: true });
+    refreshTroopDefensesThresholds(noDefenses);
+    expect(noDefenses.specialAbilities).toEqual([]);
   });
 });
 

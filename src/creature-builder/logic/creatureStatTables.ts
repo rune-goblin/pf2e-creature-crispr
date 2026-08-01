@@ -1215,6 +1215,18 @@ export function calculateCreatureStats(
   };
 }
 
+// D1: mirror the editor's display rule — at baseLevel with captured baseStats, use them verbatim
+// rather than recomputing (back-solve→forward clamps out-of-table values to the table boundary).
+// Single source for the save path, the editor's computedStats, and the troop thresholds refresh.
+export function selectSaveStats(
+  level: number,
+  benchmarks: CreatureBenchmarks,
+  baseStats: CreatureStats | undefined,
+  baseLevel: number | undefined
+): CreatureStats {
+  return baseStats && baseLevel === level ? baseStats : calculateCreatureStats(level, benchmarks);
+}
+
 /**
  * Merge per-rank slot overrides onto a computed spell slot layout.
  * Overrides are absolute values that replace the computed count for that rank.

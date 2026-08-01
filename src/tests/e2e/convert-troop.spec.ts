@@ -86,6 +86,16 @@ test.describe('Convert to Troop', () => {
           hasFlurry: items.some((i) => i.type === 'action' && /Flurry/.test(i.name)),
           volleyCount: items.filter((i) => i.type === 'action' && /Volley/.test(i.name)).length,
           hasKit: items.some((i) => i.name === 'Troop Defenses'),
+          // The statblock prose carries the published floor(2/3)/floor(1/3) line, and the system
+          // derives the structured thresholds (4→3→2 segments) from the troop trait.
+          hasThresholdsLine: (() => {
+            const hpMax = actor.system?.attributes?.hp?.max ?? 0;
+            const desc = items.find((i) => i.name === 'Troop Defenses')?.system?.description?.value ?? '';
+            return desc.includes(
+              `<strong>Thresholds</strong> ${Math.floor((hpMax * 2) / 3)} (3 segments), ${Math.floor(hpMax / 3)} (2 segments)`
+            );
+          })(),
+          derivedThresholdCount: (actor.system?.attributes?.hp?.thresholds ?? []).length,
           flagged: !!actor.getFlag(mod, 'creatureData'),
           // Guideline values for the post-conversion level (7), and nothing else seeded.
           weaknesses: weaknesses.map((w) => ({ type: w.type, value: w.value })).sort((a, b) => a.type.localeCompare(b.type)),
@@ -100,6 +110,8 @@ test.describe('Convert to Troop', () => {
         hasFlurry: true,
         volleyCount: 0,
         hasKit: true,
+        hasThresholdsLine: true,
+        derivedThresholdCount: 3,
         flagged: true,
         weaknesses: [
           { type: 'area-damage', value: 8 },

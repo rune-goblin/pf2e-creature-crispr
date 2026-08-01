@@ -1,4 +1,4 @@
-import { rescaleCreatureIwr } from '../logic/troop';
+import { rescaleCreatureIwr, stampTroopDefaults } from '../logic/troop';
 import { dropPlaceholderStrikes, loadCreatureForEdit } from './editorHost';
 import { getActiveSaveTarget, getSaveTarget } from './saveTargetRegistry';
 import { logger } from './logger';
@@ -27,6 +27,9 @@ export async function rescaleActorToLevel(
   const next = Math.max(-1, Math.min(24, Math.round(level)));
   rescaleCreatureIwr(creature, creature.level, next);
   creature.level = next;
+  // Troops carry HP-derived prose (the Troop Defenses thresholds line); re-stamp so it tracks the
+  // HP the new level will save. No-op for non-troops.
+  stampTroopDefaults(creature);
 
   await target.updateActor(actorId, creature);
   await target.onAfterSave?.(actorId, creature, 'update');

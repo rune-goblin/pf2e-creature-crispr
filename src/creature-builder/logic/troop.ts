@@ -1,8 +1,8 @@
-import type { CreatureStrike, DamageModifier, SpecialAbility } from './models';
+import type { CreatureBenchmarks, CreatureStats, CreatureStrike, DamageModifier, SpecialAbility } from './models';
 import { SPELL_BENCHMARK_VALUES } from './models';
 import type { EditableCreature } from './editableCreature';
 import type { CustomAbilityDefinition, TroopConversionOptions, TroopConversionRecipe } from './contracts';
-import { calculateEffectiveDamage, getTroopWeaknessValues, parseDiceFormulaAverage, scaleResistanceWeakness } from './creatureStatTables';
+import { calculateEffectiveDamage, calculateTroopThresholds, getTroopWeaknessValues, parseDiceFormulaAverage, scaleResistanceWeakness, selectSaveStats } from './creatureStatTables';
 import { customAbilityToSpecialAbility, mergeSpecialAbilitiesByName } from './customAbility';
 import { TROOP_ACTION_GROUP, buildTroopSweep, buildTroopVolley } from './troopActions';
 
@@ -13,6 +13,7 @@ import { TROOP_ACTION_GROUP, buildTroopSweep, buildTroopVolley } from './troopAc
 
 export const TROOP_TRAIT = 'troop';
 export const TROOP_WEAKNESS_TYPES: string[] = ['area-damage', 'splash-damage'];
+export const TROOP_DEFENSES_NAME = 'Troop Defenses';
 
 export function withTroopTrait(traits: string[]): string[] {
   return traits.includes(TROOP_TRAIT) ? [...traits] : [...traits, TROOP_TRAIT];
@@ -46,6 +47,51 @@ export interface TroopAdjustable {
   weaknesses: DamageModifier[];
 }
 
+/** The extra fields the thresholds refresh reads; `EditableCreature` satisfies it structurally. */
+export interface TroopStatSource extends TroopAdjustable {
+  benchmarks: CreatureBenchmarks;
+  baseLevel?: number;
+  baseStats?: CreatureStats;
+  specialAbilities: SpecialAbility[];
+}
+
+// Tolerant of the published corpus's minor drift (singular "Threshold", missing <hr />) so a
+// re-stamp replaces an existing line instead of stacking a second one.
+const THRESHOLDS_LINE = /<p>\s*<strong>\s*Thresholds?\s*<\/strong>[\s\S]*?<\/p>\s*(?:<hr\s*\/?>\s*)?/i;
+
+/** The published statblock grammar, e.g. "<strong>Thresholds</strong> 160 (3 segments), 80 (2 segments)". */
+export function troopThresholdsLine(maxHp: number): string {
+  const t = calculateTroopThresholds(maxHp);
+  return `<p><strong>Thresholds</strong> ${t.threshold1} (3 segments), ${t.threshold2} (2 segments)</p>`;
+}
+
+/** Prepend the thresholds line to a Troop Defenses description, or replace the one already there. */
+export function upsertTroopThresholdsLine(description: string, maxHp: number): string {
+  const line = `${troopThresholdsLine(maxHp)}\n<hr />\n`;
+  return THRESHOLDS_LINE.test(description)
+    ? description.replace(THRESHOLDS_LINE, line)
+    : `${line}${description}`;
+}
+
+/**
+ * Rewrite the Troop Defenses thresholds prose from the max HP the save will write. The PF2e system
+ * independently derives `system.attributes.hp.thresholds` (floor 2/3, floor 1/3) from the troop
+ * trait at data-prep time; `calculateTroopThresholds` floors identically, so prose and sheet agree.
+ */
+export function refreshTroopDefensesThresholds(creature: TroopStatSource): void {
+  if (!creature.isTroop) return;
+  const defenses = creature.specialAbilities.find(
+    (a) => a.name.toLowerCase() === TROOP_DEFENSES_NAME.toLowerCase()
+  );
+  if (!defenses) return;
+  const maxHp = selectSaveStats(creature.level, creature.benchmarks, creature.baseStats, creature.baseLevel).hp;
+  if (maxHp < 3) return; // the system's own guard: no thresholds below 3 HP
+  defenses.description = upsertTroopThresholdsLine(defenses.description, maxHp);
+  if (defenses.customDescriptionTemplate !== undefined) {
+    defenses.customDescriptionTemplate = upsertTroopThresholdsLine(defenses.customDescriptionTemplate, maxHp);
+  }
+}
+
 /**
  * Everything a save target must stamp for a troop, in one call: the trait and the seed-if-missing
  * area/splash weaknesses. Non-troops pass through untouched, so this is safe to call
@@ -65,18 +111,20 @@ export function troopAdjusted(creature: TroopAdjustable): {
 }
 
 /**
- * The same stamp as {@link troopAdjusted}, applied to the creature in place.
+ * The same stamp as {@link troopAdjusted}, applied to the creature in place, plus the Troop
+ * Defenses thresholds prose (which needs the HP-bearing fields `troopAdjusted` doesn't read).
  *
  * Conversion calls this so troop-ness is complete on the creature *itself*, not a promise the save
  * target has to keep. `convertActorToTroop` resolves whichever target is active — a host that
  * registers its own and forgets `troopAdjusted` would otherwise persist a troop with no area/splash
  * weaknesses, silently and only in that host.
  */
-export function stampTroopDefaults(creature: TroopAdjustable): void {
+export function stampTroopDefaults(creature: TroopStatSource): void {
   if (!creature.isTroop) return;
   const { traits, weaknesses } = troopAdjusted(creature);
   creature.traits = traits;
   creature.weaknesses = weaknesses;
+  refreshTroopDefensesThresholds(creature);
 }
 
 const clampLevel = (level: number): number => Math.max(-1, Math.min(24, level));
@@ -179,7 +227,7 @@ export function setTroopSpellcastingVariant(creature: EditableCreature, steady: 
 // The universal glossary kit as pure @Localize abilities — same name/actionType/description the editor's
 // `applyTroopToActor` embeds from the SRD glossary items, so the headless and editor paths converge.
 const TROOP_DEFENSES_DEF: CustomAbilityDefinition = {
-  slug: 'troop-defenses', name: 'Troop Defenses', img: 'systems/pf2e/icons/actions/Passive.webp',
+  slug: 'troop-defenses', name: TROOP_DEFENSES_NAME, img: 'systems/pf2e/icons/actions/Passive.webp',
   group: TROOP_ACTION_GROUP, description: '<p>@Localize[PF2E.NPC.Abilities.Glossary.TroopDefenses]</p>',
   actionType: 'passive', traits: []
 };

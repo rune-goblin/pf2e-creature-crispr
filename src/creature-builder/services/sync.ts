@@ -2,7 +2,7 @@ import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
 import type { CreatureBenchmarks, CreatureSense, CreatureSpeeds, CreatureStats, DamageModifier, Immunity } from '../logic/models';
 import { getDefaultBenchmarks } from '../logic/models';
 import { sizeToPf2e } from '../logic/sizes';
-import { calculateCreatureStats, calculateStrikeStats } from '../logic/creatureStatTables';
+import { calculateStrikeStats, selectSaveStats } from '../logic/creatureStatTables';
 import { logger } from './logger';
 import { requireActor } from './folderManager';
 import { buildActorSystemFromStats, buildIwrSystem, buildSpeedSystem, buildSensesSystem } from './crud';
@@ -11,17 +11,8 @@ import { syncAbilityItemsForLevel } from './strikes';
 import { CREATURE_FLAG, CREATURE_DATA_KEY, ITEM_BENCHMARK_KEY } from './constants';
 import type { CreatureActorData, ItemBenchmarkData } from './types';
 
-// D1: mirror the editor's display rule — at baseLevel with captured baseStats, write them verbatim
-// rather than recomputing (back-solve→forward clamps out-of-table values to the table boundary).
 // Shared so the save target selects the same stats object for its skill sync as updateCreature does.
-export function selectSaveStats(
-  level: number,
-  benchmarks: CreatureBenchmarks,
-  baseStats: CreatureStats | undefined,
-  baseLevel: number | undefined
-): CreatureStats {
-  return baseStats && baseLevel === level ? baseStats : calculateCreatureStats(level, benchmarks);
-}
+export { selectSaveStats };
 
 export async function updateCreature(
   actorId: string,

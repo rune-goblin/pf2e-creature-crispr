@@ -1,7 +1,7 @@
 import type { ItemPF2e, NPCPF2e } from 'foundry-pf2e';
 import type { TroopSize } from '../logic/models';
 import type { TroopConversionOptions } from '../logic/contracts';
-import { withTroopTrait, withTroopWeaknesses, applyTroopConversion } from '../logic/troop';
+import { withTroopTrait, withTroopWeaknesses, applyTroopConversion, upsertTroopThresholdsLine } from '../logic/troop';
 import { sizeToPf2e } from '../logic/sizes';
 import { buildIwrSystem } from './crud';
 import { getWeaknessesFromActor } from './actorQueries';
@@ -26,10 +26,12 @@ const TROOP_SPELLCASTING_SLUGS = ['troop-spellcasting', 'steady-troop-spellcasti
 
 /**
  * Make a world NPC a PF2e troop: add the `troop` trait, seed missing area/splash weaknesses, set the
- * formation size, and embed the standard glossary abilities. The system derives token footprint, HP
- * thresholds and segments from the trait, so this touches none of them; it also stamps no immunities
- * (there is no troop immunity rule — plan facts 1 and 3). Flag-agnostic and idempotent: re-running, or
- * running on an imported published troop that already has trait/weaknesses/abilities, changes nothing.
+ * formation size, and embed the standard glossary abilities. The system derives token footprint and
+ * the structured HP thresholds/segments from the trait, so this touches none of them — but the
+ * published statblock's "Thresholds X (3 segments), Y (2 segments)" prose is ours, stamped into the
+ * embedded Troop Defenses copy from the actor's current max HP. Stamps no immunities (there is no
+ * troop immunity rule — plan facts 1 and 3). Flag-agnostic and idempotent: re-running, or running on
+ * an imported published troop that already has trait/weaknesses/abilities, changes nothing.
  */
 export async function applyTroopToActor(
   actorId: string,
@@ -92,7 +94,12 @@ export async function applyTroopToActor(
       throw new Error(game.i18n.format('pf2e-creature-crispr.troop.abilityMissing', { uuid }));
     }
     if (existingSlugs.has(source.slug ?? game.pf2e.system.sluggify(source.name))) continue;
-    toEmbed.push(source.toObject());
+    const data = source.toObject() as { system: { description: { value: string } } };
+    if (uuid === TROOP_ABILITY_UUIDS.defenses) {
+      const maxHp = npc.system?.attributes?.hp?.max ?? 0;
+      if (maxHp >= 3) data.system.description.value = upsertTroopThresholdsLine(data.system.description.value, maxHp);
+    }
+    toEmbed.push(data);
   }
   if (toEmbed.length) await npc.createEmbeddedDocuments('Item', toEmbed as any);
 
