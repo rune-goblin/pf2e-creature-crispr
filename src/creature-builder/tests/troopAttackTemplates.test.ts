@@ -73,6 +73,49 @@ describe('troop attack line benchmarks', () => {
     }
   });
 
+  // Published Shambler Troop (L4) verbatim: a slowed troop's "1 to 2" sweep. Its lines sit one rung
+  // up the share-of-round ladder (2-action ~1.1x high, 1-action ~0.83x), so they map to lines 2/3.
+  const shamblerSweep =
+    '<p><span class="action-glyph">1</span> to <span class="action-glyph">2</span></p>'
+    + '<p><strong>Frequency</strong> once per round</p><hr />'
+    + '<p><strong>Effect</strong> The shamblers lash out at any enemies in their squares or within a '
+    + '@Template[type:emanation|distance:5] (@Check[reflex|dc:18|basic] save). The damage depends on the number of actions.</p>'
+    + '<p><span class="action-glyph">1</span> @Damage[(2d6+5)[bludgeoning]|options:area-damage] damage</p>'
+    + '<p><span class="action-glyph">2</span> @Damage[(2d6+9)[bludgeoning]|options:area-damage] damage</p>';
+
+  it('maps a "1 to 2" sweep onto the top of the ladder, not the bottom', () => {
+    const { scalableValues } = parseAbilityDescription(shamblerSweep, 4);
+    expect(damageValues(scalableValues).map((v) => v.troopLine)).toEqual([2, 3]);
+    for (const value of damageValues(scalableValues)) {
+      const verdict = getTierInfo(value, 4);
+      expect(verdict?.label, `line ${value.troopLine}`).not.toBe('low');
+      expect(verdict?.offScale, `line ${value.troopLine}`).toBeNull();
+    }
+  });
+
+  it('detects a salvo by its shrinking bursts, whatever the threshold prose says', () => {
+    for (const phrase of ['reduced to 2 segments', 'reduced to 2 or fewer segments', 'reduced to 8 or fewer squares']) {
+      const volley =
+        '<p>The troop launches a volley. This volley is a @Template[type:burst|distance:10] within 50 feet that deals '
+        + '@Damage[(2d6+4)[bludgeoning]|options:area-damage] damage with a @Check[reflex|dc:22|basic|options:area-effect] save. '
+        + `When the troop is ${phrase}, this area decreases to a @Template[type:burst|distance:5].</p>`;
+      const { scalableValues } = parseAbilityDescription(volley, 4);
+      expect(damageValues(scalableValues).map((v) => v.troopLine), phrase).toEqual(['salvo']);
+      expect(distanceValues(scalableValues).map((v) => v.distanceLabel), phrase).toEqual([
+        'Burst radius',
+        `Burst radius (${phrase.replace(/^reduced to /, '')})`,
+        'Range'
+      ]);
+    }
+  });
+
+  it('does not read a single-burst area attack as a salvo', () => {
+    const breath = '<p>The dragon exhales a @Template[type:burst|distance:20] that deals '
+      + '@Damage[6d6[fire]|options:area-damage] damage with a @Check[reflex|dc:24|basic|options:area-effect] save.</p>';
+    const { scalableValues } = parseAbilityDescription(breath, 8);
+    expect(damageValues(scalableValues).map((v) => v.troopLine)).toEqual([undefined]);
+  });
+
   it('scales the ladder by the line factor rather than inventing a second table', () => {
     for (const level of LEVELS) {
       const high = getStatRangesForLevel(level).strikeDamage.high.average;

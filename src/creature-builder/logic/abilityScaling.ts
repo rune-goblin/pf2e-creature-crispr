@@ -303,11 +303,16 @@ const AT_TEMPLATE_MACRO = /@Template\[([^\]]+)\]/gi;
 const AREA_RANGE_PATTERN = /within\s+(\d+)\s*(?:-|\s)?f(?:ee|oo)t/gi;
 
 // Published troop attacks in the two grammars the sweep/volley generators emit.
-// Sweep: a "1 to 3" glyph header, then one glyph-numbered damage line per action count.
-const SWEEP_HEADER = /<span class="action-glyph">1<\/span>\s*to\s*<span class="action-glyph">3<\/span>/i;
+// Sweep: a "1 to N" glyph header (N = 3, or 2 for slowed troops like shamblers), then one
+// glyph-numbered damage line per action count.
+const SWEEP_HEADER = /<span class="action-glyph">1<\/span>\s*to\s*<span class="action-glyph">([23])<\/span>/i;
 const SWEEP_GLYPH = /<span class="action-glyph">([123])<\/span>/gi;
-// Volley: the burst shrinks at the troop's segment threshold. English-only, like the generated prose.
-const SALVO_MARKER = /reduced to \d+ segments?/i;
+// Volley: the burst shrinks at the troop's segment threshold. Detected structurally — two burst
+// @Templates with the later one smaller — because the prose varies ("reduced to 2 segments",
+// "2 or fewer segments", "8 or fewer squares") and regexing English missed 8 of 13 shipped salvos.
+const SALVO_BURST = /@Template\[[^\]]*burst[^\]]*\]/gi;
+// The threshold phrase, used only to label the shrunken burst's distance row.
+const SALVO_MARKER = /reduced to \d+(?: or fewer)? (?:segments?|squares?)/i;
 
 /**
  * Resolve which troop attack line a damage macro at `index` belongs to, so its benchmark ladder can
@@ -318,12 +323,21 @@ const SALVO_MARKER = /reduced to \d+ segments?/i;
 function troopAttackLineResolver(description: string): (index: number) => TroopAttackLine | undefined {
   const header = SWEEP_HEADER.exec(description);
   if (header) {
+    const topLine = Number(header[1]) as 2 | 3;
+    // A "1 to 2" sweep is a slowed troop's whole round in two actions, and its published lines sit
+    // one rung up the share-of-round ladder: Shambler Troop (L4) and Clockwork Shambler Horde (L9)
+    // both put the 2-action line at ~1.1x the high strike column and the 1-action line at ~0.83x —
+    // the 3-/2-action factors, not the 2-/1-action ones. Shift so the top glyph line is always the
+    // full-round line; troopLine is a share-of-round position, not the glyph's action count.
+    const shift = 3 - topLine;
     const marks: Array<{ index: number; line: 1 | 2 | 3 }> = [];
     const glyphs = new RegExp(SWEEP_GLYPH.source, 'gi');
     let m: RegExpExecArray | null;
     while ((m = glyphs.exec(description)) !== null) {
       if (m.index < header.index + header[0].length) continue; // the header's own two glyphs
-      marks.push({ index: m.index, line: Number(m[1]) as 1 | 2 | 3 });
+      const glyph = Number(m[1]);
+      if (glyph > topLine) continue;
+      marks.push({ index: m.index, line: (glyph + shift) as 1 | 2 | 3 });
     }
     if (marks.length > 0) {
       return (index) => {
@@ -335,7 +349,14 @@ function troopAttackLineResolver(description: string): (index: number) => TroopA
       };
     }
   }
-  if (SALVO_MARKER.test(description) && /@Template\[[^\]]*burst/i.test(description)) return () => 'salvo';
+  // Salvo: at least two burst templates with the last strictly smaller than the first (the volley
+  // that shrinks at the segment threshold). Still deliberately narrow — a breath weapon has one
+  // burst, so nothing single-area can be misread as a salvo.
+  const bursts = [...description.matchAll(new RegExp(SALVO_BURST.source, 'gi'))]
+    .map((m2) => /distance:(\d+)/i.exec(m2[0]))
+    .filter((d): d is RegExpExecArray => d !== null)
+    .map((d) => Number(d[1]));
+  if (bursts.length >= 2 && bursts[bursts.length - 1] < bursts[0]) return () => 'salvo';
   return () => undefined;
 }
 
