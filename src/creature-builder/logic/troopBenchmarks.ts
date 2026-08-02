@@ -9,6 +9,12 @@ export type TroopAttackLine = 1 | 2 | 3 | 'salvo';
 // 156 published sweeps): 3-action = the high column (median 1.02× high), 2-action = 0.75× of it
 // (= 0.92× moderate), 1-action = 0.27× (bare weapon dice). Published volleys land at ~0.85× the
 // 2-action line (median 0.86 across all 62 volleys, IQR 0.75–0.93).
+//
+// A line means ALL the damage the element deals, summed — designers budget the line and split it
+// across damage types. Measured either way the factors are the same, because 87% of published lines
+// are a single term; on the 66 that split, summing reads 1.03× the high column on the full-round
+// line where the leading term alone reads 0.71×. troopLineCalibration.corpus.test.ts holds both
+// measurements against the live corpus.
 export const SWEEP_ONE_FACTOR = 0.27;
 export const SWEEP_TWO_FACTOR = 0.75;
 export const VOLLEY_DAMAGE_FACTOR = 0.85;

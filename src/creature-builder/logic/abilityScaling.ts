@@ -326,6 +326,42 @@ interface ResolvedTroopLine {
   actions?: 1 | 2 | 3;
 }
 
+/**
+ * How much of the strike-damage ladder one scalable value is judged against: its line's share of a
+ * round, narrowed again by its own share of that line when the line splits across damage types.
+ *
+ * This is the single place the two factors combine. Every benchmark, classification and tier
+ * recommendation for a troop-line value goes through it, so a term can never be scored against the
+ * whole line's budget.
+ */
+export function troopLineScale(sv: Pick<ScalableValue, 'troopLine' | 'troopLineShare'>): number {
+  return troopLineFactor(sv.troopLine) * (sv.troopLineShare ?? 1);
+}
+
+/**
+ * Stamp one troop attack line across the plain-damage values that make it up, benchmarking the
+ * line's TOTAL and giving each term its share of it. A single-term line gets no share (it is 1).
+ */
+function stampTroopLine(
+  scalableValues: ScalableValue[],
+  indexes: number[],
+  resolved: ResolvedTroopLine,
+  level: number
+): void {
+  if (!indexes.length) return;
+  const averages = indexes.map((i) => parseDiceFormulaAverage(scalableValues[i].originalValue));
+  const total = averages.reduce((sum, a) => sum + a, 0);
+  if (total <= 0) return;
+
+  indexes.forEach((i, n) => {
+    const sv = scalableValues[i];
+    sv.troopLine = resolved.line;
+    if (resolved.actions !== undefined) sv.troopLineActions = resolved.actions;
+    if (indexes.length > 1) sv.troopLineShare = averages[n] / total;
+    sv.benchmark = damageToBenchmark(averages[n], level, troopLineScale(sv));
+  });
+}
+
 function troopAttackLineResolver(description: string): (index: number) => ResolvedTroopLine | undefined {
   const header = SWEEP_HEADER.exec(description);
   if (header) {
@@ -873,7 +909,7 @@ export function getTierInfo(
     const components = parseDiceComponents(sv.customValue);
     if (!components) return null;
     const avg = components.count * ((components.die + 1) / 2) + components.bonus;
-    return classifyDamageByAverage(sv.type, avg, level, troopLineFactor(sv.troopLine));
+    return classifyDamageByAverage(sv.type, avg, level, troopLineScale(sv));
   }
 
   // Otherwise use the benchmark scalar (override or original). A scalar is clamped to the ladder by
@@ -1016,7 +1052,7 @@ export function getRecommendedTierFormulas(
     formatDiceFormula(Math.max(1, Math.round(avg / perDie)), die, 0);
 
   if (sv.type === 'damage') {
-    const t = getDamageTierAveragesForLevel(level, troopLineFactor(sv.troopLine));
+    const t = getDamageTierAveragesForLevel(level, troopLineScale(sv));
     // Every troop attack line keeps a flat bonus, sweep or salvo: one whole die is a wider step
     // than the gap between adjacent tier targets, so bare dice collapse neighbouring tiers onto
     // the same formula and nothing the GM picks can land on the curve — at L6 a d8 salvo has no
@@ -1109,7 +1145,7 @@ export function getDisplayBenchmark(sv: ScalableValue, level: number): number {
     }
     const avg = parseDiceFormulaAverage(sv.customValue);
     if (avg === 0) return sv.benchmark; // unparseable formula — fall back
-    if (sv.type === 'damage') return damageToBenchmark(avg, level, troopLineFactor(sv.troopLine));
+    if (sv.type === 'damage') return damageToBenchmark(avg, level, troopLineScale(sv));
     return persistentDamageToBenchmark(avg, level);
   }
 
@@ -1484,10 +1520,12 @@ export function parseAbilityDescription(
 
     let templatedMacro = macro;
     let matched = false;
-    // Only the macro's FIRST plain-damage instance is the troop line; anything after it is a
-    // secondary component (hell-hound-pack's fire rider) that escalates on its own slower curve, so
-    // benchmarking it against the whole line's target would read it as far under.
-    let lineClaimed = false;
+    // Every plain-damage instance in the macro is part of one troop line: published designers budget
+    // the line as a whole and split it across damage types, so the line total is what sits on the
+    // curve (across the 66 multi-term published lines the summed 3-action line reads 1.03x the high
+    // strike column, the first term alone 0.71x). Stamped after the loop, once the total is known.
+    const lineOfMacro = troopLineAt(macroStart);
+    const plainIndexes: number[] = [];
     for (const instance of instances) {
       // A clean static instance replaces its own formula; a level-derived dice count
       // (floor(1 + @actor.level/2)d6) is evaluated at this level to a concrete NdM and swaps the
@@ -1503,31 +1541,28 @@ export function parseAbilityDescription(
 
       const avgDamage = formulaAverage(extracted.formula);
       const plainDamage = !extracted.healing && !extracted.persistent;
-      const resolved = plainDamage && !lineClaimed ? troopLineAt(macroStart) : undefined;
-      if (plainDamage) lineClaimed = true;
       const value: ScalableValue = {
         type: extracted.healing ? 'healing' : extracted.persistent ? 'persistent' : 'damage',
         benchmark: extracted.healing
           ? healingToBenchmark(avgDamage, level)
           : extracted.persistent
             ? persistentDamageToBenchmark(avgDamage, level)
-            : damageToBenchmark(avgDamage, level, troopLineFactor(resolved?.line)),
+            : damageToBenchmark(avgDamage, level),
         originalValue: extracted.formula,
         baseLevel: level,
         damageType: extracted.healing ? undefined : extracted.damageType
       };
-      if (resolved !== undefined) {
-        value.troopLine = resolved.line;
-        if (resolved.actions !== undefined) value.troopLineActions = resolved.actions;
-      }
 
       templatedMacro = templatedMacro.replace(extracted.matchText, `{${placeholderIndex}}`);
       processedFormulas.add(extracted.formula);
       scalableValues.push(value);
+      if (plainDamage) plainIndexes.push(scalableValues.length - 1);
       account?.values.push(scalableValues.length - 1);
       placeholderIndex++;
       matched = true;
     }
+
+    if (lineOfMacro !== undefined) stampTroopLine(scalableValues, plainIndexes, lineOfMacro, level);
 
     if (account) {
       if (!inner.trim()) {
@@ -1579,6 +1614,7 @@ export function parseAbilityDescription(
   // Find regular damage formulas (skip any we already processed as persistent)
   let damageMatch;
   const damageRegex = new RegExp(DICE_FORMULA_PATTERN.source, 'gi');
+  const proseLines = new Map<string, { resolved: ResolvedTroopLine; indexes: number[] }>();
   while ((damageMatch = damageRegex.exec(description)) !== null) {
     const formula = damageMatch[1];
     const damageType = damageMatch[2]?.toLowerCase();
@@ -1595,21 +1631,26 @@ export function parseAbilityDescription(
 
     const value: ScalableValue = {
       type: 'damage',
-      benchmark: damageToBenchmark(avgDamage, level, troopLineFactor(resolved?.line)),
+      benchmark: damageToBenchmark(avgDamage, level),
       originalValue: formula,
       baseLevel: level,
       damageType: damageType
     };
-    if (resolved !== undefined) {
-      value.troopLine = resolved.line;
-      if (resolved.actions !== undefined) value.troopLineActions = resolved.actions;
-    }
 
     replacements.push({ start: damageMatch.index, end: damageMatch.index + formula.length, text: `{${placeholderIndex}}` });
 
     scalableValues.push(value);
+    if (resolved !== undefined) {
+      const key = String(resolved.line);
+      const group = proseLines.get(key) ?? { resolved, indexes: [] };
+      group.indexes.push(scalableValues.length - 1);
+      proseLines.set(key, group);
+    }
     placeholderIndex++;
   }
+  // Prose damage carries no macro to group by, so the line itself is the group: every bare formula
+  // sitting under the same glyph is one line, exactly as the comma-separated instances of a macro are.
+  for (const { resolved, indexes } of proseLines.values()) stampTroopLine(scalableValues, indexes, resolved, level);
 
   // Find PF2e @Check macros. Process these FIRST so we can skip them when scanning plain DC patterns.
   // The DC may sit in any |segment (@Check[reflex|basic|dc:25|options:area-effect]) and the check
@@ -2002,29 +2043,28 @@ export function backfillTroopLines(
   level: number
 ): ScalableValue[] {
   const resolve = troopAttackLineResolver(template);
-  let changed = false;
+  const groups = new Map<string, { resolved: ResolvedTroopLine; indexes: number[] }>();
 
-  const next = scalableValues.map((sv, i) => {
-    if (sv.type !== 'damage' || sv.troopLine !== undefined) return sv;
+  scalableValues.forEach((sv, i) => {
+    if (sv.type !== 'damage' || sv.troopLine !== undefined) return;
     const at = template.search(new RegExp(`\\{${i}\\}`));
-    if (at < 0) return sv;
+    if (at < 0) return;
     const resolved = resolve(at);
-    if (resolved === undefined) return sv;
-
-    changed = true;
-    return {
-      ...sv,
-      troopLine: resolved.line,
-      ...(resolved.actions !== undefined ? { troopLineActions: resolved.actions } : {}),
-      benchmark: damageToBenchmark(
-        parseDiceFormulaAverage(sv.originalValue),
-        sv.baseLevel ?? level,
-        troopLineFactor(resolved.line)
-      )
-    };
+    if (resolved === undefined) return;
+    const key = String(resolved.line);
+    const group = groups.get(key) ?? { resolved, indexes: [] };
+    group.indexes.push(i);
+    groups.set(key, group);
   });
 
-  return changed ? next : scalableValues;
+  if (groups.size === 0) return scalableValues;
+
+  // Stamping mutates, so copy first — callers hold the stored array.
+  const next = scalableValues.map((sv) => ({ ...sv }));
+  for (const { resolved, indexes } of groups.values()) {
+    stampTroopLine(next, indexes, resolved, next[indexes[0]].baseLevel ?? level);
+  }
+  return next;
 }
 
 /**

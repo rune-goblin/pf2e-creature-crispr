@@ -213,6 +213,11 @@ export interface ScalableValue {
   // For sweep lines: the action count the description's glyph actually shows (differs from
   // troopLine on "1 to 2" sweeps). Display-only; never feeds a factor.
   troopLineActions?: 1 | 2 | 3;
+  // This term's fraction of its line's total damage, when the line splits across damage types
+  // (Hell Hound Pack's "2d8+7 fire plus 2d6 fire"). Published designers budget the line as a whole
+  // and split it, so a term is judged and scaled against its share, never the whole line's target.
+  // Absent (= 1) on the single-term lines that are 87% of the corpus.
+  troopLineShare?: number;
   override?: number;           // Tier-based override (benchmark scalar 0-1). Scales with level. Replaces `benchmark`.
   customValue?: string;        // Absolute override (raw formula or integer string, e.g. "1d10" / "27"). Takes precedence over override and does NOT auto-scale on level change.
 }

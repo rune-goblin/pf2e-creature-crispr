@@ -244,16 +244,34 @@ describe('putting a drifted troop attack back on the curve', () => {
 });
 
 describe('secondary damage components', () => {
+  const withRider = () => buildTroopSweep(strike({ persistentDamage: '1d6', persistentDamageType: 'fire' }), 8);
+
   it('does not benchmark a rider as if it were the whole line', () => {
-    const withRider = buildTroopSweep(
-      strike({ persistentDamage: '1d6', persistentDamageType: 'fire' }),
-      8
-    );
-    const { scalableValues } = parseAbilityDescription(withRider.description, 8);
-    const tagged = damageValues(scalableValues).filter((v) => v.troopLine !== undefined);
-    // Three lines, three tags — the fire riders sharing each macro stay untagged.
-    expect(tagged).toHaveLength(3);
-    expect(damageValues(scalableValues).length).toBeGreaterThan(3);
+    const { scalableValues } = parseAbilityDescription(withRider().description, 8);
+    const line2 = damageValues(scalableValues).filter((v) => v.troopLine === 2);
+    expect(line2).toHaveLength(2);
+    // Both terms make up the line, so both read the line's benchmark — the rider is never scored
+    // against the whole line's target (which would read it as far under) nor left off the ladder.
+    expect(line2[1].benchmark).toBeCloseTo(line2[0].benchmark, 6);
+    expect(line2.reduce((s, v) => s + (v.troopLineShare ?? 1), 0)).toBeCloseTo(1, 6);
+  });
+
+  it('benchmarks the line total, not the leading term', () => {
+    const { scalableValues } = parseAbilityDescription(withRider().description, 8);
+    const line2 = damageValues(scalableValues).filter((v) => v.troopLine === 2);
+    const total = line2.reduce((s, v) => s + parseDiceFormulaAverage(v.originalValue), 0);
+    expect(line2[0].benchmark).toBeCloseTo(damageToBenchmark(total, 8, troopLineFactor(2)), 6);
+  });
+
+  it('gives each term its share of the line when the snap puts it back on curve', () => {
+    const ability = customAbilityToSpecialAbility(withRider(), 8, 'rider');
+    const snapped = snapTroopDamageToBenchmark(ability)!;
+    const line3 = damageValues(snapped.scalableValues ?? []).filter((v) => v.troopLine === 3);
+    const total = line3.reduce((s, v) => s + parseDiceFormulaAverage(getEffectiveValue(v, 8)), 0);
+    const target = getStatRangesForLevel(8).strikeDamage.high.average * troopLineFactor(3);
+    expect(Math.abs(total - target) / target).toBeLessThan(0.15);
+    // The author's split survives: the rider stays a rider, it does not swallow the line.
+    expect(line3[0].troopLineShare!).toBeGreaterThan(line3[1].troopLineShare!);
   });
 });
 

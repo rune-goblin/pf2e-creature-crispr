@@ -12,6 +12,7 @@ export * from './creatureStatTables';
 export * from './spellSlotTables';
 export * from './iwrTypes';
 export * from './abilityScaling';
+export * from './abilityAudit';
 export * from './troopExport';
 
 // Defined identically in creatureStatTables and abilityScaling; name one explicitly so the
