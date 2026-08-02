@@ -86,6 +86,7 @@ describe('troop attack line benchmarks', () => {
   it('maps a "1 to 2" sweep onto the top of the ladder, not the bottom', () => {
     const { scalableValues } = parseAbilityDescription(shamblerSweep, 4);
     expect(damageValues(scalableValues).map((v) => v.troopLine)).toEqual([2, 3]);
+    expect(damageValues(scalableValues).map((v) => v.troopLineActions)).toEqual([1, 2]);
     for (const value of damageValues(scalableValues)) {
       const verdict = getTierInfo(value, 4);
       expect(verdict?.label, `line ${value.troopLine}`).not.toBe('low');

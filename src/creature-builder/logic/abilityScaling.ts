@@ -320,7 +320,13 @@ const SALVO_MARKER = /reduced to \d+(?: or fewer)? (?:segments?|squares?)/i;
  * two published troop attack grammars — the match is deliberately narrow, since misreading a
  * dragon's breath weapon as a salvo would rescale its whole ladder.
  */
-function troopAttackLineResolver(description: string): (index: number) => TroopAttackLine | undefined {
+interface ResolvedTroopLine {
+  line: TroopAttackLine;
+  /** For sweep lines: the glyph's actual action count (display-only; differs on "1 to 2" sweeps). */
+  actions?: 1 | 2 | 3;
+}
+
+function troopAttackLineResolver(description: string): (index: number) => ResolvedTroopLine | undefined {
   const header = SWEEP_HEADER.exec(description);
   if (header) {
     const topLine = Number(header[1]) as 2 | 3;
@@ -330,20 +336,23 @@ function troopAttackLineResolver(description: string): (index: number) => TroopA
     // the 3-/2-action factors, not the 2-/1-action ones. Shift so the top glyph line is always the
     // full-round line; troopLine is a share-of-round position, not the glyph's action count.
     const shift = 3 - topLine;
-    const marks: Array<{ index: number; line: 1 | 2 | 3 }> = [];
+    const marks: Array<{ index: number; mark: ResolvedTroopLine }> = [];
     const glyphs = new RegExp(SWEEP_GLYPH.source, 'gi');
     let m: RegExpExecArray | null;
     while ((m = glyphs.exec(description)) !== null) {
       if (m.index < header.index + header[0].length) continue; // the header's own two glyphs
       const glyph = Number(m[1]);
       if (glyph > topLine) continue;
-      marks.push({ index: m.index, line: (glyph + shift) as 1 | 2 | 3 });
+      marks.push({
+        index: m.index,
+        mark: { line: (glyph + shift) as 1 | 2 | 3, actions: glyph as 1 | 2 | 3 }
+      });
     }
     if (marks.length > 0) {
       return (index) => {
-        let found: 1 | 2 | 3 | undefined;
+        let found: ResolvedTroopLine | undefined;
         for (const mark of marks) {
-          if (mark.index < index) found = mark.line;
+          if (mark.index < index) found = mark.mark;
         }
         return found;
       };
@@ -356,7 +365,7 @@ function troopAttackLineResolver(description: string): (index: number) => TroopA
     .map((m2) => /distance:(\d+)/i.exec(m2[0]))
     .filter((d): d is RegExpExecArray => d !== null)
     .map((d) => Number(d[1]));
-  if (bursts.length >= 2 && bursts[bursts.length - 1] < bursts[0]) return () => 'salvo';
+  if (bursts.length >= 2 && bursts[bursts.length - 1] < bursts[0]) return () => ({ line: 'salvo' });
   return () => undefined;
 }
 
@@ -1488,7 +1497,7 @@ export function parseAbilityDescription(
 
       const avgDamage = formulaAverage(extracted.formula);
       const plainDamage = !extracted.healing && !extracted.persistent;
-      const troopLine = plainDamage && !lineClaimed ? troopLineAt(macroStart) : undefined;
+      const resolved = plainDamage && !lineClaimed ? troopLineAt(macroStart) : undefined;
       if (plainDamage) lineClaimed = true;
       const value: ScalableValue = {
         type: extracted.healing ? 'healing' : extracted.persistent ? 'persistent' : 'damage',
@@ -1496,12 +1505,15 @@ export function parseAbilityDescription(
           ? healingToBenchmark(avgDamage, level)
           : extracted.persistent
             ? persistentDamageToBenchmark(avgDamage, level)
-            : damageToBenchmark(avgDamage, level, troopLineFactor(troopLine)),
+            : damageToBenchmark(avgDamage, level, troopLineFactor(resolved?.line)),
         originalValue: extracted.formula,
         baseLevel: level,
         damageType: extracted.healing ? undefined : extracted.damageType
       };
-      if (troopLine !== undefined) value.troopLine = troopLine;
+      if (resolved !== undefined) {
+        value.troopLine = resolved.line;
+        if (resolved.actions !== undefined) value.troopLineActions = resolved.actions;
+      }
 
       templatedMacro = templatedMacro.replace(extracted.matchText, `{${placeholderIndex}}`);
       processedFormulas.add(extracted.formula);
@@ -1573,16 +1585,19 @@ export function parseAbilityDescription(
     if (!validType) continue;
 
     const avgDamage = parseDiceFormulaAverage(formula);
-    const troopLine = troopLineAt(damageMatch.index);
+    const resolved = troopLineAt(damageMatch.index);
 
     const value: ScalableValue = {
       type: 'damage',
-      benchmark: damageToBenchmark(avgDamage, level, troopLineFactor(troopLine)),
+      benchmark: damageToBenchmark(avgDamage, level, troopLineFactor(resolved?.line)),
       originalValue: formula,
       baseLevel: level,
       damageType: damageType
     };
-    if (troopLine !== undefined) value.troopLine = troopLine;
+    if (resolved !== undefined) {
+      value.troopLine = resolved.line;
+      if (resolved.actions !== undefined) value.troopLineActions = resolved.actions;
+    }
 
     replacements.push({ start: damageMatch.index, end: damageMatch.index + formula.length, text: `{${placeholderIndex}}` });
 
@@ -1987,17 +2002,18 @@ export function backfillTroopLines(
     if (sv.type !== 'damage' || sv.troopLine !== undefined) return sv;
     const at = template.search(new RegExp(`\\{${i}\\}`));
     if (at < 0) return sv;
-    const troopLine = resolve(at);
-    if (troopLine === undefined) return sv;
+    const resolved = resolve(at);
+    if (resolved === undefined) return sv;
 
     changed = true;
     return {
       ...sv,
-      troopLine,
+      troopLine: resolved.line,
+      ...(resolved.actions !== undefined ? { troopLineActions: resolved.actions } : {}),
       benchmark: damageToBenchmark(
         parseDiceFormulaAverage(sv.originalValue),
         sv.baseLevel ?? level,
-        troopLineFactor(troopLine)
+        troopLineFactor(resolved.line)
       )
     };
   });

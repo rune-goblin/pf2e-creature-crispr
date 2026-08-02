@@ -205,9 +205,14 @@ export interface ScalableValue {
   conditionSlug?: string;      // For condition: the conditionitems slug, e.g. "Drained"
   conditionLabel?: string;     // For condition: the display name from the link label, e.g. "Drained"
   distanceLabel?: string;      // For distance: what the number measures, e.g. "Burst radius", "Range"
-  // For damage on a troop area attack: which line it is (1/2/3 actions, or the ranged salvo). The
-  // benchmark ladder is scaled by that line's share of a round so an on-target line reads on-tier.
+  // For damage on a troop area attack: which line it is on the share-of-round ladder (3 = the
+  // full-round line, or the ranged salvo). The benchmark ladder is scaled by that line's share of a
+  // round so an on-target line reads on-tier. On a slowed troop's "1 to 2" sweep this is NOT the
+  // action count — the 2-action line is the troop's whole round, so it sits at line 3.
   troopLine?: TroopAttackLine;
+  // For sweep lines: the action count the description's glyph actually shows (differs from
+  // troopLine on "1 to 2" sweeps). Display-only; never feeds a factor.
+  troopLineActions?: 1 | 2 | 3;
   override?: number;           // Tier-based override (benchmark scalar 0-1). Scales with level. Replaces `benchmark`.
   customValue?: string;        // Absolute override (raw formula or integer string, e.g. "1d10" / "27"). Takes precedence over override and does NOT auto-scale on level change.
 }
