@@ -1157,6 +1157,44 @@ export interface ParsedAbility {
   scalableValues: ScalableValue[];
 }
 
+/** Why the parser left an inline element alone (skipped) or judged it broken (malformed). */
+export type InlineReason =
+  | 'self-scaling'        // carries @-expressions Foundry resolves itself — healthy, not scalable here
+  | 'compound-formula'    // arithmetic the clean-instance extractor refuses to mangle
+  | 'flat-check'          // a fixed flat DC is not a creature statistic
+  | 'derived-dc'          // against:/defense:/dc:resolve() — the DC is computed elsewhere
+  | 'external-dc'         // dc:0 sentinel for an externally-supplied DC
+  | 'no-dc'               // a non-flat check with no DC source at all — a data defect
+  | 'missing-payload'     // @Damage/@Check with no [...] payload, or an empty one
+  | 'unclosed-bracket'    // the [...] payload never closes
+  | 'unsupported-syntax'; // well-bracketed but beyond the macro grammar (e.g. double-nested brackets)
+
+/**
+ * One @Damage/@Check inline element, accounted for exactly once. An audit keys on this: `scaled`
+ * values are on a curve, `skipped` ones are deliberate (with the reason), `malformed` ones are data
+ * defects captured verbatim. Structured fields are provided so consumers never re-parse `text`.
+ */
+export interface InlineReportEntry {
+  kind: 'damage' | 'check';
+  /** The macro verbatim (for malformed elements: a snippet from the defect onward). */
+  text: string;
+  /** Offset in the original description. */
+  start: number;
+  disposition: 'scaled' | 'skipped' | 'malformed';
+  /** Indexes into `scalableValues` extracted from this element. */
+  values: number[];
+  /** Damage instances inside the macro left verbatim (compound sums, @-expressions). */
+  leftover: string[];
+  reason?: InlineReason;
+  statistic?: string;
+  dc?: number;
+  basic?: boolean;
+}
+
+export interface ParsedAbilityReport extends ParsedAbility {
+  inlines: InlineReportEntry[];
+}
+
 /** Split on `delim`, but only at the top bracket/paren nesting level. */
 function splitTopLevel(s: string, delim: string): string[] {
   const out: string[] = [];
@@ -1392,7 +1430,11 @@ function extractLevelDerivedDiceInstance(
  * Parse an ability description and extract scalable values
  * Returns a template with placeholders and the extracted values
  */
-export function parseAbilityDescription(description: string, level: number): ParsedAbility {
+export function parseAbilityDescription(
+  description: string,
+  level: number,
+  inlineReport?: InlineReportEntry[]
+): ParsedAbility {
   const scalableValues: ScalableValue[] = [];
   let template = description;
   let placeholderIndex = 0;
@@ -1420,6 +1462,11 @@ export function parseAbilityDescription(description: string, level: number): Par
     const inner = macro.slice('@Damage['.length, -1);
     const instances = splitTopLevel(splitTopLevel(inner, '|')[0], ',');
 
+    const account: InlineReportEntry | undefined = inlineReport && {
+      kind: 'damage', text: macro, start: macroStart, disposition: 'skipped', values: [], leftover: []
+    };
+    if (account) inlineReport!.push(account);
+
     let templatedMacro = macro;
     let matched = false;
     // Only the macro's FIRST plain-damage instance is the troop line; anything after it is a
@@ -1434,7 +1481,10 @@ export function parseAbilityDescription(description: string, level: number): Par
       const extracted = stat
         ? { ...stat, matchText: stat.formula }
         : extractLevelDerivedDiceInstance(instance, level);
-      if (!extracted) continue;
+      if (!extracted) {
+        if (account && instance.trim()) account.leftover.push(instance.trim());
+        continue;
+      }
 
       const avgDamage = formulaAverage(extracted.formula);
       const plainDamage = !extracted.healing && !extracted.persistent;
@@ -1456,8 +1506,20 @@ export function parseAbilityDescription(description: string, level: number): Par
       templatedMacro = templatedMacro.replace(extracted.matchText, `{${placeholderIndex}}`);
       processedFormulas.add(extracted.formula);
       scalableValues.push(value);
+      account?.values.push(scalableValues.length - 1);
       placeholderIndex++;
       matched = true;
+    }
+
+    if (account) {
+      if (!inner.trim()) {
+        account.disposition = 'malformed';
+        account.reason = 'missing-payload';
+      } else if (account.values.length) {
+        account.disposition = 'scaled';
+      } else {
+        account.reason = account.leftover.some((t) => t.includes('@')) ? 'self-scaling' : 'compound-formula';
+      }
     }
 
     if (matched) {
@@ -1539,12 +1601,42 @@ export function parseAbilityDescription(description: string, level: number): Par
     processedCheckPositions.add(checkMatch.index);
     const segments = checkMatch[1].split('|').map(s => s.trim());
     const checkType = segments[0].toLowerCase();
-    if (checkType === 'flat') continue;
-
     const dcSegment = segments.find(s => /^dc:\d+$/.test(s));
-    if (!dcSegment) continue; // defense:/against:/resolve() — auto-derived, nothing to scale
+
+    const account: InlineReportEntry | undefined = inlineReport && {
+      kind: 'check', text: checkMatch[0], start: checkMatch.index,
+      disposition: 'skipped', values: [], leftover: [],
+      statistic: checkType,
+      basic: segments.some((s) => s === 'basic' || s === 'basic:true'),
+      ...(dcSegment ? { dc: parseInt(dcSegment.slice(3), 10) } : {})
+    };
+    if (account) inlineReport!.push(account);
+
+    if (checkType === 'flat') {
+      if (account) account.reason = 'flat-check';
+      continue;
+    }
+
+    if (!dcSegment) {
+      // defense:/against:/resolve() — auto-derived, nothing to scale
+      if (account) {
+        const derived = segments.some(
+          (s) => s.startsWith('against:') || s.startsWith('defense:') || /^dc:resolve/.test(s)
+        );
+        if (derived) {
+          account.reason = 'derived-dc';
+        } else {
+          account.disposition = 'malformed';
+          account.reason = 'no-dc';
+        }
+      }
+      continue;
+    }
     const dcValue = parseInt(dcSegment.slice(3), 10);
-    if (dcValue <= 0) continue; // dc:0 is a sentinel for an externally-supplied DC
+    if (dcValue <= 0) {
+      if (account) account.reason = 'external-dc'; // dc:0 is a sentinel for an externally-supplied DC
+      continue;
+    }
 
     const value: ScalableValue = {
       type: 'dc',
@@ -1558,6 +1650,10 @@ export function parseAbilityDescription(description: string, level: number): Par
     replacements.push({ start: checkMatch.index, end: checkMatch.index + checkMatch[0].length, text: replacementText });
 
     scalableValues.push(value);
+    if (account) {
+      account.disposition = 'scaled';
+      account.values.push(scalableValues.length - 1);
+    }
     placeholderIndex++;
   }
 
@@ -1703,6 +1799,63 @@ export function parseAbilityDescription(description: string, level: number): Par
   }
 
   return { template, scalableValues };
+}
+
+// How much verbatim context a malformed inline's snippet carries.
+const MALFORMED_SNIPPET_LENGTH = 80;
+
+/**
+ * Parse an ability description AND account for every @Damage/@Check inline element it contains —
+ * scaled, deliberately skipped (with the reason), or malformed (verbatim). `parseAbilityDescription`
+ * is deliberately lenient and silently leaves alone what it cannot read; an audit exists to surface
+ * exactly that, so this is the entry point audits consume. Scalable values with no referencing
+ * inline entry were read from bare prose (dice formulas, plain "DC N" clauses, templates,
+ * conditions), not from a macro.
+ */
+export function parseAbilityDescriptionWithReport(description: string, level: number): ParsedAbilityReport {
+  const inlines: InlineReportEntry[] = [];
+  const { template, scalableValues } = parseAbilityDescription(description, level, inlines);
+
+  // Anything the macro grammars never matched is broken syntax: diagnose it by hand-scanning the
+  // brackets so the defect is reported rather than silently ignored.
+  for (const token of description.matchAll(/@(Damage|Check)\b/g)) {
+    const at = token.index;
+    if (inlines.some((e) => at >= e.start && at < e.start + e.text.length)) continue;
+
+    const entry: InlineReportEntry = {
+      kind: token[1] === 'Damage' ? 'damage' : 'check',
+      text: description.slice(at, at + MALFORMED_SNIPPET_LENGTH),
+      start: at,
+      disposition: 'malformed',
+      values: [],
+      leftover: [],
+      reason: 'unsupported-syntax'
+    };
+
+    const bracket = at + token[0].length;
+    if (description[bracket] !== '[') {
+      entry.reason = 'missing-payload';
+    } else {
+      let depth = 0;
+      let close = -1;
+      for (let i = bracket + 1; i < description.length; i++) {
+        const c = description[i];
+        if (c === '[') depth++;
+        else if (c === ']') {
+          if (depth === 0) { close = i; break; }
+          depth--;
+        }
+      }
+      if (close === -1) entry.reason = 'unclosed-bracket';
+      else if (!description.slice(bracket + 1, close).trim()) entry.reason = 'missing-payload';
+      else entry.text = description.slice(at, close + 1);
+    }
+
+    inlines.push(entry);
+  }
+
+  inlines.sort((a, b) => a.start - b.start);
+  return { template, scalableValues, inlines };
 }
 
 /**
