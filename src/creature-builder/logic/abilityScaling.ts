@@ -12,7 +12,7 @@ import {
   getStatRangesForLevel,
   scaleStrikeDamage
 } from './creatureStatTables';
-import { troopLineFactor, type TroopAttackLine } from './troopBenchmarks';
+import { troopLineFactor, TROOP_DAMAGE_TIER, type TroopAttackLine } from './troopBenchmarks';
 
 // ============================================================================
 // ABILITY DC AND SPELL ATTACK TABLES
@@ -816,6 +816,13 @@ export function scaleProportionally(sv: ScalableValue, level: number): string {
  * is set with an unparseable compound formula. When the value is proportionally
  * scaled (no override), the closest tier is returned with `exact: false`.
  */
+/**
+ * The tier label an on-benchmark troop attack line reads at. Derived from TROOP_DAMAGE_TIER through
+ * the same scalar mapping every other tier label uses, so the two cannot drift apart.
+ */
+export const TROOP_TARGET_TIER: 'low' | 'moderate' | 'high' | 'extreme' =
+  classifyByBenchmarkScalar('damage', TROOP_DAMAGE_TIER).label;
+
 export function getTierInfo(
   sv: ScalableValue,
   level: number
@@ -936,27 +943,17 @@ export function classifyDamageByAverage(
   return nearestTier(avg, entries);
 }
 
-function classifyHealingByValue(
+export function classifyHealingByValue(
   amount: number,
   level: number,
   kind: HealingKind = 'fast-healing'
-): { label: 'low' | 'moderate' | 'high'; exact: boolean } {
+): TierVerdict<'low' | 'moderate' | 'high'> {
   const range = getFastHealingRange(level, kind);
-  const entries: Array<{ label: 'low' | 'moderate' | 'high'; avg: number }> = [
-    { label: 'low', avg: range.low },
-    { label: 'moderate', avg: range.moderate },
-    { label: 'high', avg: range.high }
-  ];
-  let closest = entries[0];
-  let closestDiff = Math.abs(amount - closest.avg);
-  for (const e of entries) {
-    const d = Math.abs(amount - e.avg);
-    if (d < closestDiff) {
-      closestDiff = d;
-      closest = e;
-    }
-  }
-  return { label: closest.label, exact: closestDiff < 0.5 };
+  return nearestTier(amount, [
+    { label: 'low' as const, avg: range.low },
+    { label: 'moderate' as const, avg: range.moderate },
+    { label: 'high' as const, avg: range.high }
+  ]);
 }
 
 export function classifyDcByValue(

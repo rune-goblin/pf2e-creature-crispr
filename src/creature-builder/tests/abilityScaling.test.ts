@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  TROOP_TARGET_TIER,
   parseAbilityDescription,
   renderAbilityDescription,
   renderAbilityDescriptionHtml,
@@ -766,6 +767,10 @@ describe('getTierInfo', () => {
     expect(getTierInfo(persSV({ customValue: '3d6' }), 10)).toMatchObject({ label: 'high', exact: true });
     expect(getTierInfo(persSV({ customValue: '2d4' }), 10)).toMatchObject({ label: 'low', exact: true });
     expect(getTierInfo(persSV({ customValue: '1d8+1' }), 10)).toMatchObject({ label: 'low', exact: false });
+  });
+
+  it('derives the troop target tier from the troop damage scalar', () => {
+    expect(TROOP_TARGET_TIER).toBe('high');
   });
 
   it('reports a value that falls off either end of the ladder as off-scale', () => {
