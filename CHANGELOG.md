@@ -3,6 +3,74 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] — 2026-08-02
+
+### Added
+
+- **Troop attack lines are benchmarked on their own share of a round.** A 1-to-3-action sweep aims
+  at 0.27 / 0.75 / 1.0 of the high strike-damage column, but the ability editor judged every line
+  against the raw damage ladder — scoring an on-target 1-action line "Low" and recommending twice
+  its budget. Each line now scales the ladder by its own factor, so the tier chips and *Damage on
+  curve* agree with published statblocks. Re-measured against the 158 published sweeps that carry
+  all three lines.
+- **Battle and Salvo expand to the real attack.** Picking either from the ability list now inserts
+  the attack itself — damage lines, save DC, areas — instead of the glossary prose describing the
+  pattern. A salvo fits its die face to the target, since dice-only damage snaps badly on a fixed
+  d6.
+- **Areas and ranges are editable values.** `@Template` distances and an area effect's "within N
+  feet" range parse into `distance` values, so a Salvo exposes its range, its burst, and the burst
+  it shrinks to at 2 segments without anyone editing prose.
+- **Bramblewrack Hulk art** — portrait and token ship with the module, alongside strike-card and
+  ability-card close-ups for the user manual.
+- **Tier classification is part of the kernel API.** `classifyDamageByAverage`, `classifyDcByValue`,
+  `getDamageTierAveragesForLevel`, `getPersistentTierAveragesForLevel`, `TROOP_TARGET_TIER` and the
+  troop line factors are exported, so a consumer auditing content labels a value against the level
+  ladder instead of reimplementing the banding and drifting from it. Verdicts carry `offScale`,
+  which distinguishes a value sitting on the bottom tier from one far below the ladder.
+- **`parseAbilityDescriptionWithReport`** returns the plain parse plus one entry per `@Damage` /
+  `@Check` inline: scaled, skipped with a machine-readable reason, or malformed verbatim. The parser
+  stays deliberately lenient; audits need to see exactly what it left alone, and that information
+  was previously discarded.
+- **`normalizeTroopExport`** moves into the kernel as the byte-stable source-file transform
+  (volatile-state strip, migration/health resets, token pinning, item ordering, markup and key
+  canonicalisation). Consumer policy stays with the consumer, passed in as options.
+
+### Changed
+
+- **Sweep tiers snap to dice+bonus formulas, like published statblocks.** Bare-dice rendering
+  quantized to whole d6 steps and collapsed the 2- and 3-action lines onto one formula wherever the
+  targets sit between steps (at level 3, both 9 and 12 became `3d6`). 98% of published 2/3-action
+  sweep lines carry a flat bonus. Salvos stay dice-only, matching the published volley grammar.
+- **Volley range parameters follow the published corpus** after a 72-volley re-sweep: the 15-ft
+  burst belongs to 200-ft troops rather than 120-ft ones, 50 ft is a real range band, and d6/d8
+  carry 88% of volley damage dice — so the generic Salvo no longer fits un-published d4 flurries.
+- A "1 to 2" sweep's lines shift one rung up the share-of-round ladder: published shambler troops
+  put their top line at the full-round factor, not the 2-action one. Sweep headers read "1 to N"
+  instead of "1 to 3".
+- *Damage on curve* on a troop attack sets each line's tier and nothing else — not the DC, not the
+  areas, and never the description, which re-renders from the values it is fed.
+- Troops saved before troop lines existed are backfilled on load, since stored scalable values win
+  over re-parsing.
+
+### Fixed
+
+- **Salvos are recognised by structure, not by one English sentence.** Detection keyed on the exact
+  phrase "reduced to N segments" and missed every "or fewer segments" / "or fewer squares" variant —
+  8 of the 13 shipped salvos fell back to a line factor of 1 and read as far over budget. It now
+  keys on the shrinking burst pair; the threshold phrase is still read, but only to label the
+  shrunken burst's distance row, and it accepts those variants.
+- Only a macro's first plain-damage instance is the attack line, so a secondary damage component is
+  no longer benchmarked as if it were the whole thing.
+- Picking a strike damage tier clears a custom damage formula, which previously outranked it and
+  made the click a no-op.
+- Healing classification returns the same verdict shape as damage and DCs, which also makes
+  `getTierInfo`'s declared return type honest on the healing path.
+
+## [0.6.0] – [0.10.1]
+
+Not documented here — see the [GitHub releases](https://github.com/rune-goblin/pf2e-creature-crispr/releases)
+for the commit-level notes of those versions.
+
 ## [0.5.0] — 2026-07-15
 
 ### Added
