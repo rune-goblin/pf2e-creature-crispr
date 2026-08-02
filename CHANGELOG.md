@@ -3,6 +3,29 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] — 2026-08-03
+
+### Changed
+
+- **A troop attack line is all the damage it deals, not its leading term.** The parser stamped the
+  line on a macro's first plain-damage instance and left the rest untagged, so every line split
+  across damage types was judged 30–45% under what its designer wrote — and *Damage on curve* could
+  not fix it, snapping the leading term onto the whole line's target while the rider went along for
+  the ride. Measured over the 66 published lines that split: the summed full-round line reads 1.03×
+  the high strike column (IQR 1.000–1.028) where the leading term alone reads 0.71×. The line
+  factors are unchanged — 87% of published lines are a single term, so they were already calibrated
+  on the sum — and `troopLineCalibration.corpus.test.ts` now pins both readings to the live corpus.
+- Each term of a split line carries `troopLineShare`, its fraction of the line. A snap distributes
+  the line's target across the terms in the author's own proportions instead of redesigning the
+  split, and no term is ever scored against the whole line's budget.
+
+### Added
+
+- **`auditAbility(description, level)`** — every damage line totalled and placed on its ladder,
+  every save DC classified, every unreadable element reported rather than dropped. A consumer
+  auditing shipped content maps the verdicts onto its own vocabulary instead of deciding for itself
+  which terms form a line and what it totals.
+
 ## [0.11.1] — 2026-08-03
 
 ### Fixed
