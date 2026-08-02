@@ -164,13 +164,30 @@ describe('buildTroopVolley — pinned published exemplar', () => {
     expect(Math.abs(parseDiceFormulaAverage(dice![1]) - 14)).toBeLessThanOrEqual(2);
   });
 
-  it('long-range strikes (≥120 ft) get burst 15 shrinking to 10, range snapped to a published band', () => {
+  it('keeps burst 10 at 150 ft — only 200-ft troops widen (corpus: 3/16 at 120, 2/2 at 200)', () => {
     const out = buildTroopVolley(
       strike({ name: 'Longbow', damage: '1d8', damageType: 'piercing', range: 150, isRanged: true }),
       9
     );
-    expect(out.description).toContain('@Template[type:burst|distance:15] within 120 feet');
+    expect(out.description).toContain('@Template[type:burst|distance:10] within 120 feet');
+    expect(out.description).toContain('this area decreases to a @Template[type:burst|distance:5].');
+  });
+
+  it('200-ft strikes get burst 15 shrinking to 10', () => {
+    const out = buildTroopVolley(
+      strike({ name: 'Ballista', damage: '1d10', damageType: 'piercing', range: 200, isRanged: true }),
+      9
+    );
+    expect(out.description).toContain('@Template[type:burst|distance:15] within 200 feet');
     expect(out.description).toContain('this area decreases to a @Template[type:burst|distance:10].');
+  });
+
+  it('snaps a 50-ft strike to the 50-ft band, not 40', () => {
+    const out = buildTroopVolley(
+      strike({ name: 'Sling', damage: '1d6', damageType: 'bludgeoning', range: 50, isRanged: true }),
+      9
+    );
+    expect(out.description).toContain('within 50 feet');
   });
 
   it('defaults to within 60 feet when the strike has no range', () => {

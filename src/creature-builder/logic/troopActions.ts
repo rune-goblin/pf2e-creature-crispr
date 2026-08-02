@@ -154,9 +154,12 @@ export function buildTroopSweep(
   };
 }
 
-const VOLLEY_RANGE_BANDS = [30, 40, 60, 80, 100, 120, 200];
+// 2026-08-02 volley re-sweep (72 published volleys): 50 ft is a real band (3 troops, as common as
+// 40), and the wide 15-ft burst belongs to 200-ft troops only — at 120 ft just 3/16 use it, at
+// 200 ft 2/2 do. Fact 6's "range ≥ 120" read was too generous.
+const VOLLEY_RANGE_BANDS = [30, 40, 50, 60, 80, 100, 120, 200];
 const DEFAULT_VOLLEY_RANGE = 60;
-const LONG_RANGE_THRESHOLD = 120;
+const LONG_RANGE_THRESHOLD = 200;
 
 function snapToRangeBand(range: number | undefined): number {
   if (!range) return DEFAULT_VOLLEY_RANGE;
@@ -208,7 +211,9 @@ const TEMPLATE_DIE = 6;
 const TEMPLATE_MELEE_DAMAGE_TYPE = 'bludgeoning';
 const TEMPLATE_RANGED_DAMAGE_TYPE = 'piercing';
 const TEMPLATE_RANGE = 60;
-const DIE_FACES = [4, 6, 8, 10, 12];
+// d8/d6 carry 88% of published volleys (35+28 of 72; d4 just 5) — letting the fit roam the full
+// die list produced un-published-looking 9d4/10d4 flurries for a ~0.5 damage gain.
+const DIE_FACES = [6, 8];
 
 // A volley is dice-only, so the die face decides how close the whole line can get: at L4 a d6
 // target of 8.9 snaps to 3d6 = 10.5 (extreme) while 2d8 = 9 sits on the benchmark. With no weapon
