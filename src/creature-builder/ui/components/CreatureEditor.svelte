@@ -427,6 +427,7 @@
           onAddAbility={(a) => editorStore.addSpecialAbility(a)}
           onUpdateAbility={(d) => editorStore.updateSpecialAbility(d.index, d.updates)}
           onRemoveAbility={(i) => editorStore.removeSpecialAbility(i)}
+          onSnapTroopDamage={(i) => editorStore.snapTroopDamageToBenchmark(i)}
           onAddBlank={() => editorStore.addBlankAbility('action')}
         />
 

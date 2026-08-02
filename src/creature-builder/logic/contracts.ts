@@ -6,6 +6,7 @@
 
 import type { CreatureBenchmarks, CreatureStats, TroopSize } from './models';
 import type { EditableCreature } from './editableCreature';
+import type { TroopAttackTemplate } from './troopActions';
 
 /** A registerable, FE-free ability definition. Shaped to map 1:1 from RM's TroopAbilityDefinition. */
 export interface CustomAbilityDefinition {
@@ -19,6 +20,10 @@ export interface CustomAbilityDefinition {
   traits?: string[];
   referenceUuid?: string; // opaque string; resolution (fromUuid) is host-side if ever needed
   rules?: Array<Record<string, unknown>>; // PF2e rule elements stamped onto the created item (opaque to the kernel)
+  /** Marks the entry as the generic form of a troop attack. `description` then documents the pattern
+   *  for the picker's preview, but adding it builds the level-appropriate instance (damage lines,
+   *  save DC, areas) via buildTroopAttackFromTemplate instead of inserting that prose. */
+  template?: TroopAttackTemplate;
 }
 
 /** A provider's "Convert to Troop" recipe: overrides layered on CRISPR's default conversion engine.

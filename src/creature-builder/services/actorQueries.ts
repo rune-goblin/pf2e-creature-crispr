@@ -13,6 +13,7 @@ import { TROOP_TRAIT } from '../logic/troop';
 import { logger } from './logger';
 import {
   parseAbilityDescription,
+  backfillTroopLines,
   damageToBenchmark,
   parseDiceFormulaAverage,
   readFastHealingRule,
@@ -427,7 +428,11 @@ export function actionItemToSpecialAbility(item: AbilityItemView, parseLevel: nu
 
   if (benchmarkData.descriptionTemplate && benchmarkData.scalableValues) {
     ability.descriptionTemplate = benchmarkData.descriptionTemplate;
-    ability.scalableValues = benchmarkData.scalableValues;
+    ability.scalableValues = backfillTroopLines(
+      benchmarkData.descriptionTemplate,
+      benchmarkData.scalableValues,
+      parseLevel
+    );
   } else if (rawDescription) {
     const parsed = parseAbilityDescription(rawDescription, parseLevel);
     if (parsed.scalableValues.length > 0) {

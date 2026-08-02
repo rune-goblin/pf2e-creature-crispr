@@ -412,6 +412,15 @@ describe('strikes', () => {
     expect('customPersistentFormula' in cleared).toBe(false);
     expect('persistentDamageType' in cleared).toBe(false);
   });
+
+  it('picking a damage tier discards a typed formula, which would otherwise outrank it', () => {
+    editorStore.startCreate();
+    editorStore.updateStrike(0, { customDamageFormula: '4d12+20' });
+    editorStore.updateStrikeDamageBenchmark(0, 1);
+    const strike = editorStore.creature!.strikes[0];
+    expect(strike.damageBenchmark).toBe(1);
+    expect('customDamageFormula' in strike).toBe(false);
+  });
 });
 
 describe('special abilities', () => {

@@ -25,6 +25,7 @@ import {
 import { MAX_SPELL_RANK } from '../logic/spellSlotTables';
 import type { TroopConversionOptions, TroopConversionRecipe } from '../logic/contracts';
 import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, findTroopSpellcasting, rescaleCreatureIwr, setTroopSpellcastingVariant, stampTroopDefaults } from '../logic/troop';
+import { snapTroopDamageToBenchmark } from '../logic/customAbility';
 import { validateCreatureErrors } from '../logic/editableCreature';
 import type { EditableCreature, EditorMode, EditorSection } from './types';
 import type { EditorEnvironment } from './environment';
@@ -360,7 +361,9 @@ class CreatureEditorStore {
   }
 
   updateStrikeDamageBenchmark(index: number, benchmark: number): void {
-    this.updateStrike(index, { damageBenchmark: benchmark });
+    // Same rule as ability tier-stepping: picking a tier discards the typed formula. Without this the
+    // benchmark moves but customDamageFormula still outranks it, so the click does nothing visible.
+    this.updateStrike(index, { damageBenchmark: benchmark, customDamageFormula: undefined });
   }
 
   updateStrikePersistentType(index: number, type: string): void {
@@ -413,6 +416,19 @@ class CreatureEditorStore {
     this.mutateCreature((c) => {
       c.specialAbilities[index] = { ...c.specialAbilities[index], ...updates };
     });
+  }
+
+  /** Put a troop attack's damage lines back on the benchmark. Values only — the description is left
+   *  alone and re-renders from them. No-op (returns false) when the ability isn't a troop attack. */
+  snapTroopDamageToBenchmark(abilityIndex: number): boolean {
+    const ability = this.creature?.specialAbilities[abilityIndex];
+    if (!ability) return false;
+    const snapped = snapTroopDamageToBenchmark(ability);
+    if (!snapped) return false;
+    this.mutateCreature((c) => {
+      c.specialAbilities[abilityIndex] = snapped;
+    });
+    return true;
   }
 
   /** Pass undefined to clear both override and customValue (tier stepping discards fine edits). */

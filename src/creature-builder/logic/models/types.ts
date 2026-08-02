@@ -8,6 +8,8 @@
  * - Values between standard benchmarks (terrible/low/moderate/high/extreme)
  */
 
+import type { TroopAttackLine } from '../troopBenchmarks';
+
 export type CreatureSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
 
 // Troop sizes - troops are typically large or larger
@@ -193,7 +195,7 @@ export interface CreatureStats {
  * placeholder in `descriptionTemplate` — the editor surfaces it directly from `scalableValues`.
  */
 export interface ScalableValue {
-  type: 'damage' | 'dc' | 'persistent' | 'healing' | 'condition';
+  type: 'damage' | 'dc' | 'persistent' | 'healing' | 'condition' | 'distance';
   benchmark: number;           // Scalar 0-1 representing the benchmark level (immutable after parse)
   originalValue: string;       // Original value from import (e.g., "2d6+4" or "25")
   baseLevel?: number;          // Creature level at which this value was parsed. When the current level matches, the recommendation is the literal `originalValue` instead of the (lossy) benchmark-scaled form.
@@ -202,6 +204,10 @@ export interface ScalableValue {
   checkType?: string;          // For dc: the save type (will, fortitude, reflex) from @Check format
   conditionSlug?: string;      // For condition: the conditionitems slug, e.g. "Drained"
   conditionLabel?: string;     // For condition: the display name from the link label, e.g. "Drained"
+  distanceLabel?: string;      // For distance: what the number measures, e.g. "Burst radius", "Range"
+  // For damage on a troop area attack: which line it is (1/2/3 actions, or the ranged salvo). The
+  // benchmark ladder is scaled by that line's share of a round so an on-target line reads on-tier.
+  troopLine?: TroopAttackLine;
   override?: number;           // Tier-based override (benchmark scalar 0-1). Scales with level. Replaces `benchmark`.
   customValue?: string;        // Absolute override (raw formula or integer string, e.g. "1d10" / "27"). Takes precedence over override and does NOT auto-scale on level change.
 }

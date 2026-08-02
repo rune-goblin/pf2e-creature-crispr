@@ -24,6 +24,7 @@
    import AbilityPickerDialog from './AbilityPickerDialog.svelte';
    import InlineElementInserter from './InlineElementInserter.svelte';
    import { buildInlineElement, type InlineElementSpec } from '@/creature-builder/logic/inlineElements';
+   import { troopAttackKindOf } from '@/creature-builder/logic/troopActions';
 
    const DAMAGE_BENCHMARKS: BenchmarkLabel4[] = ['low', 'moderate', 'high', 'extreme'];
    const PERSISTENT_BENCHMARKS: BenchmarkLabel3[] = ['low', 'moderate', 'high'];
@@ -45,6 +46,7 @@
       onAddAbility,
       onUpdateAbility,
       onRemoveAbility,
+      onSnapTroopDamage,
       onAddBlank
    }: {
       creature: EditableCreature;
@@ -64,6 +66,8 @@
       onAddAbility?: (ability: SpecialAbility) => boolean;
       onUpdateAbility?: (detail: { index: number; updates: Partial<SpecialAbility> }) => void;
       onRemoveAbility?: (index: number) => void;
+      /** Put a troop attack's damage lines back on the benchmark — values only, prose untouched. */
+      onSnapTroopDamage?: (index: number) => void;
       onAddBlank?: () => void;
    } = $props();
 
@@ -195,6 +199,11 @@
 
    const isRollType = (sv: ScalableValue): boolean => sv.type === 'damage' || sv.type === 'persistent';
 
+   // Which line of a troop's area attack a damage row drives — the ladder beside it is scaled to that
+   // line's share of a round, so say which line the reader is looking at.
+   const troopLineLabel = (line: NonNullable<ScalableValue['troopLine']>): string =>
+      line === 'salvo' ? 'salvo' : `${line} action${line === 1 ? '' : 's'}`;
+
    // min/mean/max for a dice formula (NdM±B) or a flat integer; null when the formula isn't a simple
    // shape (e.g. a compound "2d6+1d4"), in which case the spread is just omitted.
    function rollStats(formula: string): { min: number; mean: number; max: number } | null {
@@ -242,6 +251,17 @@
    function handleHealingEdit(abilityIndex: number, valueIndex: number, rawValue: number): void {
       if (!Number.isFinite(rawValue)) return;
       const clamped = Math.max(1, Math.round(rawValue));
+      onUpdateAbilityScalableCustomValue?.({
+         abilityIndex,
+         valueIndex,
+         customValue: String(clamped)
+      });
+   }
+
+   // Areas and ranges are authored in 5-foot steps, like every published template.
+   function handleDistanceEdit(abilityIndex: number, valueIndex: number, rawValue: number): void {
+      if (!Number.isFinite(rawValue)) return;
+      const clamped = Math.max(5, Math.round(rawValue / 5) * 5);
       onUpdateAbilityScalableCustomValue?.({
          abilityIndex,
          valueIndex,
@@ -541,7 +561,20 @@
                               {/if}
                               {#if ability.scalableValues && ability.scalableValues.length > 0}
                                  <div class="ability-scalables">
-                                    <div class="scalables-header">Editable Values</div>
+                                    <div class="scalables-header">
+                                       Editable Values
+                                       {#if troopAttackKindOf(ability)}
+                                          <button
+                                             type="button"
+                                             class="rebuild-btn"
+                                             title="Set each damage line to the level {creature.level} benchmark for the actions it costs. Description untouched."
+                                             onclick={() => onSnapTroopDamage?.(abilityIndex)}
+                                          >
+                                             <i class="fas fa-arrows-rotate"></i>
+                                             Damage on curve
+                                          </button>
+                                       {/if}
+                                    </div>
                                     {#each ability.scalableValues as sv, valueIndex (valueIndex)}
                                        {@const overridden = hasOverride(sv)}
                                        {@const effectiveValue = getEffectiveValue(sv, creature.level)}
@@ -551,17 +584,19 @@
                                        <div
                                           class="scalable-row"
                                           role="group"
-                                          aria-label="{sv.type === 'dc' ? 'DC' : sv.type === 'persistent' ? 'Persistent' : sv.type === 'healing' ? healingLabel(ability) : sv.type === 'condition' ? (sv.conditionLabel ?? 'Condition') : 'Damage'} editor"
+                                          aria-label="{sv.type === 'dc' ? 'DC' : sv.type === 'persistent' ? 'Persistent' : sv.type === 'healing' ? healingLabel(ability) : sv.type === 'condition' ? (sv.conditionLabel ?? 'Condition') : sv.type === 'distance' ? (sv.distanceLabel ?? 'Distance') : 'Damage'} editor"
                                        >
                                           <span class="scalable-type">
                                              {#if sv.type === 'damage'}
-                                                Damage{sv.damageType ? ` (${sv.damageType})` : ''}
+                                                Damage{sv.damageType ? ` (${sv.damageType})` : ''}{sv.troopLine ? ` — ${troopLineLabel(sv.troopLine)}` : ''}
                                              {:else if sv.type === 'persistent'}
                                                 Persistent{sv.damageType ? ` ${sv.damageType}` : ''}
                                              {:else if sv.type === 'healing'}
                                                 {healingLabel(ability)}
                                              {:else if sv.type === 'condition'}
                                                 {sv.conditionLabel ?? 'Condition'}
+                                             {:else if sv.type === 'distance'}
+                                                {sv.distanceLabel ?? 'Distance'}
                                              {:else}
                                                 {sv.checkType ? `${sv.checkType[0].toUpperCase()}${sv.checkType.slice(1)} DC` : 'DC'}
                                              {/if}
@@ -610,6 +645,18 @@
                                                       compact={true}
                                                       onselect={(d) => handleBenchmarkSelect(abilityIndex, valueIndex, d.value)}
                                                    />
+                                                </div>
+                                             {:else if sv.type === 'distance'}
+                                                <div class="scalable-editor scalable-editor--distance" class:overridden>
+                                                   <input
+                                                      type="number"
+                                                      class="input-field condition-input"
+                                                      min="5"
+                                                      step="5"
+                                                      value={Number(effectiveValue)}
+                                                      oninput={(e) => handleDistanceEdit(abilityIndex, valueIndex, e.currentTarget.valueAsNumber)}
+                                                   />
+                                                   <span class="dice-suffix">feet</span>
                                                 </div>
                                              {:else if sv.type === 'condition'}
                                                 <div class="scalable-editor scalable-editor--condition" class:overridden>
@@ -708,13 +755,13 @@
                                                 <span class="scalable-recommended">
                                                    recommended: <strong>{sv.type === 'dc' ? 'DC ' : ''}{recommendation}</strong>
                                                 </span>
-                                             {:else if !atBaseLevel}
+                                             {:else if !atBaseLevel && sv.type !== 'distance'}
                                                 <span class="scalable-guidance">
                                                    if scaled to lvl {creature.level}: <strong>{getLevelGuidance(sv, creature.level)}</strong>
                                                 </span>
                                              {/if}
                                              <span class="scalable-original">
-                                                original: {sv.type === 'dc' ? 'DC ' : ''}{sv.originalValue}{#if sv.baseLevel !== undefined} @ lvl {sv.baseLevel}{/if}
+                                                original: {sv.type === 'dc' ? 'DC ' : ''}{sv.originalValue}{#if sv.baseLevel !== undefined && sv.type !== 'distance'} @ lvl {sv.baseLevel}{/if}
                                              </span>
                                           </div>
                                        </div>
@@ -1299,10 +1346,34 @@
          gap: var(--space-6);
 
          .scalables-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--space-8);
             font-size: var(--font-xs);
             font-weight: var(--font-weight-semibold);
             color: var(--text-muted);
             margin-bottom: var(--space-8);
+         }
+
+         .rebuild-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-4);
+            padding: var(--space-2) var(--space-8);
+            font-size: var(--font-xs);
+            font-weight: var(--font-weight-medium);
+            color: var(--text-muted);
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            width: auto;
+
+            &:hover {
+               color: var(--text-primary);
+               border-color: var(--border-medium);
+            }
          }
 
          .scalable-row {

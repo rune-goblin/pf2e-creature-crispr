@@ -12,6 +12,7 @@ import {
   getStatRangesForLevel,
   scaleStrikeDamage
 } from './creatureStatTables';
+import { troopLineFactor, type TroopAttackLine } from './troopBenchmarks';
 
 // ============================================================================
 // ABILITY DC AND SPELL ATTACK TABLES
@@ -293,6 +294,58 @@ const AT_CHECK_MACRO = /@Check\[([^\]]+)\]/gi;
 // capture the whole macro and tokenise it in extractDamageInstance rather than match a fixed shape.
 const AT_DAMAGE_MACRO = /@Damage\[(?:[^\[\]]|\[[^\]]*\])*\]/gi;
 
+// A whole @Template[...] macro. Group 1 is the inner segment list (type:burst|distance:10).
+const AT_TEMPLATE_MACRO = /@Template\[([^\]]+)\]/gi;
+
+// An area effect's delivery range, e.g. "within 50 feet". Only read on descriptions that already
+// carry an area @Template — elsewhere "within N feet" is usually a trigger condition, not a number
+// the author is choosing.
+const AREA_RANGE_PATTERN = /within\s+(\d+)\s*(?:-|\s)?f(?:ee|oo)t/gi;
+
+// Published troop attacks in the two grammars the sweep/volley generators emit.
+// Sweep: a "1 to 3" glyph header, then one glyph-numbered damage line per action count.
+const SWEEP_HEADER = /<span class="action-glyph">1<\/span>\s*to\s*<span class="action-glyph">3<\/span>/i;
+const SWEEP_GLYPH = /<span class="action-glyph">([123])<\/span>/gi;
+// Volley: the burst shrinks at the troop's segment threshold. English-only, like the generated prose.
+const SALVO_MARKER = /reduced to \d+ segments?/i;
+
+/**
+ * Resolve which troop attack line a damage macro at `index` belongs to, so its benchmark ladder can
+ * be scaled to that line's share of a round. Returns undefined for everything that isn't one of the
+ * two published troop attack grammars — the match is deliberately narrow, since misreading a
+ * dragon's breath weapon as a salvo would rescale its whole ladder.
+ */
+function troopAttackLineResolver(description: string): (index: number) => TroopAttackLine | undefined {
+  const header = SWEEP_HEADER.exec(description);
+  if (header) {
+    const marks: Array<{ index: number; line: 1 | 2 | 3 }> = [];
+    const glyphs = new RegExp(SWEEP_GLYPH.source, 'gi');
+    let m: RegExpExecArray | null;
+    while ((m = glyphs.exec(description)) !== null) {
+      if (m.index < header.index + header[0].length) continue; // the header's own two glyphs
+      marks.push({ index: m.index, line: Number(m[1]) as 1 | 2 | 3 });
+    }
+    if (marks.length > 0) {
+      return (index) => {
+        let found: 1 | 2 | 3 | undefined;
+        for (const mark of marks) {
+          if (mark.index < index) found = mark.line;
+        }
+        return found;
+      };
+    }
+  }
+  if (SALVO_MARKER.test(description) && /@Template\[[^\]]*burst/i.test(description)) return () => 'salvo';
+  return () => undefined;
+}
+
+/** How a @Template's area type reads in the editable-values list. */
+function templateDistanceLabel(templateType: string): string {
+  const type = templateType.toLowerCase();
+  if (type === 'cone' || type === 'line') return `${type[0].toUpperCase()}${type.slice(1)} length`;
+  return `${type[0].toUpperCase()}${type.slice(1)} radius`;
+}
+
 // PF2e conditions that carry a numeric value (the only ones worth exposing/scaling).
 const VALUED_CONDITIONS = new Set([
   'clumsy', 'doomed', 'drained', 'dying', 'enfeebled', 'frightened',
@@ -336,7 +389,7 @@ export function dcByLevel(level: number): number {
  * their original value as the starting point and never auto-scaled.
  */
 export function scalesWithLevel(sv: ScalableValue): boolean {
-  if (sv.type === 'condition') return false;
+  if (sv.type === 'condition' || sv.type === 'distance') return false;
   if (sv.type === 'dc' && sv.checkType !== undefined && !DC_SAVES.has(sv.checkType)) return false;
   return true;
 }
@@ -348,6 +401,7 @@ export function scalesWithLevel(sv: ScalableValue): boolean {
  * task DC GMs recognise). For values that already scale this is just their recommendation.
  */
 export function getLevelGuidance(sv: ScalableValue, level: number): string {
+  if (sv.type === 'distance') return sv.originalValue;
   if (sv.type === 'condition') {
     const original = parseInt(sv.originalValue, 10) || 1;
     if (sv.baseLevel === undefined) return String(original);
@@ -414,18 +468,19 @@ export function formatDiceFormula(count: number, die: number, bonus: number): st
 
 /**
  * Determine the benchmark scalar for a damage value at a given level
- * Uses the 4-benchmark strike damage table
+ * Uses the 4-benchmark strike damage table, scaled by `factor` (a troop attack line's share of a
+ * round — see troopLineFactor; 1 for everything else).
  */
-export function damageToBenchmark(avgDamage: number, level: number): number {
+export function damageToBenchmark(avgDamage: number, level: number, factor = 1): number {
   const ranges = getStatRangesForLevel(level);
   const dmgRange = ranges.strikeDamage;
 
   // Find the closest benchmark based on average damage
   const benchmarks = [
-    { scalar: 0, avg: dmgRange.low.average },
-    { scalar: 1 / 3, avg: dmgRange.moderate.average },
-    { scalar: 2 / 3, avg: dmgRange.high.average },
-    { scalar: 1, avg: dmgRange.extreme.average }
+    { scalar: 0, avg: dmgRange.low.average * factor },
+    { scalar: 1 / 3, avg: dmgRange.moderate.average * factor },
+    { scalar: 2 / 3, avg: dmgRange.high.average * factor },
+    { scalar: 1, avg: dmgRange.extreme.average * factor }
   ];
 
   let closest = benchmarks[0];
@@ -613,13 +668,13 @@ interface TierAverages {
 /**
  * Tier averages for damage (4-tier strike-damage table). The `extreme` entry is populated.
  */
-function getDamageTierAveragesForLevel(level: number): TierAverages {
+function getDamageTierAveragesForLevel(level: number, factor = 1): TierAverages {
   const range = getStatRangesForLevel(level).strikeDamage;
   return {
-    low: range.low.average,
-    mod: range.moderate.average,
-    high: range.high.average,
-    extreme: range.extreme.average
+    low: range.low.average * factor,
+    mod: range.moderate.average * factor,
+    high: range.high.average * factor,
+    extreme: range.extreme.average * factor
   };
 }
 
@@ -699,8 +754,10 @@ function buildFormulaForAverage(targetAvg: number, preferDie: number): string {
  * shape (e.g. compound formulas) or when baseLevel is missing.
  */
 export function scaleProportionally(sv: ScalableValue, level: number): string {
-  // Conditions are surfaced for editing only — flat, never scaled.
-  if (sv.type === 'condition') return sv.originalValue;
+  // Conditions and distances are surfaced for editing only — flat, never scaled. A burst radius or
+  // range is an authoring choice, not a level-derived number: PF2e keeps published areas fixed as a
+  // creature's damage grows.
+  if (sv.type === 'condition' || sv.type === 'distance') return sv.originalValue;
 
   // Save DCs are the creature's own DC and scale; mundane skill-check DCs are surfaced but flat.
   if (sv.type === 'dc') {
@@ -763,7 +820,7 @@ export function getTierInfo(
   sv: ScalableValue,
   level: number
 ): { label: 'low' | 'moderate' | 'high' | 'extreme'; exact: boolean } | null {
-  if (sv.type === 'condition') return null; // conditions have no benchmark tiers
+  if (sv.type === 'condition' || sv.type === 'distance') return null; // no benchmark tiers
   // For customValue we classify by matching the averaged effective value against tier averages.
   if (sv.customValue !== undefined && sv.customValue.length > 0) {
     if (sv.type === 'dc') {
@@ -779,7 +836,7 @@ export function getTierInfo(
     const components = parseDiceComponents(sv.customValue);
     if (!components) return null;
     const avg = components.count * ((components.die + 1) / 2) + components.bonus;
-    return classifyDamageByAverage(sv.type, avg, level);
+    return classifyDamageByAverage(sv.type, avg, level, troopLineFactor(sv.troopLine));
   }
 
   // Otherwise use the benchmark scalar (override or original)
@@ -814,10 +871,11 @@ function classifyByBenchmarkScalar(
 function classifyDamageByAverage(
   type: 'damage' | 'persistent',
   avg: number,
-  level: number
+  level: number,
+  factor = 1
 ): { label: 'low' | 'moderate' | 'high' | 'extreme'; exact: boolean } {
   const tiers = type === 'damage'
-    ? getDamageTierAveragesForLevel(level)
+    ? getDamageTierAveragesForLevel(level, factor)
     : getPersistentTierAveragesForLevel(level);
   const entries = type === 'damage'
     ? [
@@ -905,7 +963,7 @@ export function getRecommendedTierFormulas(
     formatDiceFormula(Math.max(1, Math.round(avg / perDie)), die, 0);
 
   if (sv.type === 'damage') {
-    const t = getDamageTierAveragesForLevel(level);
+    const t = getDamageTierAveragesForLevel(level, troopLineFactor(sv.troopLine));
     return [
       { label: 'low', formula: toFormula(t.low) },
       { label: 'moderate', formula: toFormula(t.mod) },
@@ -981,7 +1039,7 @@ export function getDisplayBenchmark(sv: ScalableValue, level: number): number {
     }
     const avg = parseDiceFormulaAverage(sv.customValue);
     if (avg === 0) return sv.benchmark; // unparseable formula — fall back
-    if (sv.type === 'damage') return damageToBenchmark(avg, level);
+    if (sv.type === 'damage') return damageToBenchmark(avg, level, troopLineFactor(sv.troopLine));
     return persistentDamageToBenchmark(avg, level);
   }
 
@@ -1292,6 +1350,8 @@ export function parseAbilityDescription(description: string, level: number): Par
   // Track which formulas we've already processed (to avoid double-matching persistent + regular)
   const processedFormulas = new Set<string>();
 
+  const troopLineAt = troopAttackLineResolver(description);
+
   // Find PF2e @Damage macros FIRST so we preserve the macro shape in the template. Each macro may
   // hold several comma-separated damage instances (e.g. "5d6[fire],5d6[void]"); we extract a
   // scalable value per instance and substitute only its formula, leaving parens, [type]/[splash]/
@@ -1307,6 +1367,10 @@ export function parseAbilityDescription(description: string, level: number): Par
 
     let templatedMacro = macro;
     let matched = false;
+    // Only the macro's FIRST plain-damage instance is the troop line; anything after it is a
+    // secondary component (hell-hound-pack's fire rider) that escalates on its own slower curve, so
+    // benchmarking it against the whole line's target would read it as far under.
+    let lineClaimed = false;
     for (const instance of instances) {
       // A clean static instance replaces its own formula; a level-derived dice count
       // (floor(1 + @actor.level/2)d6) is evaluated at this level to a concrete NdM and swaps the
@@ -1318,17 +1382,21 @@ export function parseAbilityDescription(description: string, level: number): Par
       if (!extracted) continue;
 
       const avgDamage = formulaAverage(extracted.formula);
+      const plainDamage = !extracted.healing && !extracted.persistent;
+      const troopLine = plainDamage && !lineClaimed ? troopLineAt(macroStart) : undefined;
+      if (plainDamage) lineClaimed = true;
       const value: ScalableValue = {
         type: extracted.healing ? 'healing' : extracted.persistent ? 'persistent' : 'damage',
         benchmark: extracted.healing
           ? healingToBenchmark(avgDamage, level)
           : extracted.persistent
             ? persistentDamageToBenchmark(avgDamage, level)
-            : damageToBenchmark(avgDamage, level),
+            : damageToBenchmark(avgDamage, level, troopLineFactor(troopLine)),
         originalValue: extracted.formula,
         baseLevel: level,
         damageType: extracted.healing ? undefined : extracted.damageType
       };
+      if (troopLine !== undefined) value.troopLine = troopLine;
 
       templatedMacro = templatedMacro.replace(extracted.matchText, `{${placeholderIndex}}`);
       processedFormulas.add(extracted.formula);
@@ -1388,15 +1456,16 @@ export function parseAbilityDescription(description: string, level: number): Par
     if (!validType) continue;
 
     const avgDamage = parseDiceFormulaAverage(formula);
-    const benchmark = damageToBenchmark(avgDamage, level);
+    const troopLine = troopLineAt(damageMatch.index);
 
     const value: ScalableValue = {
       type: 'damage',
-      benchmark,
+      benchmark: damageToBenchmark(avgDamage, level, troopLineFactor(troopLine)),
       originalValue: formula,
       baseLevel: level,
       damageType: damageType
     };
+    if (troopLine !== undefined) value.troopLine = troopLine;
 
     replacements.push({ start: damageMatch.index, end: damageMatch.index + formula.length, text: `{${placeholderIndex}}` });
 
@@ -1475,6 +1544,69 @@ export function parseAbilityDescription(description: string, level: number): Par
 
     scalableValues.push(value);
     placeholderIndex++;
+  }
+
+  // Find @Template areas, exposing each distance so a GM can retune a burst/emanation/cone without
+  // hand-editing the macro. A troop's second area is the shrunken one it drops to at its segment
+  // threshold — label it by that threshold so two "Burst radius" rows can be told apart.
+  const segmentThreshold = SALVO_MARKER.exec(description);
+  let templateMatch;
+  const templateRegex = new RegExp(AT_TEMPLATE_MACRO.source, 'gi');
+  let sawAreaTemplate = false;
+  while ((templateMatch = templateRegex.exec(description)) !== null) {
+    sawAreaTemplate = true;
+    const segments = templateMatch[1].split('|').map((s) => s.trim());
+    const distanceSegment = segments.find((s) => /^distance:\d+$/.test(s));
+    if (!distanceSegment) continue;
+    const distance = parseInt(distanceSegment.slice('distance:'.length), 10);
+    if (distance <= 0) continue;
+
+    const typeSegment = segments.find((s) => s.startsWith('type:')) ?? segments[0];
+    const areaType = typeSegment.startsWith('type:') ? typeSegment.slice('type:'.length) : typeSegment;
+    const reduced = segmentThreshold !== null && templateMatch.index > segmentThreshold.index;
+
+    const value: ScalableValue = {
+      type: 'distance',
+      benchmark: 0,
+      originalValue: String(distance),
+      baseLevel: level,
+      distanceLabel: reduced
+        ? `${templateDistanceLabel(areaType)} (${segmentThreshold[0].replace(/^reduced to /i, '')})`
+        : templateDistanceLabel(areaType)
+    };
+
+    replacements.push({
+      start: templateMatch.index,
+      end: templateMatch.index + templateMatch[0].length,
+      text: templateMatch[0].replace(distanceSegment, `distance:{${placeholderIndex}}`)
+    });
+
+    scalableValues.push(value);
+    placeholderIndex++;
+  }
+
+  if (sawAreaTemplate) {
+    let rangeMatch;
+    const rangeRegex = new RegExp(AREA_RANGE_PATTERN.source, 'gi');
+    while ((rangeMatch = rangeRegex.exec(description)) !== null) {
+      const range = parseInt(rangeMatch[1], 10);
+      if (range <= 0) continue;
+
+      scalableValues.push({
+        type: 'distance',
+        benchmark: 0,
+        originalValue: String(range),
+        baseLevel: level,
+        distanceLabel: 'Range'
+      });
+
+      replacements.push({
+        start: rangeMatch.index,
+        end: rangeMatch.index + rangeMatch[0].length,
+        text: rangeMatch[0].replace(rangeMatch[1], `{${placeholderIndex}}`)
+      });
+      placeholderIndex++;
+    }
   }
 
   // Find valued-condition links: @UUID[…conditionitems.Item.<Slug>]{<Name> <N>}. The numeric value is
@@ -1599,12 +1731,12 @@ export function renderAbilityDescriptionHtml(
   level: number,
   activeIndex?: number
 ): string {
-  // A placeholder inside an @Check/@Damage macro must stay a plain value: wrapping it in the
-  // inline <span> corrupts the macro's brackets, so Foundry can't enrich it and the raw
+  // A placeholder inside an @Check/@Damage/@Template macro must stay a plain value: wrapping it in
+  // the inline <span> corrupts the macro's brackets, so Foundry can't enrich it and the raw
   // "@Check[…]" text leaks into the rendered description. Only free-text placeholders get the
   // cross-highlightable tag; in-macro values stay editable via the stepper list instead.
   const macroRanges: Array<[number, number]> = [];
-  for (const pattern of [AT_CHECK_MACRO, AT_DAMAGE_MACRO, AT_UUID_LABEL]) {
+  for (const pattern of [AT_CHECK_MACRO, AT_DAMAGE_MACRO, AT_TEMPLATE_MACRO, AT_UUID_LABEL]) {
     const re = new RegExp(pattern.source, pattern.flags);
     let m: RegExpExecArray | null;
     while ((m = re.exec(template)) !== null) macroRanges.push([m.index, m.index + m[0].length]);
@@ -1625,6 +1757,44 @@ export function renderAbilityDescriptionHtml(
     ].filter(Boolean).join(' ');
     return `<span class="${classes}" data-scalable-index="${i}">${scaledValue}</span>`;
   });
+}
+
+/**
+ * Stamp `troopLine` onto damage values parsed before troop lines existed, re-benchmarking them on
+ * the line's own ladder. Returns the same array when nothing changes.
+ *
+ * Stored scalable values win over re-parsing on load (they carry the user's edits), so without this
+ * a troop saved earlier would keep scoring its 1-action line against the full strike ladder. Only
+ * the derived `benchmark` moves; a user's `override`/`customValue` is left exactly as set.
+ */
+export function backfillTroopLines(
+  template: string,
+  scalableValues: ScalableValue[],
+  level: number
+): ScalableValue[] {
+  const resolve = troopAttackLineResolver(template);
+  let changed = false;
+
+  const next = scalableValues.map((sv, i) => {
+    if (sv.type !== 'damage' || sv.troopLine !== undefined) return sv;
+    const at = template.search(new RegExp(`\\{${i}\\}`));
+    if (at < 0) return sv;
+    const troopLine = resolve(at);
+    if (troopLine === undefined) return sv;
+
+    changed = true;
+    return {
+      ...sv,
+      troopLine,
+      benchmark: damageToBenchmark(
+        parseDiceFormulaAverage(sv.originalValue),
+        sv.baseLevel ?? level,
+        troopLineFactor(troopLine)
+      )
+    };
+  });
+
+  return changed ? next : scalableValues;
 }
 
 /**

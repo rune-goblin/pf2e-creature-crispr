@@ -2,11 +2,12 @@
 // published troops) and the 2-action ranged volley (73/162). Grammar and numbers follow the
 // 2026-07-18 corpus sweep recorded in docs/plans/troop-conversion-v2.md.
 
-import type { CreatureStrike } from './models';
+import type { CreatureStrike, SpecialAbility } from './models';
 import type { CustomAbilityDefinition } from './contracts';
 import type { CreatureLevel } from './creatureStatTables';
 import { adjustDamageFormulaToAverage, getStatRangesForLevel } from './creatureStatTables';
 import { parseDiceComponents, parseDiceFormulaAverage } from './abilityScaling';
+import { SWEEP_ONE_FACTOR, SWEEP_TWO_FACTOR, VOLLEY_DAMAGE_FACTOR } from './troopBenchmarks';
 
 // English defaults (plan decision 3) — hosts localize by passing opts.name instead.
 export const TROOP_SWEEP_NAME_TEMPLATE = '{strike} Flurry';
@@ -21,14 +22,10 @@ export interface TroopSweepDamage {
   three: number;
 }
 
-// The sweep lines are the strike-damage benchmark columns in disguise (2026-07-25 re-sweep of
-// all 156 published sweeps): 3-action = the high column (median 1.02× high), 2-action = 0.75×
-// of it (= 0.92× moderate), 1-action = 0.27× (bare weapon dice). Derived values land within ±1
-// of published per-level medians at every level with ≥5 statblocks, and extend past L20 (where
-// no troops are published) on the benchmark itself instead of a hand-drawn slope.
-const SWEEP_TWO_FACTOR = 0.75;
-const SWEEP_ONE_FACTOR = 0.27;
-
+// Derived values land within ±1 of published per-level medians at every level with ≥5 statblocks,
+// and extend past L20 (where no troops are published) on the benchmark itself instead of a
+// hand-drawn slope. The factors themselves live in troopBenchmarks.ts — the editor's tier ladder
+// reads them too, so a line built here reads on-benchmark there.
 const ALL_LEVELS = Array.from({ length: 26 }, (_, i) => (i - 1) as CreatureLevel);
 
 /** Per-level target averages for the three sweep damage lines, derived from the high strike column. */
@@ -161,10 +158,6 @@ const VOLLEY_RANGE_BANDS = [30, 40, 60, 80, 100, 120, 200];
 const DEFAULT_VOLLEY_RANGE = 60;
 const LONG_RANGE_THRESHOLD = 120;
 
-// Published volleys land at ~0.85× the 2-action sweep line (median 0.86 across all 62
-// volleys, IQR 0.75–0.93) — dice-only drops the sweep's flat mod (hobgoblin 4d6=14 vs 2d8+9=18).
-const VOLLEY_DAMAGE_FACTOR = 0.85;
-
 function snapToRangeBand(range: number | undefined): number {
   if (!range) return DEFAULT_VOLLEY_RANGE;
   return VOLLEY_RANGE_BANDS.reduce((best, band) =>
@@ -184,13 +177,14 @@ export function buildTroopVolley(
   const name = opts.name ?? TROOP_VOLLEY_NAME_TEMPLATE.replace('{strike}', strike.name);
   const dc = troopSaveDc(level);
   const burst = (strike.range ?? 0) >= LONG_RANGE_THRESHOLD ? 15 : 10;
+  const reducedBurst = burst - 5;
   const range = snapToRangeBand(strike.range);
   const { die } = strikeDice(strike);
   const target = getTroopSweepDamage(level).two * VOLLEY_DAMAGE_FACTOR;
   const diceCount = Math.max(1, Math.round(target / dieAverage(die)));
 
   const description =
-    `<p>The troop launches a ranged attack in the form of a volley. This volley is a @Template[type:burst|distance:${burst}] within ${range} feet that deals @Damage[${diceCount}d${die}[${strike.damageType}]|options:area-damage] damage with a @Check[reflex|dc:${dc}|basic|options:area-effect] save. When the troop is reduced to 2 segments, this area decreases to a @Template[type:burst|distance:${burst - 5}].</p>`;
+    `<p>The troop launches a ranged attack in the form of a volley. This volley is a @Template[type:burst|distance:${burst}] within ${range} feet that deals @Damage[${diceCount}d${die}[${strike.damageType}]|options:area-damage] damage with a @Check[reflex|dc:${dc}|basic|options:area-effect] save. When the troop is reduced to 2 segments, this area decreases to a @Template[type:burst|distance:${reducedBurst}].</p>`;
 
   return {
     slug: slugify(name),
@@ -203,3 +197,65 @@ export function buildTroopVolley(
     traits: []
   };
 }
+
+/** The generic troop attack a picked ability instantiates. */
+export type TroopAttackTemplate = 'troop-battle' | 'troop-salvo';
+
+// Picked from the ability list rather than derived from a strike, so there's no weapon to read a
+// shape from: converted troops carry zero strike items (corpus fact 2). Start from the plainest
+// published shape and let the GM retune dice/type/area in the editable values.
+const TEMPLATE_DIE = 6;
+const TEMPLATE_MELEE_DAMAGE_TYPE = 'bludgeoning';
+const TEMPLATE_RANGED_DAMAGE_TYPE = 'piercing';
+const TEMPLATE_RANGE = 60;
+const DIE_FACES = [4, 6, 8, 10, 12];
+
+// A volley is dice-only, so the die face decides how close the whole line can get: at L4 a d6
+// target of 8.9 snaps to 3d6 = 10.5 (extreme) while 2d8 = 9 sits on the benchmark. With no weapon
+// dictating the shape, pick the face that lands nearest instead of shipping an off-benchmark start.
+function fitDieToTarget(target: number): number {
+  return DIE_FACES.reduce((best, die) => {
+    const error = (candidate: number): number =>
+      Math.abs(Math.max(1, Math.round(target / dieAverage(candidate))) * dieAverage(candidate) - target);
+    return error(die) < error(best) ? die : best;
+  }, TEMPLATE_DIE);
+}
+
+function templateStrike(name: string, ranged: boolean, level: number): CreatureStrike {
+  const die = ranged ? fitDieToTarget(getTroopSweepDamage(level).two * VOLLEY_DAMAGE_FACTOR) : TEMPLATE_DIE;
+  return {
+    name,
+    attackBenchmark: 0.5,
+    damageBenchmark: 0.5,
+    attackBonus: 0,
+    damage: `1d${die}`,
+    damageType: ranged ? TEMPLATE_RANGED_DAMAGE_TYPE : TEMPLATE_MELEE_DAMAGE_TYPE,
+    isRanged: ranged,
+    range: ranged ? TEMPLATE_RANGE : undefined
+  };
+}
+
+/**
+ * Instantiate one of the two generic troop attacks at `level` — the full published grammar with its
+ * damage lines, save DC and areas, not the glossary blurb describing the pattern. This is what a
+ * provider's Battle/Salvo entry expands to when it's added, so the ability lands with editable
+ * values already benchmarked instead of as inert prose.
+ */
+export function buildTroopAttackFromTemplate(
+  template: TroopAttackTemplate,
+  level: number,
+  opts: { name?: string } = {}
+): CustomAbilityDefinition {
+  const ranged = template === 'troop-salvo';
+  const name = opts.name ?? (ranged ? 'Salvo' : 'Battle');
+  const strike = templateStrike(name, ranged, level);
+  return ranged ? buildTroopVolley(strike, level, { name }) : buildTroopSweep(strike, level, { name });
+}
+
+/** The troop attack an ability's parsed lines say it is, or undefined if it isn't one. */
+export function troopAttackKindOf(ability: SpecialAbility): TroopAttackTemplate | undefined {
+  const lines = (ability.scalableValues ?? []).filter((v) => v.type === 'damage' && v.troopLine !== undefined);
+  if (lines.length === 0) return undefined;
+  return lines.some((v) => v.troopLine === 'salvo') ? 'troop-salvo' : 'troop-battle';
+}
+
