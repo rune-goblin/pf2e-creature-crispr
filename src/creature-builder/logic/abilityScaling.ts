@@ -964,11 +964,22 @@ export function getRecommendedTierFormulas(
 
   if (sv.type === 'damage') {
     const t = getDamageTierAveragesForLevel(level, troopLineFactor(sv.troopLine));
+    // Sweep lines keep a flat bonus like published sweeps (98% of 2/3-action lines carry one):
+    // bare-dice rounding is coarser than the gap between line targets, so at e.g. L3 it collapses
+    // the 2- and 3-action high tiers into the same 3d6. Never a negative bonus — published sweeps
+    // floor at bare dice. Salvos stay dice-only, which is the published volley grammar.
+    const isSweepLine = sv.troopLine !== undefined && sv.troopLine !== 'salvo';
+    const lineFormula = (avg: number): string => {
+      if (!isSweepLine) return toFormula(avg);
+      const withBonus = buildFormulaForAverage(avg, die);
+      const parts = parseDiceComponents(withBonus);
+      return parts && parts.bonus < 0 ? formatDiceFormula(parts.count, die, 0) : withBonus;
+    };
     return [
-      { label: 'low', formula: toFormula(t.low) },
-      { label: 'moderate', formula: toFormula(t.mod) },
-      { label: 'high', formula: toFormula(t.high) },
-      { label: 'extreme', formula: toFormula(t.extreme ?? t.high) }
+      { label: 'low', formula: lineFormula(t.low) },
+      { label: 'moderate', formula: lineFormula(t.mod) },
+      { label: 'high', formula: lineFormula(t.high) },
+      { label: 'extreme', formula: lineFormula(t.extreme ?? t.high) }
     ];
   }
   const t = getPersistentTierAveragesForLevel(level);

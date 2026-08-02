@@ -108,6 +108,27 @@ describe('putting a drifted troop attack back on the curve', () => {
     expect(Math.abs(three - targets.three)).toBeLessThanOrEqual(1);
   });
 
+  // At L4 every target is a multiple of 3.5, so bare-dice tiers passed by luck; at L3 (targets
+  // 3.2/9/12) dice-only rounding put both the 2- and 3-action lines on 3d6 — the screenshot bug.
+  it('keeps the three lines distinct and on-target at every level, not just the lucky ones', () => {
+    for (let level = -1; level <= 24; level++) {
+      const snapped = snapTroopDamageToBenchmark(offCurve(level))!;
+      const targets = getTroopSweepDamage(level);
+      const [one, two, three] = damageValues(snapped.scalableValues ?? [])
+        .map((v) => parseDiceFormulaAverage(getEffectiveValue(v, level)));
+      // Below L1 the 1-/2-action targets sit under one die's average, so both floor at 1d6.
+      if (level >= 1) {
+        expect(one, `L${level} 1a`).toBeLessThan(two);
+        expect(two, `L${level} 2a`).toBeLessThan(three);
+      } else {
+        expect(one, `L${level} 1a`).toBeLessThanOrEqual(two);
+        expect(two, `L${level} 2a`).toBeLessThanOrEqual(three);
+      }
+      expect(Math.abs(two - targets.two), `L${level} 2a off target`).toBeLessThanOrEqual(1.5);
+      expect(Math.abs(three - targets.three), `L${level} 3a off target`).toBeLessThanOrEqual(1.5);
+    }
+  });
+
   it('never touches the prose — not the template, not a hand-edited one', () => {
     const original = offCurve(4);
     const snapped = snapTroopDamageToBenchmark(original)!;
