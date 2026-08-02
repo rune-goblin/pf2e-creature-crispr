@@ -745,37 +745,51 @@ describe('getEffectiveBenchmark', () => {
 
 describe('getTierInfo', () => {
   it('classifies by benchmark scalar when there is no customValue', () => {
-    expect(getTierInfo(dmgSV({ benchmark: 0 }), 10)).toEqual({ label: 'low', exact: true });
-    expect(getTierInfo(dmgSV(), 10)).toEqual({ label: 'moderate', exact: true });
-    expect(getTierInfo(dmgSV({ benchmark: 0.55 }), 10)).toEqual({ label: 'high', exact: false });
-    expect(getTierInfo(dmgSV({ benchmark: 0, override: 2 / 3 }), 10)).toEqual({ label: 'high', exact: true });
-    expect(getTierInfo(dmgSV({ benchmark: 1 }), 10)).toEqual({ label: 'extreme', exact: true });
-    expect(getTierInfo(dcSV(), 10)).toEqual({ label: 'high', exact: true });
-    expect(getTierInfo(dcSV({ benchmark: 1 }), 10)).toEqual({ label: 'extreme', exact: true });
-    expect(getTierInfo(persSV({ benchmark: 1 }), 10)).toEqual({ label: 'high', exact: true });
+    expect(getTierInfo(dmgSV({ benchmark: 0 }), 10)).toMatchObject({ label: 'low', exact: true });
+    expect(getTierInfo(dmgSV(), 10)).toMatchObject({ label: 'moderate', exact: true });
+    expect(getTierInfo(dmgSV({ benchmark: 0.55 }), 10)).toMatchObject({ label: 'high', exact: false });
+    expect(getTierInfo(dmgSV({ benchmark: 0, override: 2 / 3 }), 10)).toMatchObject({ label: 'high', exact: true });
+    expect(getTierInfo(dmgSV({ benchmark: 1 }), 10)).toMatchObject({ label: 'extreme', exact: true });
+    expect(getTierInfo(dcSV(), 10)).toMatchObject({ label: 'high', exact: true });
+    expect(getTierInfo(dcSV({ benchmark: 1 }), 10)).toMatchObject({ label: 'extreme', exact: true });
+    expect(getTierInfo(persSV({ benchmark: 1 }), 10)).toMatchObject({ label: 'high', exact: true });
   });
 
   it('classifies a damage customValue by its average against the level tiers', () => {
-    expect(getTierInfo(dmgSV({ customValue: '2d10+11' }), 10)).toEqual({ label: 'moderate', exact: true });
-    expect(getTierInfo(dmgSV({ customValue: '2d10+14' }), 10)).toEqual({ label: 'high', exact: false });
-    expect(getTierInfo(dmgSV({ customValue: '1d4' }), 10)).toEqual({ label: 'low', exact: false });
-    expect(getTierInfo(dmgSV({ customValue: '12d12+20' }), 10)).toEqual({ label: 'extreme', exact: false });
+    expect(getTierInfo(dmgSV({ customValue: '2d10+11' }), 10)).toMatchObject({ label: 'moderate', exact: true });
+    expect(getTierInfo(dmgSV({ customValue: '2d10+14' }), 10)).toMatchObject({ label: 'high', exact: false });
+    expect(getTierInfo(dmgSV({ customValue: '1d4' }), 10)).toMatchObject({ label: 'low', exact: false });
+    expect(getTierInfo(dmgSV({ customValue: '12d12+20' }), 10)).toMatchObject({ label: 'extreme', exact: false });
   });
 
   it('classifies a persistent customValue, with exactness under half a point', () => {
-    expect(getTierInfo(persSV({ customValue: '3d6' }), 10)).toEqual({ label: 'high', exact: true });
-    expect(getTierInfo(persSV({ customValue: '2d4' }), 10)).toEqual({ label: 'low', exact: true });
-    expect(getTierInfo(persSV({ customValue: '1d8+1' }), 10)).toEqual({ label: 'low', exact: false });
+    expect(getTierInfo(persSV({ customValue: '3d6' }), 10)).toMatchObject({ label: 'high', exact: true });
+    expect(getTierInfo(persSV({ customValue: '2d4' }), 10)).toMatchObject({ label: 'low', exact: true });
+    expect(getTierInfo(persSV({ customValue: '1d8+1' }), 10)).toMatchObject({ label: 'low', exact: false });
+  });
+
+  it('reports a value that falls off either end of the ladder as off-scale', () => {
+    // A scalar-derived tier is clamped to the ladder, so only value-derived ones can be off it.
+    expect(getTierInfo(dmgSV({ benchmark: 0 }), 10)?.offScale).toBe(null);
+
+    expect(getTierInfo(dmgSV({ customValue: '1d4' }), 10)?.offScale).toBe('below');
+    expect(getTierInfo(dmgSV({ customValue: '30d12' }), 10)?.offScale).toBe('above');
+    expect(getTierInfo(dmgSV({ customValue: '2d10+11' }), 10)?.offScale).toBe(null);
+
+    // Level 10 ability DCs: moderate 26, high 29, extreme 33.
+    expect(getTierInfo(dcSV({ customValue: '20' }), 10)?.offScale).toBe('below');
+    expect(getTierInfo(dcSV({ customValue: '45' }), 10)?.offScale).toBe('above');
+    expect(getTierInfo(dcSV({ customValue: '29' }), 10)?.offScale).toBe(null);
   });
 
   it('classifies healing and DC customValues against their level rows', () => {
     const heal = healingSV({ baseLevel: 10 });
-    expect(getTierInfo({ ...heal, customValue: '9' }, 10)).toEqual({ label: 'moderate', exact: true });
-    expect(getTierInfo({ ...heal, customValue: '10' }, 10)).toEqual({ label: 'moderate', exact: false });
-    expect(getTierInfo({ ...heal, customValue: '100' }, 10)).toEqual({ label: 'high', exact: false });
-    expect(getTierInfo(dcSV({ customValue: '26' }), 10)).toEqual({ label: 'moderate', exact: true });
-    expect(getTierInfo(dcSV({ customValue: '32' }), 10)).toEqual({ label: 'extreme', exact: false });
-    expect(getTierInfo(dcSV({ customValue: '20' }), 10)).toEqual({ label: 'moderate', exact: false });
+    expect(getTierInfo({ ...heal, customValue: '9' }, 10)).toMatchObject({ label: 'moderate', exact: true });
+    expect(getTierInfo({ ...heal, customValue: '10' }, 10)).toMatchObject({ label: 'moderate', exact: false });
+    expect(getTierInfo({ ...heal, customValue: '100' }, 10)).toMatchObject({ label: 'high', exact: false });
+    expect(getTierInfo(dcSV({ customValue: '26' }), 10)).toMatchObject({ label: 'moderate', exact: true });
+    expect(getTierInfo(dcSV({ customValue: '32' }), 10)).toMatchObject({ label: 'extreme', exact: false });
+    expect(getTierInfo(dcSV({ customValue: '20' }), 10)).toMatchObject({ label: 'moderate', exact: false });
   });
 
   it('returns null for conditions and unparseable customValues', () => {

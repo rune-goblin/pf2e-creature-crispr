@@ -6,6 +6,7 @@ export * from './editableCreature';
 export * from './contracts';
 export * from './customAbility';
 export * from './troop';
+export * from './troopBenchmarks';
 export * from './troopActions';
 export * from './creatureStatTables';
 export * from './spellSlotTables';

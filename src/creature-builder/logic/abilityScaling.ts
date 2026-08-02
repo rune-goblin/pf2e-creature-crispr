@@ -658,7 +658,7 @@ export function getEffectiveBenchmark(sv: ScalableValue): number {
 // smoothly up or down with level, instead of snapping to discrete tier formulas.
 // ============================================================================
 
-interface TierAverages {
+export interface TierAverages {
   low: number;
   mod: number;
   high: number;
@@ -668,7 +668,7 @@ interface TierAverages {
 /**
  * Tier averages for damage (4-tier strike-damage table). The `extreme` entry is populated.
  */
-function getDamageTierAveragesForLevel(level: number, factor = 1): TierAverages {
+export function getDamageTierAveragesForLevel(level: number, factor = 1): TierAverages {
   const range = getStatRangesForLevel(level).strikeDamage;
   return {
     low: range.low.average * factor,
@@ -681,7 +681,7 @@ function getDamageTierAveragesForLevel(level: number, factor = 1): TierAverages 
 /**
  * Tier averages for persistent damage (3-tier table). No `extreme`.
  */
-function getPersistentTierAveragesForLevel(level: number): TierAverages {
+export function getPersistentTierAveragesForLevel(level: number): TierAverages {
   const row = getPersistentDamageRange(level);
   return {
     low: parseDiceFormulaAverage(row.low),
@@ -819,7 +819,7 @@ export function scaleProportionally(sv: ScalableValue, level: number): string {
 export function getTierInfo(
   sv: ScalableValue,
   level: number
-): { label: 'low' | 'moderate' | 'high' | 'extreme'; exact: boolean } | null {
+): TierVerdict<'low' | 'moderate' | 'high' | 'extreme'> | null {
   if (sv.type === 'condition' || sv.type === 'distance') return null; // no benchmark tiers
   // For customValue we classify by matching the averaged effective value against tier averages.
   if (sv.customValue !== undefined && sv.customValue.length > 0) {
@@ -839,9 +839,10 @@ export function getTierInfo(
     return classifyDamageByAverage(sv.type, avg, level, troopLineFactor(sv.troopLine));
   }
 
-  // Otherwise use the benchmark scalar (override or original)
+  // Otherwise use the benchmark scalar (override or original). A scalar is clamped to the ladder by
+  // construction, so this path can never be off-scale.
   const b = getEffectiveBenchmark(sv);
-  return classifyByBenchmarkScalar(sv.type, b);
+  return { ...classifyByBenchmarkScalar(sv.type, b), offScale: null };
 }
 
 function classifyByBenchmarkScalar(
@@ -868,12 +869,55 @@ function classifyByBenchmarkScalar(
   return { label: 'extreme', exact: Math.abs(b - 1) < epsilon };
 }
 
-function classifyDamageByAverage(
+/** A tier verdict: the nearest tier, whether the value sits exactly on it, and whether it fell off
+ * either end of the ladder entirely. `offScale` is what a content audit keys on — a value below the
+ * bottom tier or above the top one is not merely "low"/"extreme", it is off the published curve. */
+export interface TierVerdict<L extends string> {
+  label: L;
+  exact: boolean;
+  offScale: 'below' | 'above' | null;
+}
+
+/**
+ * Nearest tier for `value` among ascending `entries`.
+ *
+ * A value only counts as off the ladder when it misses an end tier by more than half the spacing of
+ * the tier beside it — a strict `< low` test would call most published content off-curve and bury
+ * the real outliers.
+ */
+function nearestTier<L extends string>(
+  value: number,
+  entries: ReadonlyArray<{ label: L; avg: number }>
+): TierVerdict<L> {
+  let closest = entries[0];
+  let closestDiff = Math.abs(value - closest.avg);
+  for (const e of entries) {
+    const d = Math.abs(value - e.avg);
+    if (d < closestDiff) {
+      closestDiff = d;
+      closest = e;
+    }
+  }
+
+  const first = entries[0];
+  const last = entries[entries.length - 1];
+  let offScale: 'below' | 'above' | null = null;
+  if (entries.length > 1) {
+    const lowGap = entries[1].avg - first.avg;
+    const highGap = last.avg - entries[entries.length - 2].avg;
+    if (value < first.avg - lowGap / 2) offScale = 'below';
+    else if (value > last.avg + highGap / 2) offScale = 'above';
+  }
+
+  return { label: closest.label, exact: closestDiff < 0.5, offScale };
+}
+
+export function classifyDamageByAverage(
   type: 'damage' | 'persistent',
   avg: number,
   level: number,
   factor = 1
-): { label: 'low' | 'moderate' | 'high' | 'extreme'; exact: boolean } {
+): TierVerdict<'low' | 'moderate' | 'high' | 'extreme'> {
   const tiers = type === 'damage'
     ? getDamageTierAveragesForLevel(level, factor)
     : getPersistentTierAveragesForLevel(level);
@@ -889,16 +933,7 @@ function classifyDamageByAverage(
         { label: 'moderate' as const, avg: tiers.mod },
         { label: 'high' as const, avg: tiers.high }
       ];
-  let closest = entries[0];
-  let closestDiff = Math.abs(avg - closest.avg);
-  for (const e of entries) {
-    const d = Math.abs(avg - e.avg);
-    if (d < closestDiff) {
-      closestDiff = d;
-      closest = e;
-    }
-  }
-  return { label: closest.label, exact: closestDiff < 0.5 };
+  return nearestTier(avg, entries);
 }
 
 function classifyHealingByValue(
@@ -924,26 +959,17 @@ function classifyHealingByValue(
   return { label: closest.label, exact: closestDiff < 0.5 };
 }
 
-function classifyDcByValue(
+export function classifyDcByValue(
   dc: number,
   level: number
-): { label: 'moderate' | 'high' | 'extreme'; exact: boolean } {
+): TierVerdict<'moderate' | 'high' | 'extreme'> {
   const range = getAbilityDCRange(level);
   const entries: Array<{ label: 'moderate' | 'high' | 'extreme'; avg: number }> = [
     { label: 'moderate', avg: range.moderate },
     { label: 'high', avg: range.high },
     { label: 'extreme', avg: range.extreme }
   ];
-  let closest = entries[0];
-  let closestDiff = Math.abs(dc - closest.avg);
-  for (const e of entries) {
-    const d = Math.abs(dc - e.avg);
-    if (d < closestDiff) {
-      closestDiff = d;
-      closest = e;
-    }
-  }
-  return { label: closest.label, exact: closestDiff < 0.5 };
+  return nearestTier(dc, entries);
 }
 
 /**
