@@ -1017,16 +1017,22 @@ export function getRecommendedTierFormulas(
 
   if (sv.type === 'damage') {
     const t = getDamageTierAveragesForLevel(level, troopLineFactor(sv.troopLine));
-    // Sweep lines keep a flat bonus like published sweeps (98% of 2/3-action lines carry one):
-    // bare-dice rounding is coarser than the gap between line targets, so at e.g. L3 it collapses
-    // the 2- and 3-action high tiers into the same 3d6. Never a negative bonus — published sweeps
-    // floor at bare dice. Salvos stay dice-only, which is the published volley grammar.
-    const isSweepLine = sv.troopLine !== undefined && sv.troopLine !== 'salvo';
+    // Every troop attack line keeps a flat bonus, sweep or salvo: one whole die is a wider step
+    // than the gap between adjacent tier targets, so bare dice collapse neighbouring tiers onto
+    // the same formula and nothing the GM picks can land on the curve — at L6 a d8 salvo has no
+    // whole-dice count that reads high at all. Published volleys are mostly bare dice but not
+    // exclusively (Hellknight Hunter Squad's 5d6+9, Skeleton Infantry's 2d6+10), so the bonus is
+    // in-grammar. Never a negative bonus — published lines floor at bare dice.
+    const isTroopLine = sv.troopLine !== undefined;
     const lineFormula = (avg: number): string => {
-      if (!isSweepLine) return toFormula(avg);
-      const withBonus = buildFormulaForAverage(avg, die);
-      const parts = parseDiceComponents(withBonus);
-      return parts && parts.bonus < 0 ? formatDiceFormula(parts.count, die, 0) : withBonus;
+      if (!isTroopLine) return toFormula(avg);
+      const parts = parseDiceComponents(buildFormulaForAverage(avg, die));
+      if (!parts) return toFormula(avg);
+      if (parts.bonus >= 0) return formatDiceFormula(parts.count, die, parts.bonus);
+      // Drop a die rather than clamp the bonus to 0: clamping keeps the larger count and overshoots
+      // by most of a die (L1 d4 wanted 3.8 and got 2d4=5 instead of 1d4+1=3.5). One die is the floor.
+      const count = Math.max(1, parts.count - 1);
+      return formatDiceFormula(count, die, Math.max(0, Math.round(avg - count * perDie)));
     };
     return [
       { label: 'low', formula: lineFormula(t.low) },

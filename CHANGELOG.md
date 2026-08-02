@@ -3,6 +3,20 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.1] — 2026-08-03
+
+### Fixed
+
+- ***Damage on curve* now lands a salvo on the benchmark.** Salvo lines were held to bare dice, but
+  one whole die is a wider step than the gap between adjacent tier targets — at L6 a d8 salvo had no
+  dice-only count that read High at all, so the button either wrote back the formula already there
+  (Berserkers' `5d6`) or overshot into Extreme. Salvos now take a flat bonus like sweeps, which the
+  published corpus already does in places (Hellknight Hunter Squad's `5d6+9`, Skeleton Infantry's
+  `2d6+10`). 9 of the 25 salvos in a consumer corpus could not be put on curve before; all can now.
+- **A troop line whose target falls below its dice drops a die instead of clamping the bonus.**
+  Flooring a negative bonus at 0 kept the larger count and overshot by most of a die — an L1 d4
+  salvo aiming at 3.8 produced `2d4` (5) rather than `1d4+1` (3.5). One die remains the floor.
+
 ## [0.11.0] — 2026-08-02
 
 ### Added

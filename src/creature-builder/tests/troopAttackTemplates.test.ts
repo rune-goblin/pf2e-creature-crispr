@@ -16,7 +16,7 @@ import {
   parseDiceFormulaAverage,
   renderAbilityDescription
 } from '@/creature-builder/logic/abilityScaling';
-import { troopLineFactor } from '@/creature-builder/logic/troopBenchmarks';
+import { troopLineFactor, VOLLEY_DAMAGE_FACTOR } from '@/creature-builder/logic/troopBenchmarks';
 import { getStatRangesForLevel } from '@/creature-builder/logic/creatureStatTables';
 import type { CustomAbilityDefinition } from '@/creature-builder/logic/contracts';
 import type { CreatureStrike, ScalableValue } from '@/creature-builder/logic/models';
@@ -190,6 +190,27 @@ describe('putting a drifted troop attack back on the curve', () => {
     expect(before).toContain('1d4');
     expect(after).not.toContain('1d4');
     expect(after).toContain('The kobolds engage');
+  });
+
+  // Bare dice cannot express a salvo's target: one die is a wider step than the gap between
+  // adjacent tiers, so at L6/d8 no whole-dice count reads high at all and the button was a no-op.
+  it('lands a salvo on its target at every level and die, not just where whole dice happen to fit', () => {
+    for (const die of [4, 6, 8, 10, 12]) {
+      for (let level = 1; level <= 24; level++) {
+        const ability = customAbilityToSpecialAbility(
+          buildTroopVolley(strike({ isRanged: true, range: 50, damage: `1d${die}` }), level),
+          level,
+          `volley-${die}-${level}`
+        );
+        const snapped = snapTroopDamageToBenchmark(ability)!;
+        const [salvo] = damageValues(snapped.scalableValues ?? []);
+        const formula = getEffectiveValue(salvo, level);
+        const target = getTroopSweepDamage(level).two * VOLLEY_DAMAGE_FACTOR;
+        // One die is the floor — a d12 averages 6.5 and no L1 salvo target reaches that.
+        if ((die + 1) / 2 > target) expect(formula, `L${level} d${die}`).toBe(`1d${die}`);
+        else expect(Math.abs(parseDiceFormulaAverage(formula) - target) / target, `L${level} d${die}`).toBeLessThan(0.15);
+      }
+    }
   });
 
   it('leaves the save DC and every area alone', () => {
