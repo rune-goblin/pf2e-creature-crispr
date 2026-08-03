@@ -12,7 +12,12 @@ import {
   getStatRangesForLevel,
   scaleStrikeDamage
 } from './creatureStatTables';
-import { troopLineFactor, TROOP_DAMAGE_TIER, type TroopAttackLine } from './troopBenchmarks';
+import {
+  fitTroopLineFormula,
+  troopLineFactor,
+  TROOP_DAMAGE_TIER,
+  type TroopAttackLine
+} from './troopBenchmarks';
 
 // ============================================================================
 // ABILITY DC AND SPELL ATTACK TABLES
@@ -861,13 +866,23 @@ export function scaleProportionally(sv: ScalableValue, level: number): string {
   const originalAverage = components.count * ((components.die + 1) / 2) + components.bonus;
   const factor = computeLevelScaleFactor(sv.type, sv.baseLevel, level);
   const targetAverage = originalAverage * factor;
+  const perDie = (components.die + 1) / 2;
+
+  // Troop lines rescale in the generators' own shapes (fitTroopLineFormula — one system with the
+  // recommendation): sweep lines anchor to their dice count, salvos refit a whole-dice count.
+  if (sv.troopLine !== undefined) {
+    return fitTroopLineFormula(
+      targetAverage,
+      components.die,
+      sv.troopLine === 'salvo' ? Infinity : components.count
+    );
+  }
 
   // A clean NdM original (no flat modifier — area/spell-like damage, the way PF2e notates it) stays
   // clean: pick the closest whole dice count rather than emit an insignificant ±1 residual bonus.
   // Stepwise and slightly approximate by design. Strikes (which carry a real "+mod") keep the
   // flat-bonus fit below.
   if (components.bonus === 0) {
-    const perDie = (components.die + 1) / 2;
     return formatDiceFormula(Math.max(1, Math.round(targetAverage / perDie)), components.die, 0);
   }
 
@@ -1053,22 +1068,13 @@ export function getRecommendedTierFormulas(
 
   if (sv.type === 'damage') {
     const t = getDamageTierAveragesForLevel(level, troopLineScale(sv));
-    // Every troop attack line keeps a flat bonus, sweep or salvo: one whole die is a wider step
-    // than the gap between adjacent tier targets, so bare dice collapse neighbouring tiers onto
-    // the same formula and nothing the GM picks can land on the curve — at L6 a d8 salvo has no
-    // whole-dice count that reads high at all. Published volleys are mostly bare dice but not
-    // exclusively (Hellknight Hunter Squad's 5d6+9, Skeleton Infantry's 2d6+10), so the bonus is
-    // in-grammar. Never a negative bonus — published lines floor at bare dice.
-    const isTroopLine = sv.troopLine !== undefined;
+    // Troop lines recommend exactly what the generators write (fitTroopLineFormula — one shaping
+    // system), so a freshly built line is its own recommendation and Damage on curve is a no-op on
+    // an on-curve troop. Sweep lines anchor to the value's own dice count; salvos have no anchor.
+    const count = parseDiceComponents(sv.originalValue)?.count;
     const lineFormula = (avg: number): string => {
-      if (!isTroopLine) return toFormula(avg);
-      const parts = parseDiceComponents(buildFormulaForAverage(avg, die));
-      if (!parts) return toFormula(avg);
-      if (parts.bonus >= 0) return formatDiceFormula(parts.count, die, parts.bonus);
-      // Drop a die rather than clamp the bonus to 0: clamping keeps the larger count and overshoots
-      // by most of a die (L1 d4 wanted 3.8 and got 2d4=5 instead of 1d4+1=3.5). One die is the floor.
-      const count = Math.max(1, parts.count - 1);
-      return formatDiceFormula(count, die, Math.max(0, Math.round(avg - count * perDie)));
+      if (sv.troopLine === undefined) return toFormula(avg);
+      return fitTroopLineFormula(avg, die, sv.troopLine === 'salvo' ? Infinity : count);
     };
     return [
       { label: 'low', formula: lineFormula(t.low) },

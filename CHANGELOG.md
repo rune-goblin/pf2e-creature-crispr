@@ -25,6 +25,18 @@ Notable changes to **PF2E Creature CRISPR**. Format follows
   than one die step, and 120 sweeps snapped exactly onto the curve still read it off-tier 21 times
   where the full-round line never missed.
 
+- **One shaping system: the recommendation is what the generator writes.** The tier recommendation
+  fitted a troop line by stacking dice (bonus capped under one die), while the generators keep the
+  weapon's dice and carry the target in the flat modifier — so a freshly built on-curve line
+  (`2d6+4`) was "recommended" as a different formula (`3d6`), and *Damage on curve* rewrote
+  corpus-faithful lines into dice stacks (a `2d6+7` sitting exactly on its target became `4d6`).
+  All four shapers — the sweep and volley generators, the tier recommendations, the curve snap,
+  and proportional rescale — now share `fitTroopLineFormula`: dice never overshoot the target by
+  more than half a point, the modifier carries the remainder, never negative, one die is the
+  floor; sweep lines anchor to their own dice count, salvos fit a whole-dice count first. A
+  generated line is its own recommendation and the snap is a no-op on an on-curve troop, at every
+  level and die face.
+
 ### Added
 
 - **`auditAbility(description, level)`** — every damage line totalled and placed on its ladder,

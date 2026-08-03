@@ -5,9 +5,14 @@
 import type { CreatureStrike, SpecialAbility } from './models';
 import type { CustomAbilityDefinition } from './contracts';
 import type { CreatureLevel } from './creatureStatTables';
-import { adjustDamageFormulaToAverage, getStatRangesForLevel } from './creatureStatTables';
+import { getStatRangesForLevel } from './creatureStatTables';
 import { parseDiceComponents, parseDiceFormulaAverage } from './abilityScaling';
-import { SWEEP_ONE_FACTOR, SWEEP_TWO_FACTOR, VOLLEY_DAMAGE_FACTOR } from './troopBenchmarks';
+import {
+  fitTroopLineFormula,
+  SWEEP_ONE_FACTOR,
+  SWEEP_TWO_FACTOR,
+  VOLLEY_DAMAGE_FACTOR
+} from './troopBenchmarks';
 
 // English defaults (plan decision 3) — hosts localize by passing opts.name instead.
 export const TROOP_SWEEP_NAME_TEMPLATE = '{strike} Flurry';
@@ -96,13 +101,15 @@ function sweepDamageMacro(
   type: string,
   rider: RiderComponent | undefined
 ): string {
-  const mainDice = capDice(base.count * line, base.die);
   const riderFormula = rider ? `${RIDER_DICE_BY_LINE[line - 1]}d${rider.die}` : undefined;
   const riderAverage = riderFormula ? parseDiceFormulaAverage(riderFormula) : 0;
   // The rider spends part of the line's budget (hell hound's 1d8+7 + 2d6 fire sums to the
-  // level median), and published sweeps never carry negative mods — floor at dice-only.
-  const mainTarget = Math.max(target - riderAverage, dieAverage(base.die) * mainDice);
-  const mainFormula = adjustDamageFormulaToAverage(`${mainDice}d${base.die}`, mainTarget);
+  // level median).
+  const mainFormula = fitTroopLineFormula(
+    Math.max(target - riderAverage, 0),
+    base.die,
+    capDice(base.count * line, base.die)
+  );
 
   if (!rider || !riderFormula) {
     return `@Damage[${renderInstance(mainFormula, type)}|options:area-damage]`;
@@ -184,10 +191,10 @@ export function buildTroopVolley(
   const range = snapToRangeBand(strike.range);
   const { die } = strikeDice(strike);
   const target = getTroopSweepDamage(level).two * VOLLEY_DAMAGE_FACTOR;
-  const diceCount = Math.max(1, Math.round(target / dieAverage(die)));
+  const formula = fitTroopLineFormula(target, die);
 
   const description =
-    `<p>The troop launches a ranged attack in the form of a volley. This volley is a @Template[type:burst|distance:${burst}] within ${range} feet that deals @Damage[${diceCount}d${die}[${strike.damageType}]|options:area-damage] damage with a @Check[reflex|dc:${dc}|basic|options:area-effect] save. When the troop is reduced to 2 segments, this area decreases to a @Template[type:burst|distance:${reducedBurst}].</p>`;
+    `<p>The troop launches a ranged attack in the form of a volley. This volley is a @Template[type:burst|distance:${burst}] within ${range} feet that deals @Damage[${renderInstance(formula, strike.damageType)}|options:area-damage] damage with a @Check[reflex|dc:${dc}|basic|options:area-effect] save. When the troop is reduced to 2 segments, this area decreases to a @Template[type:burst|distance:${reducedBurst}].</p>`;
 
   return {
     slug: slugify(name),
@@ -221,7 +228,7 @@ const DIE_FACES = [6, 8];
 function fitDieToTarget(target: number): number {
   return DIE_FACES.reduce((best, die) => {
     const error = (candidate: number): number =>
-      Math.abs(Math.max(1, Math.round(target / dieAverage(candidate))) * dieAverage(candidate) - target);
+      Math.abs(parseDiceFormulaAverage(fitTroopLineFormula(target, candidate)) - target);
     return error(die) < error(best) ? die : best;
   }, TEMPLATE_DIE);
 }

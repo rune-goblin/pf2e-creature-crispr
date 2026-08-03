@@ -25,6 +25,29 @@ export const VOLLEY_DAMAGE_FACTOR = 0.85;
 export const TROOP_DAMAGE_TIER = 2 / 3;
 
 /**
+ * THE shape a troop line's damage takes at a target average — the one fitting rule shared by the
+ * generators, the tier recommendations, the curve snap, and proportional rescale, so a generated
+ * line is always its own recommendation and "Damage on curve" is a no-op on an on-curve troop.
+ *
+ * Grammar (2026-08-02 corpus): dice track the weapon and the flat modifier carries the line to its
+ * target — dice-only exactly where whole dice land within rounding of it. Never a negative
+ * modifier: dice more than half a point over the target drop a die instead, and one die is the
+ * floor. `maxDice` anchors a sweep line to its own dice count; omit it for salvos, which have no
+ * weapon anchor and fit a whole-dice count first.
+ */
+export function fitTroopLineFormula(target: number, die: number, maxDice = Infinity): string {
+  const perDie = (die + 1) / 2;
+  let count = Math.max(1, Math.min(maxDice, Math.round(target / perDie)));
+  let miss = target - count * perDie;
+  if (miss < -0.5 && count > 1) {
+    count -= 1;
+    miss = target - count * perDie;
+  }
+  const bonus = Math.max(0, Math.round(miss));
+  return bonus > 0 ? `${count}d${die}+${bonus}` : `${count}d${die}`;
+}
+
+/**
  * How much of the strike-damage ladder one troop attack line is worth.
  *
  * The whole ladder is scaled, not just the high column the targets derive from, so tier labels stay
