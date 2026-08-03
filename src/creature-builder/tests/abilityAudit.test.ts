@@ -40,7 +40,9 @@ describe('auditing a written ability', () => {
 
   it('answers for every line, so drift on one cannot hide behind another', () => {
     const lines = damageLines(buildTroopSweep(strike(), 8).description, 8);
-    expect(lines.filter((l) => l.representative).map((l) => l.troopLine)).toEqual([2, 3]);
+    expect(lines.filter((l) => l.representative).map((l) => l.troopLine)).toEqual([1, 2, 3]);
+    // All three are shown; the 1-action line's target is finer than one die step, so it is not judged.
+    expect(lines.filter((l) => l.judged).map((l) => l.troopLine)).toEqual([2, 3]);
   });
 
   it('makes the salvo its own representative line', () => {
@@ -97,7 +99,7 @@ describe('what the builder puts on curve, the audit reads on curve', () => {
         const snapped = snapTroopDamageToBenchmark(ability)!;
         const rendered = renderAbilityDescription(snapped.descriptionTemplate!, snapped.scalableValues!, level);
         for (const row of auditAbility(rendered, level).damage) {
-          if (!row.representative || row.troopLine === undefined) continue;
+          if (!row.judged || row.troopLine === undefined) continue;
           // One die is the floor: at L1 a d10/d12 troop overshoots a 4.3 target with nothing
           // smaller to write, so the audit is reading a real overshoot, not rounding noise.
           if (level === 1 && die >= 10) continue;

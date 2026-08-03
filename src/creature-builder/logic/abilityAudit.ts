@@ -38,9 +38,12 @@ export interface AuditedDamage {
   troopLine?: TroopAttackLine;
   /** Glyph action count, for display. Differs from `troopLine` on a "1 to 2" sweep. */
   troopLineActions?: 1 | 2 | 3;
-  /** The line an audit should judge the action by: the full-round line a sweep's ladder is
-   *  anchored on, or the salvo. False on the part-round lines that scale off it. */
+  /** The headline row of its line — one per troop line, so a sweep surfaces all three. The "or
+   *  slashing" alternatives and a recurring rider are the same line written twice, not extra rows. */
   representative: boolean;
+  /** Whether an off-tier reading here is a defect. False on the 1-action line, whose target is
+   *  finer than one die step: it is shown so a sweep reads complete, but it cannot carry a flag. */
+  judged: boolean;
 }
 
 /** A damage term the parser could not put on a curve — kept verbatim so a consumer can show it. */
@@ -88,7 +91,8 @@ function laneRow(group: ScalableValue[], lane: DamageLane, level: number): Audit
     average,
     ...(line !== undefined ? { troopLine: line } : {}),
     ...(actions !== undefined ? { troopLineActions: actions } : {}),
-    representative: false
+    representative: false,
+    judged: false
   };
 
   if (lane === 'healing') {
@@ -113,18 +117,19 @@ function laneRow(group: ScalableValue[], lane: DamageLane, level: number): Audit
 }
 
 /**
- * Mark the rows an audit judges the action by — one per troop line, not one per action.
+ * Mark each line's headline row, and say which of them can carry a flag.
  *
- * Every line has its own corpus-calibrated target, and a troop can sit on one while drifting on
- * another (a soft 2-action line under an on-target full round, or the reverse), so judging a single
- * anchor line would trade one blind spot for the other.
+ * A sweep surfaces all three of its lines: the action is written as one, two or three actions and
+ * an audit that showed fewer would read as if the statblock had fewer. Every line has its own
+ * corpus-calibrated target, and a troop can sit on one while drifting on another (a soft 2-action
+ * line under an on-target full round, or the reverse), so each is measured separately.
  *
- * The 1-action line is the exception: at 0.27 of a round its target is smaller than one die step
- * for most die faces, so its tier reading is rounding noise rather than design. Snapping 120 sweeps
- * exactly onto the curve and re-reading them, the 1-action line still lands off-tier 21 times, the
- * 2-action twice, the full-round line never. It is reported, never judged.
+ * Only the 1-action line cannot be judged. At 0.27 of a round its target is smaller than one die
+ * step for most die faces, so its tier reading is rounding noise rather than design: snapping 120
+ * sweeps exactly onto the curve and re-reading them, it still landed off-tier 21 times where the
+ * full-round line never missed. It is shown with its verdict and left unjudged.
  *
- * Within a line the headline is the biggest number: the "or slashing" alternatives and a recurring
+ * Within a line the headline is the biggest number — the "or slashing" alternatives and a recurring
  * rider are the same line written more than once, not separate offenders. An action with no troop
  * lines is judged by its biggest number in each lane.
  */
@@ -132,16 +137,20 @@ function markRepresentative(rows: AuditedDamage[]): void {
   const lines = rows.filter((r) => r.lane === 'damage' && r.troopLine !== undefined);
   if (lines.length) {
     for (const line of new Set(lines.map((r) => r.troopLine))) {
-      if (line === 1) continue;
       const group = lines.filter((r) => r.troopLine === line);
-      group.reduce((best, r) => (r.average > best.average ? r : best)).representative = true;
+      const headline = group.reduce((best, r) => (r.average > best.average ? r : best));
+      headline.representative = true;
+      headline.judged = line !== 1;
     }
   }
   for (const lane of LANES) {
     // Plain damage on a troop line is already answered for above.
     if (lane === 'damage' && lines.length) continue;
     const group = rows.filter((r) => r.lane === lane);
-    if (group.length) group.reduce((best, r) => (r.average > best.average ? r : best)).representative = true;
+    if (!group.length) continue;
+    const headline = group.reduce((best, r) => (r.average > best.average ? r : best));
+    headline.representative = true;
+    headline.judged = true;
   }
 }
 
