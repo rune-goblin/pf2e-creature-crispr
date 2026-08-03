@@ -25,8 +25,8 @@ describe('auditing a written ability', () => {
     const desc = buildTroopSweep(strike({ persistentDamage: '1d6', persistentDamageType: 'fire' }), 8).description;
     const three = damageLines(desc, 8).find((d) => d.troopLine === 3)!;
     expect(three.formula).toContain(',');
-    // 3d6+5 (15.5) plus the 2d6 rider (7): the line is 22.5, not 15.5.
-    expect(three.average).toBeCloseTo(22.5, 6);
+    // 4d6+1 (15) plus the 2d6 rider (7): the line is 22, not 15.
+    expect(three.average).toBeCloseTo(22, 6);
     expect(three.verdict!.label).toBe('high');
   });
 

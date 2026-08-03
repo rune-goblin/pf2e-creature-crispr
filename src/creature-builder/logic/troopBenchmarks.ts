@@ -29,14 +29,16 @@ export const TROOP_DAMAGE_TIER = 2 / 3;
  * generators, the tier recommendations, the curve snap, and proportional rescale, so a generated
  * line is always its own recommendation and "Damage on curve" is a no-op on an on-curve troop.
  *
- * Grammar (2026-08-02 corpus): dice track the weapon and the flat modifier carries the line to its
- * target — dice-only exactly where whole dice land within rounding of it. Never a negative
- * modifier: dice more than half a point over the target drop a die instead, and one die is the
- * floor. `maxDice` anchors a sweep line to its own dice count; omit it for salvos, which have no
- * weapon anchor and fit a whole-dice count first.
+ * Dice carry the line: the nearest whole-dice count to the target, with a flat bonus only for the
+ * sub-die remainder (an extra die is always preferred over a bonus worth a die). Never a negative
+ * modifier — dice more than half a point over the target drop a die instead — and one die is the
+ * floor. The published ×actions dice progression falls out on its own: line targets grow roughly
+ * with action count, so the fitted dice do too. One exception, the wight pattern: d4 lines cap at
+ * 4 dice and only the flat modifier grows past the cap.
  */
-export function fitTroopLineFormula(target: number, die: number, maxDice = Infinity): string {
+export function fitTroopLineFormula(target: number, die: number): string {
   const perDie = (die + 1) / 2;
+  const maxDice = die === 4 ? 4 : Infinity;
   let count = Math.max(1, Math.min(maxDice, Math.round(target / perDie)));
   let miss = target - count * perDie;
   if (miss < -0.5 && count > 1) {

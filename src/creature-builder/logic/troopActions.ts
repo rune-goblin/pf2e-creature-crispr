@@ -59,9 +59,6 @@ function strikeDice(strike: CreatureStrike): { count: number; die: number } {
   return parsed ? { count: parsed.count, die: parsed.die } : { count: 1, die: DEFAULT_DIE };
 }
 
-// d4 sweeps cap at 4 dice; past the cap only the flat mod grows (fact 4, wight pattern).
-const capDice = (count: number, die: number): number => (die === 4 ? Math.min(count, 4) : count);
-
 // All 159 published sweep/volley saves are basic Reflex at spellDC.moderate (fact 5).
 const troopSaveDc = (level: number): number => getStatRangesForLevel(level).spellDC.moderate;
 
@@ -105,11 +102,7 @@ function sweepDamageMacro(
   const riderAverage = riderFormula ? parseDiceFormulaAverage(riderFormula) : 0;
   // The rider spends part of the line's budget (hell hound's 1d8+7 + 2d6 fire sums to the
   // level median).
-  const mainFormula = fitTroopLineFormula(
-    Math.max(target - riderAverage, 0),
-    base.die,
-    capDice(base.count * line, base.die)
-  );
+  const mainFormula = fitTroopLineFormula(Math.max(target - riderAverage, 0), base.die);
 
   if (!rider || !riderFormula) {
     return `@Damage[${renderInstance(mainFormula, type)}|options:area-damage]`;

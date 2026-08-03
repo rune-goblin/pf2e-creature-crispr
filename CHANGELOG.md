@@ -3,6 +3,20 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1] — 2026-08-03
+
+### Changed
+
+- **Troop lines prefer an additional die over a die's worth of flat bonus.** `fitTroopLineFormula`
+  now fits the nearest whole-dice count to the line's target and keeps the flat modifier for the
+  sub-die remainder only (d4 lines still cap at 4 dice, the wight pattern). A level-4 sweep reads
+  `1d6 / 3d6 / 4d6` instead of `1d6 / 2d6+4 / 3d6+4`; the L3 lines stay distinct (`2d6+2` /
+  `3d6+2`) because the remainder bonus survives. This deliberately trades the published corpus
+  shape — Paizo's Hobgoblin Veteran Regiment carries its lines in the modifier (`2d8+9`) — for
+  dice-forward formulas at the same averages; the exemplar pins now hold averages and grammar
+  rather than Paizo's exact dice. Still one shaping system: generators, recommendations, curve
+  snap, and rescale all move together.
+
 ## [0.12.0] — 2026-08-03
 
 ### Changed

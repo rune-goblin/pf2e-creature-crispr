@@ -56,7 +56,10 @@ describe('buildTroopSweep — pinned published exemplars', () => {
     expect(out.description).toContain('@Check[reflex|dc:21|basic|options:area-effect]');
   });
 
-  it('Hobgoblin Veteran Regiment (L9, d8): reproduces the published lines, DC 25', () => {
+  // The published exemplar carries the lines in the flat modifier (1d8+2 / 2d8+9 / 3d8+11); this
+  // module prefers an additional die over a die's worth of bonus (2026-08-03 design decision), so
+  // the pin holds the averages and the grammar, not Paizo's exact shapes.
+  it('Hobgoblin Veteran Regiment (L9, d8): lands the published line averages, DC 25', () => {
     const out = buildTroopSweep(strike({ name: 'Longsword', damage: '1d8', damageType: 'slashing' }), 9);
     expectLineAverages(out.description, [6.5, 18, 24.5]);
     expect(out.description).toContain('@Check[reflex|dc:25|basic|options:area-effect]');
@@ -64,10 +67,10 @@ describe('buildTroopSweep — pinned published exemplars', () => {
       '<p><span class="action-glyph">1</span> @Damage[(1d8+2)[slashing]|options:area-damage] damage</p>'
     );
     expect(out.description).toContain(
-      '<p><span class="action-glyph">2</span> @Damage[(2d8+9)[slashing]|options:area-damage] damage</p>'
+      '<p><span class="action-glyph">2</span> @Damage[4d8[slashing]|options:area-damage] damage</p>'
     );
     expect(out.description).toContain(
-      '<p><span class="action-glyph">3</span> @Damage[(3d8+11)[slashing]|options:area-damage] damage</p>'
+      '<p><span class="action-glyph">3</span> @Damage[(5d8+2)[slashing]|options:area-damage] damage</p>'
     );
   });
 

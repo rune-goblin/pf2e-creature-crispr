@@ -869,13 +869,9 @@ export function scaleProportionally(sv: ScalableValue, level: number): string {
   const perDie = (components.die + 1) / 2;
 
   // Troop lines rescale in the generators' own shapes (fitTroopLineFormula — one system with the
-  // recommendation): sweep lines anchor to their dice count, salvos refit a whole-dice count.
+  // recommendation).
   if (sv.troopLine !== undefined) {
-    return fitTroopLineFormula(
-      targetAverage,
-      components.die,
-      sv.troopLine === 'salvo' ? Infinity : components.count
-    );
+    return fitTroopLineFormula(targetAverage, components.die);
   }
 
   // A clean NdM original (no flat modifier — area/spell-like damage, the way PF2e notates it) stays
@@ -1070,12 +1066,9 @@ export function getRecommendedTierFormulas(
     const t = getDamageTierAveragesForLevel(level, troopLineScale(sv));
     // Troop lines recommend exactly what the generators write (fitTroopLineFormula — one shaping
     // system), so a freshly built line is its own recommendation and Damage on curve is a no-op on
-    // an on-curve troop. Sweep lines anchor to the value's own dice count; salvos have no anchor.
-    const count = parseDiceComponents(sv.originalValue)?.count;
-    const lineFormula = (avg: number): string => {
-      if (sv.troopLine === undefined) return toFormula(avg);
-      return fitTroopLineFormula(avg, die, sv.troopLine === 'salvo' ? Infinity : count);
-    };
+    // an on-curve troop.
+    const lineFormula = (avg: number): string =>
+      sv.troopLine === undefined ? toFormula(avg) : fitTroopLineFormula(avg, die);
     return [
       { label: 'low', formula: lineFormula(t.low) },
       { label: 'moderate', formula: lineFormula(t.mod) },
