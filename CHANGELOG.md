@@ -19,12 +19,20 @@ Notable changes to **PF2E Creature CRISPR**. Format follows
   the line's target across the terms in the author's own proportions instead of redesigning the
   split, and no term is ever scored against the whole line's budget.
 
+- **Every troop line answers for itself.** A troop can sit on its 2-action target while its full
+  round drifts, so judging one anchor line per action traded one blind spot for the other. The
+  1-action line is the exception — reported, never judged: at 0.27 of a round its target is finer
+  than one die step, and 120 sweeps snapped exactly onto the curve still read it off-tier 21 times
+  where the full-round line never missed.
+
 ### Added
 
 - **`auditAbility(description, level)`** — every damage line totalled and placed on its ladder,
   every save DC classified, every unreadable element reported rather than dropped. A consumer
   auditing shipped content maps the verdicts onto its own vocabulary instead of deciding for itself
   which terms form a line and what it totals.
+- A test that the builder and the auditor agree: nothing *Damage on curve* produces reads as off
+  the curve, at any level or die face.
 
 ## [0.11.1] — 2026-08-03
 
