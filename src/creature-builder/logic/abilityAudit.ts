@@ -113,24 +113,27 @@ function laneRow(group: ScalableValue[], lane: DamageLane, level: number): Audit
 }
 
 /**
- * Mark the line an audit judges the action by.
+ * Mark the rows an audit judges the action by — one per troop line, not one per action.
  *
- * A sweep's ladder is defined off its full-round line (3-action = the high strike column), so that
- * is the reference; the part-round lines are derived from it and drift with it. A salvo is its own
- * whole line. An action with no troop lines at all is judged by its biggest number.
+ * Every line has its own corpus-calibrated target, and a troop can sit on one while drifting on
+ * another (a soft 2-action line under an on-target full round, or the reverse). Judging a single
+ * anchor line would trade one blind spot for the other, so each line answers for itself.
+ *
+ * Within a line the headline is the biggest number: the "or slashing" alternatives and a recurring
+ * rider are the same line written more than once, not separate offenders. An action with no troop
+ * lines is judged by its biggest number in each lane.
  */
 function markRepresentative(rows: AuditedDamage[]): void {
   const lines = rows.filter((r) => r.lane === 'damage' && r.troopLine !== undefined);
-  const anchor = lines.find((r) => r.troopLine === 3) ?? lines.find((r) => r.troopLine === 'salvo');
-  if (anchor) {
-    anchor.representative = true;
-    return;
-  }
   if (lines.length) {
-    lines.reduce((best, r) => (r.average > best.average ? r : best)).representative = true;
-    return;
+    for (const line of new Set(lines.map((r) => r.troopLine))) {
+      const group = lines.filter((r) => r.troopLine === line);
+      group.reduce((best, r) => (r.average > best.average ? r : best)).representative = true;
+    }
   }
   for (const lane of LANES) {
+    // Plain damage on a troop line is already answered for above.
+    if (lane === 'damage' && lines.length) continue;
     const group = rows.filter((r) => r.lane === lane);
     if (group.length) group.reduce((best, r) => (r.average > best.average ? r : best)).representative = true;
   }

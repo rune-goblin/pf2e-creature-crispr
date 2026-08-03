@@ -36,9 +36,9 @@ describe('auditing a written ability', () => {
     for (const line of lines) expect(line.verdict!.label, `line ${line.troopLine}`).toBe('high');
   });
 
-  it('anchors the verdict on the full-round line, not a part-round one', () => {
+  it('answers for every line, so drift on one cannot hide behind another', () => {
     const lines = damageLines(buildTroopSweep(strike(), 8).description, 8);
-    expect(lines.filter((l) => l.representative).map((l) => l.troopLine)).toEqual([3]);
+    expect(lines.filter((l) => l.representative).map((l) => l.troopLine)).toEqual([1, 2, 3]);
   });
 
   it('makes the salvo its own representative line', () => {
