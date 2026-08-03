@@ -116,8 +116,13 @@ function laneRow(group: ScalableValue[], lane: DamageLane, level: number): Audit
  * Mark the rows an audit judges the action by — one per troop line, not one per action.
  *
  * Every line has its own corpus-calibrated target, and a troop can sit on one while drifting on
- * another (a soft 2-action line under an on-target full round, or the reverse). Judging a single
- * anchor line would trade one blind spot for the other, so each line answers for itself.
+ * another (a soft 2-action line under an on-target full round, or the reverse), so judging a single
+ * anchor line would trade one blind spot for the other.
+ *
+ * The 1-action line is the exception: at 0.27 of a round its target is smaller than one die step
+ * for most die faces, so its tier reading is rounding noise rather than design. Snapping 120 sweeps
+ * exactly onto the curve and re-reading them, the 1-action line still lands off-tier 21 times, the
+ * 2-action twice, the full-round line never. It is reported, never judged.
  *
  * Within a line the headline is the biggest number: the "or slashing" alternatives and a recurring
  * rider are the same line written more than once, not separate offenders. An action with no troop
@@ -127,6 +132,7 @@ function markRepresentative(rows: AuditedDamage[]): void {
   const lines = rows.filter((r) => r.lane === 'damage' && r.troopLine !== undefined);
   if (lines.length) {
     for (const line of new Set(lines.map((r) => r.troopLine))) {
+      if (line === 1) continue;
       const group = lines.filter((r) => r.troopLine === line);
       group.reduce((best, r) => (r.average > best.average ? r : best)).representative = true;
     }

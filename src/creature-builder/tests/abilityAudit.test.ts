@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { auditAbility } from '@/creature-builder/logic/abilityAudit';
 import { buildTroopSweep, buildTroopVolley } from '@/creature-builder/logic/troopActions';
+import { customAbilityToSpecialAbility, snapTroopDamageToBenchmark } from '@/creature-builder/logic/customAbility';
+import { renderAbilityDescription } from '@/creature-builder/logic/abilityScaling';
 import { troopLineFactor } from '@/creature-builder/logic/troopBenchmarks';
 import { getStatRangesForLevel } from '@/creature-builder/logic/creatureStatTables';
 import type { CreatureStrike } from '@/creature-builder/logic/models';
@@ -38,7 +40,7 @@ describe('auditing a written ability', () => {
 
   it('answers for every line, so drift on one cannot hide behind another', () => {
     const lines = damageLines(buildTroopSweep(strike(), 8).description, 8);
-    expect(lines.filter((l) => l.representative).map((l) => l.troopLine)).toEqual([1, 2, 3]);
+    expect(lines.filter((l) => l.representative).map((l) => l.troopLine)).toEqual([2, 3]);
   });
 
   it('makes the salvo its own representative line', () => {
@@ -78,5 +80,32 @@ describe('auditing a written ability', () => {
     expect(checks[0].statistic).toBe('reflex');
     expect(checks[0].basic).toBe(true);
     expect(checks[0].verdict!.label).toBe('high');
+  });
+});
+
+// The builder and the auditor must agree, or Damage on curve leaves a troop still flagged.
+describe('what the builder puts on curve, the audit reads on curve', () => {
+  it('never flags a snapped sweep, at any level or die face', () => {
+    const flagged: string[] = [];
+    for (const die of [4, 6, 8, 10, 12]) {
+      for (let level = 1; level <= 24; level++) {
+        const ability = customAbilityToSpecialAbility(
+          buildTroopSweep(strike({ damage: `1d${die}` }), level),
+          level,
+          `sweep-${die}-${level}`
+        );
+        const snapped = snapTroopDamageToBenchmark(ability)!;
+        const rendered = renderAbilityDescription(snapped.descriptionTemplate!, snapped.scalableValues!, level);
+        for (const row of auditAbility(rendered, level).damage) {
+          if (!row.representative || row.troopLine === undefined) continue;
+          // One die is the floor: at L1 a d10/d12 troop overshoots a 4.3 target with nothing
+          // smaller to write, so the audit is reading a real overshoot, not rounding noise.
+          if (level === 1 && die >= 10) continue;
+          if (row.verdict!.label !== 'high' || row.verdict!.offScale)
+            flagged.push(`L${level} d${die} line ${row.troopLine}: ${row.formula} → ${row.verdict!.label}`);
+        }
+      }
+    }
+    expect(flagged).toEqual([]);
   });
 });
