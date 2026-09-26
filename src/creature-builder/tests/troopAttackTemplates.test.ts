@@ -244,7 +244,7 @@ describe('putting a drifted troop attack back on the curve', () => {
 });
 
 describe('secondary damage components', () => {
-  const withRider = () => buildTroopSweep(strike({ persistentDamage: '1d6', persistentDamageType: 'fire' }), 8);
+  const withRider = () => buildTroopSweep(strike({ extraDamage: [{ formula: '1d6', damageType: 'fire', category: 'persistent', baseLevel: 8 }] }), 8);
 
   it('does not benchmark a rider as if it were the whole line', () => {
     const { scalableValues } = parseAbilityDescription(withRider().description, 8);

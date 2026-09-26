@@ -8,6 +8,7 @@ import type {
   ScalableValue,
   SenseType,
   SpecialAbility,
+  StrikeDamagePart,
   TroopSize
 } from '../logic/models';
 import {
@@ -22,6 +23,20 @@ import {
   calculateCreatureStats,
   scalarToResistanceWeakness
 } from '../logic/creatureStatTables';
+import { resolveStrikeDamage, strikeDamageScalar, isDirectPart } from '../logic/strikeDamage';
+
+/** Each part at the formula it shows at `level`, re-authored there: an edit starts from what the user sees. */
+function pinnedParts(strike: CreatureStrike, level: number): StrikeDamagePart[] {
+  return resolveStrikeDamage(strike, level).parts.map(({ resolved, average: _average, ...part }) => ({
+    ...part,
+    formula: resolved,
+    baseLevel: level
+  }));
+}
+
+const directTotal = (parts: StrikeDamagePart[]): number =>
+  parts.filter(isDirectPart).reduce((sum, p) => sum + parseDiceFormulaAverage(p.formula), 0);
+import { parseDiceFormulaAverage } from '../logic/abilityScaling';
 import { MAX_SPELL_RANK } from '../logic/spellSlotTables';
 import type { TroopConversionOptions, TroopConversionRecipe } from '../logic/contracts';
 import { TROOP_TRAIT, TROOP_WEAKNESS_TYPES, applyTroopConversion, findTroopSpellcasting, rescaleCreatureIwr, setTroopSpellcastingVariant, stampTroopDefaults } from '../logic/troop';
@@ -361,25 +376,76 @@ class CreatureEditorStore {
   }
 
   updateStrikeDamageBenchmark(index: number, benchmark: number): void {
+    const strike = this.creature?.strikes[index];
+    if (!strike) return;
     // Same rule as ability tier-stepping: picking a tier discards the typed formula. Without this the
     // benchmark moves but customDamageFormula still outranks it, so the click does nothing visible.
-    this.updateStrike(index, { damageBenchmark: benchmark, customDamageFormula: undefined });
-  }
-
-  updateStrikePersistentType(index: number, type: string): void {
-    this.updateStrike(index, { persistentDamageType: type });
-  }
-
-  setStrikeCustomPersistentFormula(index: number, formula: string): void {
-    this.updateStrike(index, { customPersistentFormula: formula });
-  }
-
-  clearStrikePersistent(index: number): void {
     this.updateStrike(index, {
-      persistentBenchmark: undefined,
-      persistentDamage: undefined,
-      customPersistentFormula: undefined,
-      persistentDamageType: undefined
+      damageBenchmark: benchmark,
+      customDamageFormula: undefined,
+      // A strike with no main roll gains one from the table when a tier is picked.
+      ...(strike.damage === '' ? { damageBaseLevel: undefined } : {})
+    });
+  }
+
+  /** Author the main roll: the typed formula stays verbatim and the benchmark follows the new total. */
+  setStrikeMainDamage(index: number, formula: string): void {
+    const strike = this.creature?.strikes[index];
+    if (!this.creature || !strike) return;
+    const level = this.creature.level;
+    const extraDamage = pinnedParts(strike, level);
+    this.updateStrike(index, {
+      damage: formula,
+      damageBaseLevel: level,
+      customDamageFormula: undefined,
+      extraDamage,
+      damageBenchmark: strikeDamageScalar(parseDiceFormulaAverage(formula) + directTotal(extraDamage), level)
+    });
+  }
+
+  addStrikeDamagePart(index: number, part: Omit<StrikeDamagePart, 'baseLevel' | 'rollKey'>): void {
+    this.editStrikeDamageParts(index, (parts, level) => [...parts, { ...part, baseLevel: level }]);
+  }
+
+  /** A formula edit re-authors the part at the current level; type and category edits keep its origin. */
+  updateStrikeDamagePart(
+    index: number,
+    partIndex: number,
+    updates: Partial<Pick<StrikeDamagePart, 'formula' | 'damageType' | 'category'>>
+  ): void {
+    this.editStrikeDamageParts(index, (parts, level) =>
+      parts.map((part, i) => {
+        if (i !== partIndex) return part;
+        const next: StrikeDamagePart = { ...part, ...updates, ...(updates.formula !== undefined ? { baseLevel: level } : {}) };
+        if (!next.category) delete next.category;
+        return next;
+      })
+    );
+  }
+
+  removeStrikeDamagePart(index: number, partIndex: number): void {
+    this.editStrikeDamageParts(index, (parts) => parts.filter((_, i) => i !== partIndex));
+  }
+
+  /**
+   * Parts change the strike's total, not its main roll: every roll is pinned at what it shows now and
+   * the benchmark re-derives from the new total, so adding a fire rider never shrinks the claw.
+   */
+  private editStrikeDamageParts(
+    index: number,
+    edit: (parts: StrikeDamagePart[], level: number) => StrikeDamagePart[]
+  ): void {
+    const strike = this.creature?.strikes[index];
+    if (!this.creature || !strike) return;
+    const level = this.creature.level;
+    const main = resolveStrikeDamage(strike, level);
+    const extraDamage = edit(pinnedParts(strike, level), level);
+    this.updateStrike(index, {
+      extraDamage,
+      damage: main.main,
+      damageBaseLevel: level,
+      customDamageFormula: undefined,
+      damageBenchmark: strikeDamageScalar(main.mainAverage + directTotal(extraDamage), level)
     });
   }
 

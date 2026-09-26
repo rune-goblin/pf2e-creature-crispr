@@ -12,10 +12,23 @@ export interface CreatureActorData extends StoredCreatureData {
 export interface ItemBenchmarkData {
   attackBenchmark?: number;
   damageBenchmark?: number;
+  /** 2: `damageBenchmark` judges main + direct extra rolls, extrapolated past the table. Legacy flags
+   *  judged one roll, clamped to 0–1, so the reader re-derives their benchmark from the item. */
+  damageVersion?: 2;
+  /** Every roll's formula as last authored, so level round trips don't compound rounding. */
+  damageOrigin?: StrikeDamageOrigin;
+  customDamageFormula?: string;
+  /** Legacy fields: mirror the first persistent roll for consumers (ReignMaker) that still read them. */
   persistentBenchmark?: number;
   persistentDamageType?: string;
-  customDamageFormula?: string;
   customPersistentFormula?: string;
+}
+
+export interface StrikeDamageOrigin {
+  main: string;
+  mainLevel?: number;
+  mainRollKey?: string;
+  parts: Record<string, { formula: string; level: number }>;
 }
 
 /** Per-entry benchmark data stored on spellcasting-entry items. `primary` marks the single entry

@@ -2,7 +2,8 @@ import type { CreatureBenchmarks, CreatureStats, CreatureStrike, DamageModifier,
 import { SPELL_BENCHMARK_VALUES } from './models';
 import type { EditableCreature } from './editableCreature';
 import type { CustomAbilityDefinition, TroopConversionOptions, TroopConversionRecipe } from './contracts';
-import { calculateEffectiveDamage, calculateTroopThresholds, getTroopWeaknessValues, parseDiceFormulaAverage, scaleResistanceWeakness, selectSaveStats } from './creatureStatTables';
+import { calculateTroopThresholds, getTroopWeaknessValues, scaleResistanceWeakness, selectSaveStats } from './creatureStatTables';
+import { resolveStrikeDamage } from './strikeDamage';
 import { customAbilityToSpecialAbility, mergeSpecialAbilitiesByName } from './customAbility';
 import { TROOP_ACTION_GROUP, buildTroopSweep, buildTroopVolley } from './troopActions';
 
@@ -249,14 +250,10 @@ function troopKitAbilities(formUp: boolean, level: number): SpecialAbility[] {
   return defs.map((def) => customAbilityToSpecialAbility(def, level, def.slug));
 }
 
-function strikeEffectiveAverage(strike: CreatureStrike): number {
-  const direct = parseDiceFormulaAverage(strike.customDamageFormula ?? strike.damage ?? '');
-  return calculateEffectiveDamage(direct, strike.customPersistentFormula ?? strike.persistentDamage);
-}
-
-function bestStrike(strikes: CreatureStrike[]): CreatureStrike | undefined {
+function bestStrike(strikes: CreatureStrike[], level: number): CreatureStrike | undefined {
+  const effective = (s: CreatureStrike) => resolveStrikeDamage(s, level).effectiveAverage;
   return strikes.reduce<CreatureStrike | undefined>(
-    (best, s) => (!best || strikeEffectiveAverage(s) > strikeEffectiveAverage(best) ? s : best),
+    (best, s) => (!best || effective(s) > effective(best) ? s : best),
     undefined
   );
 }
@@ -308,8 +305,8 @@ export function applyTroopConversion(
   if (suffix && !creature.name.endsWith(suffix)) creature.name = `${creature.name}${suffix}`;
 
   const generated: SpecialAbility[] = [];
-  const melee = bestStrike(creature.strikes.filter((s) => !s.isRanged));
-  const ranged = bestStrike(creature.strikes.filter((s) => s.isRanged));
+  const melee = bestStrike(creature.strikes.filter((s) => !s.isRanged), creature.level);
+  const ranged = bestStrike(creature.strikes.filter((s) => s.isRanged), creature.level);
   if (melee) {
     const def = buildTroopSweep(melee, creature.level, { name: opts.sweepName });
     generated.push(customAbilityToSpecialAbility(def, creature.level, def.slug));

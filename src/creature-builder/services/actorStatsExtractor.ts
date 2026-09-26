@@ -14,7 +14,7 @@ import type { CreatureStats, CreatureBenchmarks } from '../logic/models';
 import { getDefaultBenchmarks } from '../logic/models';
 import { analyzeStatsForBenchmarks } from '../logic/creatureStatTables';
 import { extractSpellcastingStats, extractSpellcastingProgression } from './spells';
-import { parseDiceFormulaAverage } from '../logic/abilityScaling';
+import { readDamageRolls, type DamageRollSource } from '../logic/strikeDamage';
 
 /** The 12 base stats. Perception reads both the newer `system.perception.value` and the older `system.attributes.perception.value` shape. */
 function extractStatsFromActor(actor: NPCPF2e): Pick<CreatureStats,
@@ -48,18 +48,16 @@ function extractSkillsFromActor(actor: NPCPF2e): Record<string, number> {
   return skills;
 }
 
-/** First non-persistent melee strike's attack bonus and damage; defaults when the actor has none. */
+/** The first melee strike's attack bonus, main roll, and direct damage (main + direct extra rolls). */
 function extractPrimaryStrike(actor: NPCPF2e): Pick<CreatureStats, 'strikeAttackBonus' | 'strikeDamage' | 'strikeDamageAverage'> {
   const melee = (actor.items?.contents ?? []).find((i): i is MeleePF2e<NPCPF2e> => i.type === 'melee');
   if (!melee) return { strikeAttackBonus: 0, strikeDamage: '1d4', strikeDamageAverage: 2.5 };
 
   const strikeAttackBonus = melee.system?.bonus?.value ?? 0;
-  for (const roll of Object.values(melee.system?.damageRolls ?? {})) {
-    if (roll.category !== 'persistent' && roll.damage) {
-      return { strikeAttackBonus, strikeDamage: roll.damage, strikeDamageAverage: parseDiceFormulaAverage(roll.damage) };
-    }
-  }
-  return { strikeAttackBonus, strikeDamage: '1d4', strikeDamageAverage: 2.5 };
+  const level = actor.system?.details?.level?.value ?? 1;
+  const read = readDamageRolls((melee.system?.damageRolls ?? {}) as Record<string, DamageRollSource>, level);
+  if (!read.damage) return { strikeAttackBonus, strikeDamage: '1d4', strikeDamageAverage: 2.5 };
+  return { strikeAttackBonus, strikeDamage: read.damage, strikeDamageAverage: read.directAverage };
 }
 
 /**

@@ -7,15 +7,20 @@
 
 import type { NPCPF2e, MeleePF2e } from 'foundry-pf2e';
 import type { CreatureStrike, SpecialAbility, ScalableValue, DamageModifier, Immunity, CreatureSpeeds, CreatureSense, SenseType, SenseAcuity } from '../logic/models';
-import { createDefaultStrike, BENCHMARK_VALUES_3 } from '../logic/models';
+import { createDefaultStrike } from '../logic/models';
 import { getStatRangesForLevel, statToScalar4 } from '../logic/creatureStatTables';
+import {
+  readDamageRolls,
+  strikeDamageScalar,
+  composeDamageRolls,
+  damageRollsEqual,
+  type DamageRollSource
+} from '../logic/strikeDamage';
 import { TROOP_TRAIT } from '../logic/troop';
 import { logger } from './logger';
 import {
   parseAbilityDescription,
   backfillTroopLines,
-  damageToBenchmark,
-  parseDiceFormulaAverage,
   readFastHealingRule,
   healingToBenchmark
 } from '../logic/abilityScaling';
@@ -26,7 +31,7 @@ import {
   ITEM_BENCHMARK_KEY,
   ABILITY_BENCHMARK_KEY
 } from './constants';
-import type { ItemBenchmarkData, AbilityBenchmarkData, CreatureActorData } from './types';
+import type { ItemBenchmarkData, AbilityBenchmarkData, CreatureActorData, StrikeDamageOrigin } from './types';
 
 /** World NPCs that aren't already CRISPR members — the import-an-existing-actor candidates. */
 export function getAvailableNPCActors(): Array<{ id: string; name: string; level: number }> {
@@ -262,82 +267,61 @@ function isRangedStrike(system: MeleeItemView['system']): boolean {
   );
 }
 
-/** Convert one PF2e melee item into our CreatureStrike model, preferring stored benchmark data
- *  and falling back to reverse-deriving benchmarks from the item's actual values at `level`. */
-export function meleeItemToStrike(
-  item: MeleeItemView,
-  level: number,
-  opts: { recoverUnflaggedPersistent?: boolean } = {}
-): CreatureStrike {
+/** Convert one PF2e melee item into our CreatureStrike model. Every damage roll loads: the largest
+ *  direct roll is the main, the rest become `extraDamage`. The stored benchmark and authored origin
+ *  win only while they still reproduce the item's rolls — an edit on the PF2e sheet takes precedence. */
+export function meleeItemToStrike(item: MeleeItemView, level: number): CreatureStrike {
   const ranges = getStatRangesForLevel(level);
   const benchmarks: ItemBenchmarkData = (item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) as ItemBenchmarkData) || {};
-  const damageRolls = item.system?.damageRolls ?? {};
-
-  // Extract damage info from the item
-  let damageType = 'slashing';
-  let damage = '1d4';
-  let persistentDamageType = '';
-  let persistentDamageFormula = '';
-
-  const rollEntries = Object.values(damageRolls);
-  for (const rollEntry of rollEntries) {
-    if (rollEntry.category === 'persistent') {
-      persistentDamageType = rollEntry.damageType || 'untyped';
-      if (rollEntry.damage) persistentDamageFormula = rollEntry.damage;
-    } else {
-      if (rollEntry.damage) {
-        damage = rollEntry.damage;
-      }
-      if (rollEntry.damageType) {
-        damageType = rollEntry.damageType;
-      }
-    }
-  }
-
-  // Get attack bonus from the item
+  const rolls: Record<string, DamageRollSource> = item.system?.damageRolls ?? {};
+  const read = readDamageRolls(rolls, level);
   const attackBonus = item.system?.bonus?.value ?? 0;
 
-  // No flag (e.g. army NPC strikes) → reverse-engineer the benchmark from the
-  // item's actual attack/damage so a save preserves it instead of resetting.
   const strike: CreatureStrike = {
-    id: item.id ?? undefined,  // Include item ID for updates
+    id: item.id ?? undefined,
     name: item.name || 'Strike',
     attackBenchmark: benchmarks.attackBenchmark ?? statToScalar4(attackBonus, ranges.strikeAttack),
-    damageBenchmark: benchmarks.damageBenchmark ?? damageToBenchmark(parseDiceFormulaAverage(damage), level),
+    damageBenchmark: strikeDamageScalar(read.directAverage, level),
     attackBonus,
-    damage,
-    damageType,
+    damage: read.damage,
+    damageBaseLevel: level,
+    ...(read.mainRollKey ? { mainRollKey: read.mainRollKey } : {}),
+    damageType: read.damageType,
+    extraDamage: read.extraDamage,
     isRanged: isRangedStrike(item.system),
     range: item.system?.range?.increment ?? item.system?.range?.max ?? undefined,
     traits: item.system?.traits?.value || []
   };
 
-  // Add persistent damage info if present. The formula (customPersistentFormula) is the source
-  // of truth; legacy creatures stored only a persistent scalar, so recover the formula from the
-  // saved roll to keep persistent damage from being dropped on the next re-save.
-  if (benchmarks.customPersistentFormula) {
-    strike.customPersistentFormula = benchmarks.customPersistentFormula;
-    strike.persistentDamageType = benchmarks.persistentDamageType || persistentDamageType;
-  } else if (benchmarks.persistentBenchmark !== undefined && persistentDamageFormula) {
-    strike.customPersistentFormula = persistentDamageFormula;
-    strike.persistentDamageType = benchmarks.persistentDamageType || persistentDamageType;
-  } else if (opts.recoverUnflaggedPersistent && persistentDamageFormula) {
-    // Foreign item (a drop) with no CRISPR flags: keep the persistent rider rather than dropping
-    // it. The benchmark is only the "rider enabled" flag — the formula is the source of truth.
-    strike.customPersistentFormula = persistentDamageFormula;
-    strike.persistentDamageType = persistentDamageType;
-    strike.persistentBenchmark = BENCHMARK_VALUES_3.moderate;
-  }
-  if (benchmarks.persistentBenchmark !== undefined) {
-    strike.persistentBenchmark = benchmarks.persistentBenchmark;
-  }
+  // Legacy flags benchmarked a single roll, clamped to 0–1; only a v2 flag's benchmark carries over.
+  if (benchmarks.damageVersion !== 2 || benchmarks.damageBenchmark === undefined) return strike;
 
-  // Add custom damage formula if present
-  if (benchmarks.customDamageFormula) {
-    strike.customDamageFormula = benchmarks.customDamageFormula;
-  }
+  const stored: CreatureStrike = { ...strike, damageBenchmark: benchmarks.damageBenchmark };
+  if (benchmarks.customDamageFormula) stored.customDamageFormula = benchmarks.customDamageFormula;
+  const authored = withDamageOrigin(stored, benchmarks.damageOrigin);
+  if (authored && reproducesRolls(authored, level, rolls)) return authored;
+  return reproducesRolls(stored, level, rolls) ? stored : strike;
+}
 
-  return strike;
+/** `strike` with its formulas as last authored, or undefined when the origin no longer names its rolls. */
+function withDamageOrigin(strike: CreatureStrike, origin: StrikeDamageOrigin | undefined): CreatureStrike | undefined {
+  if (!origin || origin.mainRollKey !== strike.mainRollKey) return undefined;
+  const parts = strike.extraDamage ?? [];
+  if (!parts.every((part) => part.rollKey && origin.parts[part.rollKey])) return undefined;
+  return {
+    ...strike,
+    damage: origin.main,
+    ...(origin.mainLevel !== undefined ? { damageBaseLevel: origin.mainLevel } : {}),
+    extraDamage: parts.map((part) => {
+      const { formula, level } = origin.parts[part.rollKey!];
+      return { ...part, formula, baseLevel: level };
+    })
+  };
+}
+
+function reproducesRolls(strike: CreatureStrike, level: number, rolls: Record<string, DamageRollSource>): boolean {
+  const probe = { ...strike, extraDamage: strike.extraDamage?.map((part) => ({ ...part })) };
+  return damageRollsEqual(composeDamageRolls(probe, level, rolls), rolls);
 }
 
 /**

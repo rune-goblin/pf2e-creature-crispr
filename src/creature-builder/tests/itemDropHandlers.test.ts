@@ -73,9 +73,9 @@ describe('built-in drop handlers', () => {
     expect(entity.strike.id).toBeUndefined();
     expect(entity.strike.name).toBe('Dropped Thing');
     expect(entity.strike.damage).toBe('1d8+4');
-    // The drop path keeps an unflagged persistent rider.
-    expect(entity.strike.customPersistentFormula).toBe('1d4');
-    expect(entity.strike.persistentDamageType).toBe('fire');
+    expect(entity.strike.extraDamage).toEqual([
+      { formula: '1d4', damageType: 'fire', category: 'persistent', baseLevel: 3, rollKey: 'r1' }
+    ]);
   });
 
   it('back-solves benchmarks at the source actor level, not the target level', async () => {

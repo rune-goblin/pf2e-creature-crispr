@@ -2,7 +2,20 @@
   "pf2e-creature-crispr": {
     "title": "PF2E Creature CRISPR",
     "offense": {
-      "troopEmpty": "No strikes. Troops deal damage through their actions — add a strike only if this troop also makes weapon Strikes."
+      "troopEmpty": "No strikes. Troops deal damage through their actions — add a strike only if this troop also makes weapon Strikes.",
+      "addDamage": "Add damage",
+      "removeDamage": "Remove damage",
+      "damageFormula": "Damage formula",
+      "damageType": "Damage type",
+      "damageCategory": "Damage category",
+      "noMainRoll": "—",
+      "category": {
+        "direct": "Direct",
+        "persistent": "Persistent",
+        "splash": "Splash",
+        "precision": "Precision"
+      },
+      "total": "Total"
     },
     "troop": {
       "notNpc": "Cannot apply the troop template to a \"{type}\" actor — troops must be NPCs.",

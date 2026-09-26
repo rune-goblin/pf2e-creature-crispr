@@ -77,11 +77,11 @@ interface RiderComponent {
 }
 
 function riderComponent(strike: CreatureStrike): RiderComponent | undefined {
-  const formula = strike.customPersistentFormula ?? strike.persistentDamage;
-  if (!formula) return undefined;
+  const rider = strike.extraDamage?.find((part) => part.category === 'persistent');
+  if (!rider) return undefined;
   return {
-    die: parseDiceComponents(formula)?.die ?? DEFAULT_DIE,
-    type: strike.persistentDamageType ?? strike.damageType
+    die: parseDiceComponents(rider.formula)?.die ?? DEFAULT_DIE,
+    type: rider.damageType || strike.damageType
   };
 }
 

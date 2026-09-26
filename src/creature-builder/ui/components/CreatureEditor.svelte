@@ -397,8 +397,10 @@
           onUpdateStrike={(d) => editorStore.updateStrike(d.index, d.updates)}
           onUpdateStrikeAttackBenchmark={(d) => editorStore.updateStrikeAttackBenchmark(d.index, d.benchmark)}
           onUpdateStrikeDamageBenchmark={(d) => editorStore.updateStrikeDamageBenchmark(d.index, d.benchmark)}
-          onUpdateStrikePersistentType={(d) => editorStore.updateStrikePersistentType(d.index, d.type)}
-          onClearStrikePersistent={(i) => editorStore.clearStrikePersistent(i)}
+          onSetStrikeMainDamage={(d) => editorStore.setStrikeMainDamage(d.index, d.formula)}
+          onAddStrikeDamagePart={(d) => editorStore.addStrikeDamagePart(d.index, d.part)}
+          onUpdateStrikeDamagePart={(d) => editorStore.updateStrikeDamagePart(d.index, d.partIndex, d.updates)}
+          onRemoveStrikeDamagePart={(d) => editorStore.removeStrikeDamagePart(d.index, d.partIndex)}
         />
 
         <SpellcastingSection

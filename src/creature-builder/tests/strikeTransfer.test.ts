@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { meleeItemToStrike, type MeleeItemView } from '@/creature-builder/services/actorQueries';
 import { getStatRangesForLevel, statToScalar4 } from '@/creature-builder/logic/creatureStatTables';
 import { damageToBenchmark, parseDiceFormulaAverage } from '@/creature-builder/logic/abilityScaling';
-import { BENCHMARK_VALUES_3 } from '@/creature-builder/logic/models';
+import { strikeDamageScalar } from '@/creature-builder/logic/strikeDamage';
 import type { ItemBenchmarkData } from '@/creature-builder/services/types';
 
 // Stand-in for a PF2e melee item (embedded or built from a dropped payload by Item.fromDropData),
@@ -21,19 +21,44 @@ function meleeItem(
 }
 
 describe('meleeItemToStrike', () => {
-  it('honours stored benchmark flags over derivation', () => {
+  it('honours a v2 benchmark flag that still reproduces the item', () => {
+    const level = 5;
+    const main = getStatRangesForLevel(level).strikeDamage.high.formula;
+    const strike = meleeItemToStrike(
+      meleeItem(
+        { bonus: { value: 10 }, damageRolls: { r0: { damage: main, damageType: 'piercing' } } },
+        { benchmarks: { attackBenchmark: 0.75, damageBenchmark: 2 / 3, damageVersion: 2 } }
+      ),
+      level
+    );
+    expect(strike.attackBenchmark).toBe(0.75);
+    expect(strike.damageBenchmark).toBe(2 / 3);
+    expect(strike.id).toBe('m1');
+    expect(strike.attackBonus).toBe(10);
+  });
+
+  it('re-derives the damage benchmark when the item was edited on the PF2e sheet', () => {
     const strike = meleeItemToStrike(
       meleeItem(
         { bonus: { value: 10 }, damageRolls: { r0: { damage: '2d8+4', damageType: 'piercing' } } },
-        { benchmarks: { attackBenchmark: 0.75, damageBenchmark: 0.5, customDamageFormula: '3d6+2' } }
+        { benchmarks: { attackBenchmark: 0.75, damageBenchmark: 1, damageVersion: 2, customDamageFormula: '3d6+2' } }
       ),
       5
     );
-    expect(strike.attackBenchmark).toBe(0.75);
-    expect(strike.damageBenchmark).toBe(0.5);
-    expect(strike.customDamageFormula).toBe('3d6+2');
-    expect(strike.id).toBe('m1');
-    expect(strike.attackBonus).toBe(10);
+    expect(strike.damageBenchmark).toBe(strikeDamageScalar(13, 5));
+    expect(strike.customDamageFormula).toBeUndefined();
+    expect(strike.damage).toBe('2d8+4');
+  });
+
+  it('ignores a legacy single-roll damage benchmark', () => {
+    const strike = meleeItemToStrike(
+      meleeItem(
+        { bonus: { value: 12 }, damageRolls: { r0: { damage: '2d6+5', damageType: 'piercing' }, r1: { damage: '2d6', damageType: 'fire' } } },
+        { benchmarks: { attackBenchmark: 0.5, damageBenchmark: 0.5 } }
+      ),
+      4
+    );
+    expect(strike.damageBenchmark).toBe(strikeDamageScalar(19, 4));
   });
 
   it('reverse-derives benchmarks from the item values when unflagged', () => {
@@ -49,7 +74,7 @@ describe('meleeItemToStrike', () => {
     expect(strike.damageType).toBe('slashing');
   });
 
-  it('takes damage from the non-persistent roll and drops an unflagged persistent rider by default', () => {
+  it('loads an unflagged persistent rider as an extra part', () => {
     const strike = meleeItemToStrike(
       meleeItem({
         bonus: { value: 12 },
@@ -62,28 +87,12 @@ describe('meleeItemToStrike', () => {
     );
     expect(strike.damage).toBe('2d6+5');
     expect(strike.damageType).toBe('piercing');
-    expect(strike.customPersistentFormula).toBeUndefined();
-    expect(strike.persistentBenchmark).toBeUndefined();
+    expect(strike.extraDamage).toEqual([
+      { formula: '1d6', damageType: 'poison', category: 'persistent', baseLevel: 4, rollKey: 'r1' }
+    ]);
   });
 
-  it('recovers an unflagged persistent rider when asked (drop path)', () => {
-    const strike = meleeItemToStrike(
-      meleeItem({
-        bonus: { value: 12 },
-        damageRolls: {
-          r0: { damage: '2d6+5', damageType: 'piercing' },
-          r1: { damage: '1d6', damageType: 'poison', category: 'persistent' }
-        }
-      }),
-      4,
-      { recoverUnflaggedPersistent: true }
-    );
-    expect(strike.customPersistentFormula).toBe('1d6');
-    expect(strike.persistentDamageType).toBe('poison');
-    expect(strike.persistentBenchmark).toBe(BENCHMARK_VALUES_3.moderate);
-  });
-
-  it('recovers a legacy scalar-only persistent flag from the saved roll', () => {
+  it("reads the persistent rider from the item, not a stale legacy flag", () => {
     const strike = meleeItemToStrike(
       meleeItem(
         {
@@ -93,25 +102,11 @@ describe('meleeItemToStrike', () => {
             r1: { damage: '2d4', damageType: 'fire', category: 'persistent' }
           }
         },
-        { benchmarks: { attackBenchmark: 0.5, damageBenchmark: 0.5, persistentBenchmark: 0.5 } }
-      ),
-      4
-    );
-    expect(strike.customPersistentFormula).toBe('2d4');
-    expect(strike.persistentDamageType).toBe('fire');
-    expect(strike.persistentBenchmark).toBe(0.5);
-  });
-
-  it('prefers the flagged persistent formula and type when stored', () => {
-    const strike = meleeItemToStrike(
-      meleeItem(
-        { bonus: { value: 12 }, damageRolls: { r0: { damage: '2d6+5', damageType: 'piercing' } } },
         { benchmarks: { attackBenchmark: 0.5, damageBenchmark: 0.5, persistentBenchmark: 0.5, customPersistentFormula: '3d4', persistentDamageType: 'acid' } }
       ),
       4
     );
-    expect(strike.customPersistentFormula).toBe('3d4');
-    expect(strike.persistentDamageType).toBe('acid');
+    expect(strike.extraDamage?.[0]).toMatchObject({ formula: '2d4', damageType: 'fire', category: 'persistent' });
   });
 
   it('copies traits; defaults name and damage when absent', () => {
@@ -125,7 +120,8 @@ describe('meleeItemToStrike', () => {
     expect(bare.isRanged).toBe(false);
     expect(bare.name).toBe('Strike');
     expect(bare.id).toBeUndefined();
-    expect(bare.damage).toBe('1d4');
+    expect(bare.damage).toBe('');
+    expect(bare.extraDamage).toEqual([]);
     expect(bare.damageType).toBe('slashing');
     expect(bare.attackBonus).toBe(0);
   });

@@ -23,6 +23,7 @@ import {
    type SpellFont
 } from '@/creature-builder/logic/models';
 import type { CreatureStrike, EditableCreature } from './types';
+import { resolveStrikeDamage, type ResolvedStrikePart } from '@/creature-builder/logic/strikeDamage';
 
 // ============================================================================
 // Constants
@@ -133,42 +134,32 @@ export function buildDiceFormula(count: number, size: DiceSize, bonus: number): 
 
 export interface ComputedStrikeStats {
    attackBonus: number;
-   damage: string;
-   damageAverage: number;
-   persistentDamage?: string;
-   persistentAverage?: number;
-   combinedDamageAverage: number;  // Direct + persistent (flat sum for benchmark comparison)
-   effectiveDamageAverage: number; // Direct + persistent * expected rounds
+   damage: string;                  // Main roll at this level ('' = no direct main roll)
+   mainAverage: number;
+   parts: ResolvedStrikePart[];     // Every other roll at this level, in item order
+   damageAverage: number;           // Main + direct parts: what the damage tier judges
+   persistentDamage: string[];      // Persistent parts' formulas at this level
+   persistentAverage: number;
+   combinedDamageAverage: number;   // Direct + persistent (flat sum for benchmark comparison)
+   effectiveDamageAverage: number;  // Direct + persistent * expected rounds
 }
 
-/**
- * Compute stats for a strike based on benchmarks
- */
 export function computeStrikeStats(
    level: number,
    strike: CreatureStrike
 ): ComputedStrikeStats {
-   // Compute values from benchmarks, including persistent damage
-   const computed = calculateStrikeStats(
-      level,
-      strike.attackBenchmark,
-      strike.damageBenchmark,
-      strike.customDamageFormula,
-      strike.persistentBenchmark,
-      strike.customPersistentFormula
-   );
-
-   // Combined damage: direct + persistent (flat sum, for benchmark comparison)
-   const combinedDamageAverage = computed.damageAverage + (computed.persistentAverage ?? 0);
-
+   const { attackBonus } = calculateStrikeStats(level, strike.attackBenchmark, strike.damageBenchmark);
+   const resolved = resolveStrikeDamage(strike, level);
    return {
-      attackBonus: computed.attackBonus,
-      damage: computed.damage,
-      damageAverage: computed.damageAverage,
-      persistentDamage: computed.persistentDamage,
-      persistentAverage: computed.persistentAverage,
-      combinedDamageAverage,
-      effectiveDamageAverage: computed.effectiveDamageAverage
+      attackBonus,
+      damage: resolved.main,
+      mainAverage: resolved.mainAverage,
+      parts: resolved.parts,
+      damageAverage: resolved.directAverage,
+      persistentDamage: resolved.parts.filter((p) => p.category === 'persistent').map((p) => p.resolved),
+      persistentAverage: resolved.persistentAverage,
+      combinedDamageAverage: resolved.directAverage + resolved.persistentAverage,
+      effectiveDamageAverage: resolved.effectiveAverage
    };
 }
 
@@ -191,15 +182,6 @@ export function formatDamageAverageDisplay(
 // ============================================================================
 // Persistent Damage Functions
 // ============================================================================
-
-/**
- * Persistent rider "enabled" sentinel. The rider's actual dice live in `customPersistentFormula`
- * (the source of truth); `persistentBenchmark` only records that the rider is on, so any defined
- * scalar works. Kept at moderate for historical continuity with the persisted item flag.
- */
-export const PERSISTENT_BENCHMARK_VALUES = {
-   moderate: 0.5
-} as const;
 
 /**
  * Seed a starting persistent-damage formula when the rider is first enabled. PF2e has no
@@ -282,20 +264,21 @@ function damageToTierUnit(value: number, tiers: [number, number, number, number]
  * range, so when a value falls outside low→extreme the whole graph rescales to show it — keeping
  * ticks at the four tier breakpoints. In-range, the tiers sit at the usual even thirds.
  * Informational only; the engine never trims to it. `persistentFormula` is the rider's dice/flat
- * formula ("" = no rider).
+ * formula ("" = no rider), or one per persistent roll.
  */
 export function getStrikeEffectiveDamageBar(
    level: number,
    directAverage: number,
-   persistentFormula = ''
+   persistentFormula: string | string[] = ''
 ): BenchmarkBarRow {
    const sd = getStatRangesForLevel(level).strikeDamage;
    const tiers: [number, number, number, number] = [
       sd.low.average, sd.moderate.average, sd.high.average, sd.extreme.average
    ];
 
-   const persistentAverage = parseDiceFormulaAverage(persistentFormula);
-   const persistentMax = parseDiceFormulaMax(persistentFormula);
+   const riders = typeof persistentFormula === 'string' ? [persistentFormula] : persistentFormula;
+   const persistentAverage = riders.reduce((sum, f) => sum + parseDiceFormulaAverage(f), 0);
+   const persistentMax = riders.reduce((sum, f) => sum + parseDiceFormulaMax(f), 0);
 
    const baseUnit = damageToTierUnit(directAverage, tiers);
    const midUnit = damageToTierUnit(directAverage + persistentAverage, tiers);

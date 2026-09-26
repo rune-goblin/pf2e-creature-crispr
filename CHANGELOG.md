@@ -3,6 +3,43 @@
 Notable changes to **PF2E Creature CRISPR**. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Strikes keep every damage roll.** The editor modelled one direct roll plus one persistent rider,
+  so a strike like Marrmora's Claw (`3d6+14 slashing + 3d6 fire + 1d6 persistent fire`) loaded as a
+  bare `3d6+14` typed **fire**, and a level-change save wrote fire onto the slashing roll: the reader
+  took the *last* direct roll as primary, the writer the *first*. Across the PF2e bestiary 1,822 of
+  12,743 strikes carry two or more direct rolls and 180 a splash or precision roll. The main roll is
+  now the largest direct roll; every other roll loads as an editable extra part (formula, type,
+  category) and saves back by key.
+- **Out-of-band damage loads as written.** The damage scalar clamped to Low..Extreme, so Marrmora's
+  Flame Jet (`6d6`, below Low at level 15) displayed and saved as the Low formula `3d6+14`. The
+  scalar now extends past the table as a ratio to Low or Extreme (2,475 published strikes sit below
+  Low), and an unedited strike shows its own formula.
+- Legacy imports stamped a persistent formula without its "enabled" flag, so the rider loaded
+  switched off. The rider now loads from the item's roll.
+
+### Changed
+
+- **The damage benchmark judges the whole strike.** It measures the main roll plus direct extra
+  rolls, the way the GMG does. Persistent, splash, and precision rolls ride outside it.
+- **The tier drives every direct roll.** Each direct roll keeps its authored share of the strike's
+  total, so a level change or a tier click resizes the whole strike in the author's proportions:
+  Marrmora's Claw at level 8 reads `2d6+7 slashing + 2d6 fire`. Rolls keep their shape — dice count
+  and bonus scale together, a d12 stays a d12 — and the main roll absorbs the riders' rounding so the
+  total lands on the tier. Splash and precision move by the same factor.
+- **Persistent riders scale on the persistent-damage table**, holding their Low/Moderate/High
+  position across levels, independent of the strike tier. The item flag records each roll as
+  authored, so a round trip through another level returns the published formulas.
+- A save writes `system.damageRolls` only when the rolls change; a no-edit save of an off-table
+  strike leaves it untouched. Rolls and the benchmark flag are written with v14's
+  `ForcedReplacement`, so a removed part or a cleared custom formula no longer survives the merge.
+- `CreatureStrike.persistentDamage`, `customPersistentFormula`, `persistentDamageType`, and
+  `persistentBenchmark` are deprecated in favour of `extraDamage`. The item flag still mirrors the
+  first persistent roll into its legacy fields for ReignMaker.
+
 ## [0.12.1] — 2026-08-03
 
 ### Changed

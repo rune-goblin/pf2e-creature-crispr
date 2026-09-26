@@ -5,23 +5,29 @@
    import DeleteBaseboard from '../widgets/DeleteBaseboard.svelte';
    import EffectiveDamageBar from '../widgets/EffectiveDamageBar.svelte';
    import { getDamageTypeGroups } from '@/creature-builder/ui/vocab';
-   import { damageToBenchmark } from '@/creature-builder/logic/abilityScaling';
-   import { getStatRangesForLevel, statToScalar4, getStrikeDamageForScalar } from '@/creature-builder/logic/creatureStatTables';
+   import { formatDiceFormula, parseDiceFormulaAverage } from '@/creature-builder/logic/abilityScaling';
+   import { getStatRangesForLevel, statToScalar4 } from '@/creature-builder/logic/creatureStatTables';
+   import { resolveStrikeDamage, strikeDamageScalar, isDirectPart } from '@/creature-builder/logic/strikeDamage';
+   import type { StrikeDamageCategory, StrikeDamagePart } from '@/creature-builder/logic/models';
    import {
       DICE_SIZES,
       parseDiceFormula,
       calculateAverageDamage,
       computeStrikeStats,
       formatDamageAverageDisplay,
-      suggestPersistentFormula,
       getStrikeEffectiveDamageBar,
-      PERSISTENT_BENCHMARK_VALUES,
       type DiceSize
    } from '@/creature-builder/editor/creatureEditorUtils';
 
-   // Primary attack excludes bleed (persistent-only); the rider offers it.
+   // The main roll excludes bleed (persistent-only); extra damage offers it.
    const damageTypeGroups = getDamageTypeGroups();
-   const persistentTypeGroups = getDamageTypeGroups({ includeBleed: true });
+   const extraTypeGroups = getDamageTypeGroups({ includeBleed: true });
+   const CATEGORIES: { value: StrikeDamageCategory | ''; key: string }[] = [
+      { value: '', key: 'direct' },
+      { value: 'persistent', key: 'persistent' },
+      { value: 'splash', key: 'splash' },
+      { value: 'precision', key: 'precision' }
+   ];
 
    let {
       creature,
@@ -35,8 +41,10 @@
       onUpdateStrike,
       onUpdateStrikeAttackBenchmark,
       onUpdateStrikeDamageBenchmark,
-      onUpdateStrikePersistentType,
-      onClearStrikePersistent
+      onSetStrikeMainDamage,
+      onAddStrikeDamagePart,
+      onUpdateStrikeDamagePart,
+      onRemoveStrikeDamagePart
    }: {
       creature: EditableCreature;
       computedStats: CreatureStats | null;
@@ -50,8 +58,14 @@
       onUpdateStrike?: (d: { index: number; updates: Partial<CreatureStrike> }) => void;
       onUpdateStrikeAttackBenchmark?: (d: { index: number; benchmark: number }) => void;
       onUpdateStrikeDamageBenchmark?: (d: { index: number; benchmark: number }) => void;
-      onUpdateStrikePersistentType?: (d: { index: number; type: string }) => void;
-      onClearStrikePersistent?: (index: number) => void;
+      onSetStrikeMainDamage?: (d: { index: number; formula: string }) => void;
+      onAddStrikeDamagePart?: (d: { index: number; part: Omit<StrikeDamagePart, 'baseLevel' | 'rollKey'> }) => void;
+      onUpdateStrikeDamagePart?: (d: {
+         index: number;
+         partIndex: number;
+         updates: Partial<Pick<StrikeDamagePart, 'formula' | 'damageType' | 'category'>>;
+      }) => void;
+      onRemoveStrikeDamagePart?: (d: { index: number; partIndex: number }) => void;
    } = $props();
 
    const BENCHMARK_LABELS_4: ('low' | 'moderate' | 'high' | 'extreme')[] = ['low', 'moderate', 'high', 'extreme'];
@@ -61,17 +75,21 @@
    let diceSize = $state<DiceSize>(8);
    let diceBonus = $state(0);
 
-   // While the dice editor is open the tier highlight tracks the live dice average, not the
-   // last-committed benchmark — so typing 2d8 vs 1d8 moves the active tier as you go.
-   const liveDamageBenchmark = $derived(
-      creature ? damageToBenchmark(calculateAverageDamage(diceCount, diceSize, diceBonus), creature.level) : 0
-   );
+   // While the dice editor is open the tier highlight tracks the live dice average plus the strike's
+   // direct extra damage, not the last-committed benchmark — so typing 2d8 vs 1d8 moves the tier as you go.
+   const liveDamageBenchmark = $derived.by(() => {
+      const strike = editingStrikeIndex === null ? undefined : creature?.strikes[editingStrikeIndex];
+      if (!creature || !strike) return 0;
+      const extras = resolveStrikeDamage(strike, creature.level).parts
+         .filter(isDirectPart)
+         .reduce((sum, p) => sum + p.average, 0);
+      return strikeDamageScalar(calculateAverageDamage(diceCount, diceSize, diceBonus) + extras, creature.level);
+   });
 
    let editingStrikeAttackIndex = $state<number | null>(null);
    let editStrikeAttackValue = $state(0);
 
    function getComputedStrikeStatsLocal(strike: CreatureStrike) {
-      if (!creature || !strike) return { attackBonus: 0, damage: '', damageAverage: 0, combinedDamageAverage: 0, effectiveDamageAverage: 0, persistentAverage: 0, persistentDamage: '' };
       return computeStrikeStats(creature.level, strike);
    }
 
@@ -80,9 +98,7 @@
       const strike = creature.strikes[index];
       if (!strike) return;
 
-      const computedStrike = getComputedStrikeStatsLocal(strike);
-      const currentFormula = strike.customDamageFormula || computedStrike.damage;
-      const parsed = parseDiceFormula(currentFormula);
+      const parsed = parseDiceFormula(getComputedStrikeStatsLocal(strike).damage || '1d4');
       diceCount = parsed.count;
       diceSize = parsed.size;
       diceBonus = parsed.bonus;
@@ -91,11 +107,7 @@
 
    function commitStrikeDiceEdit(): void {
       if (!creature || editingStrikeIndex === null) return;
-
-      const avgDamage = calculateAverageDamage(diceCount, diceSize, diceBonus);
-      const benchmark = damageToBenchmark(avgDamage, creature.level);
-
-      onUpdateStrikeDamageBenchmark?.({ index: editingStrikeIndex, benchmark });
+      onSetStrikeMainDamage?.({ index: editingStrikeIndex, formula: formatDiceFormula(diceCount, diceSize, diceBonus) });
       editingStrikeIndex = null;
    }
 
@@ -105,13 +117,21 @@
       onUpdateStrikeDamageBenchmark?.({ index, benchmark: benchmarkValue });
 
       if (editingStrikeIndex === index) {
-         const ranges = getStatRangesForLevel(creature.level);
-         const entry = getStrikeDamageForScalar(benchmarkValue, ranges.strikeDamage);
-         const parsed = parseDiceFormula(entry.formula);
+         const parsed = parseDiceFormula(getComputedStrikeStatsLocal(creature.strikes[index]).damage || '1d4');
          diceCount = parsed.count;
          diceSize = parsed.size;
          diceBonus = parsed.bonus;
       }
+   }
+
+   // A formula that doesn't parse would be written to the item verbatim; revert the field instead.
+   function commitPartFormula(index: number, partIndex: number, input: HTMLInputElement, current: string): void {
+      const formula = input.value.trim();
+      if (parseDiceFormulaAverage(formula) <= 0) {
+         input.value = current;
+         return;
+      }
+      if (formula !== current) onUpdateStrikeDamagePart?.({ index, partIndex, updates: { formula } });
    }
 
    function cancelStrikeDiceEdit(): void {
@@ -261,8 +281,7 @@
                               </div>
                            {:else}
                               <button class="stat-value clickable" onclick={() => startStrikeDiceEdit(index)}>
-                                 {computedStrike.damage}
-                                 <span class="avg">({formatDamageAverageDisplay(computedStrike.damageAverage, computedStrike.persistentAverage)})</span>
+                                 {computedStrike.damage || game.i18n.localize('pf2e-creature-crispr.offense.noMainRoll')}
                               </button>
                            {/if}
                            <div class="damage-tiers" class:editing={editingStrikeIndex === index}>
@@ -277,40 +296,29 @@
                            </div>
                         </div>
 
-                        <div class="stat-line persistent-line">
-                           <label class="persistent-toggle-compact">
-                              <input
-                                 type="checkbox"
-                                 checked={strike.persistentBenchmark !== undefined}
-                                 onchange={(e) => {
-                                    if (e.currentTarget.checked) {
-                                       onUpdateStrike?.({ index, updates: {
-                                          persistentBenchmark: PERSISTENT_BENCHMARK_VALUES.moderate,
-                                          customPersistentFormula: suggestPersistentFormula(creature.level, computedStrike.damageAverage),
-                                          persistentDamageType: 'fire'
-                                       } });
-                                    } else {
-                                       onClearStrikePersistent?.(index);
-                                    }
-                                 }}
-                              />
-                              <span>Persistent</span>
-                           </label>
-                           {#if strike.persistentBenchmark !== undefined}
-                              <div class="persistent-inline">
+                        <div class="ledger">
+                           <div class="ledger-row">
+                              <span class="ledger-name">{strike.name}</span>
+                              <span class="ledger-avg">{computedStrike.mainAverage} avg</span>
+                           </div>
+
+                           {#each computedStrike.parts as part, partIndex (partIndex)}
+                              <div class="ledger-row">
                                  <input
                                     type="text"
-                                    class="cc-input persistent-formula-compact"
-                                    value={strike.customPersistentFormula ?? ''}
+                                    class="cc-input ledger-formula"
+                                    value={part.resolved}
                                     placeholder="1d6 or 6"
-                                    onchange={(e) => onUpdateStrike?.({ index, updates: { customPersistentFormula: e.currentTarget.value } })}
+                                    aria-label={game.i18n.localize('pf2e-creature-crispr.offense.damageFormula')}
+                                    onchange={(e) => commitPartFormula(index, partIndex, e.currentTarget, part.resolved)}
                                  />
                                  <select
-                                    class="cc-select persistent-type-compact"
-                                    value={strike.persistentDamageType || 'fire'}
-                                    onchange={(e) => onUpdateStrikePersistentType?.({ index, type: e.currentTarget.value })}
+                                    class="cc-select ledger-select"
+                                    value={part.damageType}
+                                    aria-label={game.i18n.localize('pf2e-creature-crispr.offense.damageType')}
+                                    onchange={(e) => onUpdateStrikeDamagePart?.({ index, partIndex, updates: { damageType: e.currentTarget.value } })}
                                  >
-                                    {#each persistentTypeGroups as group (group.label)}
+                                    {#each extraTypeGroups as group (group.label)}
                                        <optgroup label={group.label}>
                                           {#each group.options as opt (opt.value)}
                                              <option value={opt.value}>{opt.label}</option>
@@ -318,14 +326,45 @@
                                        </optgroup>
                                     {/each}
                                  </select>
-                                 {#if computedStrike.persistentAverage}
-                                    <span class="persistent-avg">({computedStrike.persistentAverage} avg)</span>
-                                 {/if}
+                                 <select
+                                    class="cc-select ledger-select"
+                                    value={part.category ?? ''}
+                                    aria-label={game.i18n.localize('pf2e-creature-crispr.offense.damageCategory')}
+                                    onchange={(e) => onUpdateStrikeDamagePart?.({
+                                       index,
+                                       partIndex,
+                                       updates: { category: (e.currentTarget.value || undefined) as StrikeDamageCategory | undefined }
+                                    })}
+                                 >
+                                    {#each CATEGORIES as category (category.key)}
+                                       <option value={category.value}>{game.i18n.localize(`pf2e-creature-crispr.offense.category.${category.key}`)}</option>
+                                    {/each}
+                                 </select>
+                                 <span class="ledger-avg">{part.average} avg</span>
+                                 <button
+                                    class="ledger-remove"
+                                    aria-label={game.i18n.localize('pf2e-creature-crispr.offense.removeDamage')}
+                                    title={game.i18n.localize('pf2e-creature-crispr.offense.removeDamage')}
+                                    onclick={() => onRemoveStrikeDamagePart?.({ index, partIndex })}
+                                 ><i class="fas fa-times"></i></button>
                               </div>
-                           {/if}
+                           {/each}
+
+                           <div class="ledger-row ledger-foot">
+                              <button
+                                 class="ledger-add"
+                                 onclick={() => onAddStrikeDamagePart?.({ index, part: { formula: '1d6', damageType: 'fire' } })}
+                              ><i class="fas fa-plus"></i> {game.i18n.localize('pf2e-creature-crispr.offense.addDamage')}</button>
+                              {#if computedStrike.parts.length}
+                                 <span class="ledger-total">
+                                    <span class="total-label">{game.i18n.localize('pf2e-creature-crispr.offense.total')}</span>
+                                    {computedStrike.combinedDamageAverage} avg
+                                 </span>
+                              {/if}
+                           </div>
                         </div>
 
-                        <EffectiveDamageBar row={getStrikeEffectiveDamageBar(creature.level, computedStrike.damageAverage, computedStrike.persistentDamage ?? '')} />
+                        <EffectiveDamageBar row={getStrikeEffectiveDamageBar(creature.level, computedStrike.damageAverage, computedStrike.persistentDamage)} />
                      </div>
                      <DeleteBaseboard
                         bleed
@@ -511,12 +550,6 @@
             border-color: var(--color-primary);
          }
       }
-
-      .avg {
-         font-weight: var(--font-weight-medium);
-         font-size: var(--font-sm);
-         color: var(--text-muted);
-      }
    }
 
    .inline-edit {
@@ -571,38 +604,29 @@
       }
    }
 
-   /* Faint divider sets the persistent toggle apart from the strike/damage rows above. */
-   .persistent-line {
+   /* Extra rolls share one grid so formulas, types, categories, and averages line up in columns. */
+   .ledger {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-6);
       margin-top: var(--space-2);
       padding-top: var(--space-8);
       border-top: 1px solid var(--border-faint);
    }
 
-   /* Compact Persistent Damage */
-   .persistent-toggle-compact {
-      display: flex;
-      align-items: center;
-      gap: var(--space-6);
-      cursor: pointer;
-      font-size: var(--font-md);
-      font-weight: var(--font-weight-semibold);
-      color: var(--text-muted);
-
-      input[type="checkbox"] {
-         width: 0.875rem;
-         height: 0.875rem;
-         cursor: pointer;
-      }
-   }
-
-   .persistent-inline {
-      display: flex;
+   .ledger-row {
+      align-self: stretch;
+      display: grid;
+      grid-template-columns: 5rem minmax(0, 1fr) minmax(0, 1fr) 4.5rem 1.5rem;
       align-items: center;
       gap: var(--space-6);
    }
 
-   .persistent-formula-compact {
-      width: 3.5rem;
+   .ledger-formula {
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 2rem;
       padding: var(--space-2) var(--space-4);
       font-size: var(--font-sm);
       font-weight: var(--font-weight-bold);
@@ -610,17 +634,91 @@
       text-align: center;
    }
 
-   .persistent-type-compact {
-      min-height: auto;
-      padding: var(--space-2) var(--space-16) var(--space-2) var(--space-4);
-      font-size: var(--font-xs);
-      width: auto;
+   /* The builder's global .cc-select rule is ID-scoped, so a plain scoped class can't shrink it. */
+   :global(#pf2e-creature-crispr-builder) .ledger-select {
+      width: 100%;
+      min-width: 0;
+      min-height: 2rem;
+      padding: 0 var(--space-20) 0 var(--space-6);
+      font-size: var(--font-sm);
+      text-overflow: ellipsis;
    }
 
-   .persistent-avg {
+   .ledger-avg {
+      justify-self: end;
       font-size: var(--font-sm);
       color: var(--text-muted);
       font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+   }
+
+   .ledger-remove {
+      width: 1.5rem;
+      height: 1.5rem;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: var(--font-xs);
+
+      &:hover {
+         background: var(--surface-danger-low);
+         color: var(--text-danger);
+      }
+   }
+
+   /* The main roll's line in the column: the attack's name over the formula cells, its average
+      in the averages column. Fixed — the main roll is edited on the Damage line above. */
+   .ledger-name {
+      grid-column: 1 / 4;
+      padding-left: var(--space-4);
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-semibold);
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+   }
+
+   /* Add sits under the formulas; the total sits under the averages column it sums. */
+   .ledger-foot .ledger-add {
+      grid-column: 1 / 3;
+      justify-self: start;
+   }
+
+   .ledger-total {
+      grid-column: 3 / 5;
+      justify-self: end;
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-bold);
+      font-variant-numeric: tabular-nums;
+      color: var(--text-primary);
+      white-space: nowrap;
+   }
+
+   .total-label {
+      margin-right: var(--space-6);
+      font-size: var(--font-xs);
+      font-weight: var(--font-weight-semibold);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+   }
+
+   .ledger-add {
+      border: 1px dashed var(--border-default);
+      border-radius: var(--radius-md);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: var(--font-xs);
+      padding: var(--space-2) var(--space-8);
+
+      &:hover {
+         border-color: var(--color-primary);
+         color: var(--color-primary);
+      }
    }
 
    /* Dice Editor Inline */

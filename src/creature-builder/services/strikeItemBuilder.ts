@@ -1,10 +1,9 @@
 /**
  * Strike item builder
  *
- * Builds PF2e melee `itemData` objects for creature strikes. Used by both
- * creature creation (`_createCreatureActorInternal`) and the create branch of
- * `updateMeleeItems`. Both call sites previously inlined the same ~80 LOC
- * `.map(strike => { ... })` body — this module owns the canonical shape.
+ * Builds PF2e melee `itemData` objects and their benchmark flag for creature strikes. Used by
+ * creature creation (`_createCreatureActorInternal`), the create branch of `updateMeleeItems`, and
+ * the import flag stamp.
  *
  * The returned object is suitable for `actor.createEmbeddedDocuments('Item', ...)`.
  * The caller is responsible for performing the create call.
@@ -12,14 +11,9 @@
 
 import type { CreatureStrike } from '../logic/models';
 import { calculateStrikeStats } from '../logic/creatureStatTables';
+import { composeDamageRolls, type DamageRollSource } from '../logic/strikeDamage';
 import { CREATURE_FLAG, ITEM_BENCHMARK_KEY } from './constants';
 import type { ItemBenchmarkData } from './types';
-
-interface StrikeDamageRoll {
-  damage: string;
-  damageType: string;
-  category: string | null;
-}
 
 /** PF2e melee item-create payload; Foundry fills the remaining NPC-template defaults at create time. */
 export interface StrikeItemData {
@@ -28,92 +22,83 @@ export interface StrikeItemData {
   system: {
     action: string;
     bonus: { value: number };
-    damageRolls: Record<string, StrikeDamageRoll>;
+    damageRolls: Record<string, DamageRollSource>;
     traits: { value: string[] };
     range?: { increment: number };
   };
   flags: Record<string, Record<string, ItemBenchmarkData>>;
 }
 
-/**
- * Compose a single PF2e melee `itemData` object from a creature strike + level.
- *
- * Produces:
- *   - `name`, `type: 'melee'`
- *   - `system.action: 'strike'`
- *   - `system.bonus.value` from computed attack bonus
- *   - `system.damageRolls` with primary damage and (optional) persistent damage
- *   - `system.traits.value` from `strike.traits` (defaults to [])
- *   - `system.range` if `strike.isRanged`
- *   - `flags[CREATURE_FLAG][ITEM_BENCHMARK_KEY]` containing benchmark data
- */
-export function composeStrikeItemData(strike: CreatureStrike, level: number): StrikeItemData {
-  // Calculate computed values from benchmarks
-  const computed = calculateStrikeStats(
-    level,
-    strike.attackBenchmark,
-    strike.damageBenchmark,
-    strike.customDamageFormula,
-    strike.persistentBenchmark,
-    strike.customPersistentFormula
-  );
+/** A detached copy the writer can key without touching editor state (Svelte proxies don't structuredClone). */
+export function cloneStrike(strike: CreatureStrike): CreatureStrike {
+  return { ...strike, extraDamage: strike.extraDamage?.map((part) => ({ ...part })) };
+}
 
-  // Build damage rolls object matching PF2e structure
-  const damageRolls: Record<string, StrikeDamageRoll> = {
-    '0': {
-      damage: computed.damage,
-      damageType: strike.damageType || 'slashing',
-      category: null
+/**
+ * The benchmark flag for a strike whose roll keys are assigned (run `composeDamageRolls` first).
+ * Carries the first persistent roll in the legacy fields for consumers that still read them.
+ */
+export function strikeBenchmarkFlag(strike: CreatureStrike, level: number): ItemBenchmarkData {
+  const data: ItemBenchmarkData = {
+    attackBenchmark: strike.attackBenchmark,
+    damageBenchmark: strike.damageBenchmark,
+    damageVersion: 2,
+    damageOrigin: {
+      main: strike.damage,
+      mainLevel: strike.damageBaseLevel ?? level,
+      ...(strike.mainRollKey ? { mainRollKey: strike.mainRollKey } : {}),
+      parts: Object.fromEntries(
+        (strike.extraDamage ?? [])
+          .filter((part) => part.rollKey)
+          .map((part) => [part.rollKey!, { formula: part.formula, level: part.baseLevel }])
+      )
     }
   };
+  if (strike.customDamageFormula) data.customDamageFormula = strike.customDamageFormula;
+  const persistent = strike.extraDamage?.find((part) => part.category === 'persistent');
+  if (persistent) {
+    data.persistentBenchmark = 0.5;
+    data.customPersistentFormula = persistent.formula;
+    data.persistentDamageType = persistent.damageType;
+  }
+  return data;
+}
 
-  // Add persistent damage if present
-  if (computed.persistentDamage) {
-    damageRolls['1'] = {
-      damage: computed.persistentDamage,
-      damageType: strike.persistentDamageType || 'fire',
-      category: 'persistent'
-    };
-  }
+/**
+ * v14 whole-value replacement for an update key; Foundry otherwise deep-merges objects, so keys the
+ * new value drops (a deleted damage roll, a cleared custom formula) would survive the update.
+ */
+export function replaceValue<T>(value: T): T {
+  const operators = (foundry.data as unknown as {
+    operators: { ForcedReplacement: { create(v: unknown): unknown } };
+  }).operators;
+  return operators.ForcedReplacement.create(value) as T;
+}
 
-  // Build benchmark data for the item flag
-  const benchmarkData: ItemBenchmarkData = {
-    attackBenchmark: strike.attackBenchmark,
-    damageBenchmark: strike.damageBenchmark
-  };
-  if (strike.customDamageFormula) {
-    benchmarkData.customDamageFormula = strike.customDamageFormula;
-  }
-  if (strike.persistentBenchmark !== undefined) {
-    benchmarkData.persistentBenchmark = strike.persistentBenchmark;
-  }
-  if (strike.customPersistentFormula) {
-    benchmarkData.customPersistentFormula = strike.customPersistentFormula;
-  }
-  if (strike.persistentDamageType) {
-    benchmarkData.persistentDamageType = strike.persistentDamageType;
-  }
+/** Compose a single PF2e melee `itemData` object from a creature strike + level. */
+export function composeStrikeItemData(source: CreatureStrike, level: number): StrikeItemData {
+  const strike = cloneStrike(source);
+  const computed = calculateStrikeStats(level, strike.attackBenchmark, strike.damageBenchmark);
+  const { rolls } = composeDamageRolls(strike, level);
 
-  // Build melee item - only specify fields we need to set
   const itemData: StrikeItemData = {
     name: strike.name,
     type: 'melee',
     system: {
       action: 'strike',
       bonus: { value: computed.attackBonus },
-      damageRolls,
+      damageRolls: rolls,
       traits: {
         value: strike.traits || []
       }
     },
     flags: {
       [CREATURE_FLAG]: {
-        [ITEM_BENCHMARK_KEY]: benchmarkData
+        [ITEM_BENCHMARK_KEY]: strikeBenchmarkFlag(strike, level)
       }
     }
   };
 
-  // Add range for ranged attacks
   if (strike.isRanged) {
     itemData.system.range = { increment: strike.range || 30 };
   }

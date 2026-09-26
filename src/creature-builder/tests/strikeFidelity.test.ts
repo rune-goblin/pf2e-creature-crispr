@@ -65,10 +65,15 @@ function install(actor: ReturnType<typeof makeActor>): void {
   (globalThis as unknown as { game: unknown }).game = {
     actors: { get: (id: string) => (id === ACTOR_ID ? actor : undefined) }
   };
+  // ForcedReplacement proxies its value, so tests read the replaced object directly.
+  (globalThis as unknown as { foundry: unknown }).foundry = {
+    data: { operators: { ForcedReplacement: { create: (value: unknown) => value } } }
+  };
 }
 
 afterEach(() => {
   delete (globalThis as unknown as { game?: unknown }).game;
+  delete (globalThis as unknown as { foundry?: unknown }).foundry;
 });
 
 const firstUpdate = (actor: ReturnType<typeof makeActor>) =>
@@ -76,9 +81,8 @@ const firstUpdate = (actor: ReturnType<typeof makeActor>) =>
 
 describe('updateMeleeItems — D5 preserve unedited attack/damage', () => {
   it('a strike loaded as an off-table 2d8+9 survives a no-edit save untouched', () => {
-    // meleeItemToStrike collapses to a single primary (the last non-persistent roll); the secondary
-    // + persistent riders must still ride through untouched. Off-table 2d8+9 (avg 18) at level 5 would
-    // otherwise be reshaped to 2d12+5 by scaleStrikeDamage on a no-edit save.
+    // The secondary + persistent riders ride through untouched, and the off-table 2d8+9 main (avg 18)
+    // at level 5 is not reshaped to a table formula on a no-edit save.
     const rolls: Rolls = {
       rSecondary: { damage: '1d6', damageType: 'fire' },
       rPrimary: { damage: '2d8+9', damageType: 'slashing' },
@@ -129,15 +133,9 @@ describe('updateMeleeItems — D5 preserve unedited attack/damage', () => {
       r0: { damage: '2d8+9', damageType: 'slashing' },
       rP: { damage: '2d6', damageType: 'bleed', category: 'persistent' }
     };
-    const benchmarks: ItemBenchmarkData = {
-      ...importFlag(15, '2d8+9', LEVEL),
-      persistentBenchmark: 0.5,
-      customPersistentFormula: '2d6',
-      persistentDamageType: 'bleed'
-    };
-    const item = meleeItem({ bonus: 15, rolls, benchmarks });
+    const item = meleeItem({ bonus: 15, rolls, benchmarks: importFlag(15, '2d8+9', LEVEL) });
     const strike = meleeItemToStrike(item, LEVEL);
-    strike.customPersistentFormula = '3d6'; // the only edit
+    strike.extraDamage![0].formula = '3d6'; // the only edit
 
     const actor = makeActor([item]);
     install(actor);
@@ -187,7 +185,7 @@ describe('updateMeleeItems — D5 preserve unedited attack/damage', () => {
     });
   });
 
-  it('recomputes when the levelChanged opt is absent (default preserves today behaviour)', () => {
+  it('recomputes the attack when the levelChanged opt is absent, but writes only rolls that differ', () => {
     const item = meleeItem({ bonus: 15, benchmarks: importFlag(15, '2d8+9', LEVEL) });
     const strike = meleeItemToStrike(item, LEVEL);
     const actor = makeActor([item]);
@@ -196,7 +194,7 @@ describe('updateMeleeItems — D5 preserve unedited attack/damage', () => {
     return updateMeleeItems(ACTOR_ID, [strike], LEVEL).then(() => {
       const update = firstUpdate(actor);
       expect(update['system.bonus.value']).toBeDefined();
-      expect(update['system.damageRolls']).toBeDefined();
+      expect(update['system.damageRolls']).toBeUndefined();
     });
   });
 
@@ -231,6 +229,89 @@ describe('updateMeleeItems — D5 preserve unedited attack/damage', () => {
       expect(update['system.bonus.value']).toBeUndefined();
       expect(update['system.traits.value']).toEqual(['reach-10']);
       expect(item.system.damageRolls).toBe(rolls);
+    });
+  });
+});
+
+describe('multi-part strikes — Marrmora', () => {
+  const MARRMORA_LEVEL = 15;
+  const clawRolls = (): Rolls => ({
+    '0': { damage: '3d6+14', damageType: 'slashing' },
+    '1': { damage: '3d6', damageType: 'fire' },
+    '2': { damage: '1d6', damageType: 'fire', category: 'persistent' }
+  });
+
+  it('loads every Claw roll with the slashing roll as main', () => {
+    const strike = meleeItemToStrike(meleeItem({ bonus: 29, rolls: clawRolls() }), MARRMORA_LEVEL);
+    expect(strike.damage).toBe('3d6+14');
+    expect(strike.damageType).toBe('slashing');
+    expect(strike.extraDamage?.map((p) => [p.formula, p.damageType, p.category])).toEqual([
+      ['3d6', 'fire', undefined],
+      ['1d6', 'fire', 'persistent']
+    ]);
+  });
+
+  it('writes no damage rolls on a no-edit save', () => {
+    const item = meleeItem({ bonus: 29, rolls: clawRolls() });
+    const actor = makeActor([item]);
+    install(actor);
+    const strike = meleeItemToStrike(item, MARRMORA_LEVEL);
+
+    return updateMeleeItems(ACTOR_ID, [strike], MARRMORA_LEVEL, { levelChanged: false }).then(() => {
+      expect(firstUpdate(actor)['system.damageRolls']).toBeUndefined();
+    });
+  });
+
+  it('rescales all three rolls on a level change and keeps the main slashing', () => {
+    const item = meleeItem({ bonus: 29, rolls: clawRolls() });
+    const actor = makeActor([item]);
+    install(actor);
+    const strike = meleeItemToStrike(item, MARRMORA_LEVEL);
+
+    return updateMeleeItems(ACTOR_ID, [strike], 8, { levelChanged: true }).then(() => {
+      const written = firstUpdate(actor)['system.damageRolls'] as Rolls;
+      expect(Object.keys(written)).toEqual(['0', '1', '2']);
+      expect(written['0'].damageType).toBe('slashing');
+      expect(written['1'].damage).not.toBe('3d6');
+      expect(written['2'].category).toBe('persistent');
+    });
+  });
+
+  it('returns to the published formulas after a round trip through another level', () => {
+    const item = meleeItem({ bonus: 29, rolls: clawRolls() });
+    const actor = makeActor([item]);
+    install(actor);
+    const strike = meleeItemToStrike(item, MARRMORA_LEVEL);
+
+    return updateMeleeItems(ACTOR_ID, [strike], 3, { levelChanged: true }).then(() => {
+      const update = firstUpdate(actor);
+      const atThree = meleeItem({
+        bonus: update['system.bonus.value'],
+        rolls: update['system.damageRolls'],
+        benchmarks: update[`flags.${CREATURE_FLAG}.${ITEM_BENCHMARK_KEY}`]
+      });
+      const reloaded = meleeItemToStrike(atThree, 3);
+      const back = makeActor([atThree]);
+      install(back);
+      return updateMeleeItems(ACTOR_ID, [reloaded], MARRMORA_LEVEL, { levelChanged: true }).then(() => {
+        expect(firstUpdate(back)['system.damageRolls']).toEqual({
+          '0': { damage: '3d6+14', damageType: 'slashing', category: null },
+          '1': { damage: '3d6', damageType: 'fire', category: null },
+          '2': { damage: '1d6', damageType: 'fire', category: 'persistent' }
+        });
+      });
+    });
+  });
+
+  it('removes a deleted part from the item', () => {
+    const item = meleeItem({ bonus: 29, rolls: clawRolls() });
+    const actor = makeActor([item]);
+    install(actor);
+    const strike = meleeItemToStrike(item, MARRMORA_LEVEL);
+    strike.extraDamage = strike.extraDamage!.filter((p) => p.category !== 'persistent');
+
+    return updateMeleeItems(ACTOR_ID, [strike], MARRMORA_LEVEL, { levelChanged: false }).then(() => {
+      expect(Object.keys(firstUpdate(actor)['system.damageRolls'])).toEqual(['0', '1']);
     });
   });
 });

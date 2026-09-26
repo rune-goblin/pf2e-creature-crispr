@@ -137,7 +137,7 @@ describe('buildTroopSweep — markup and shape', () => {
 
   it('rides a secondary component along at 1/2/2 dice in the published comma grammar (hell hound)', () => {
     const out = buildTroopSweep(
-      strike({ name: 'Flaming Jaws', damage: '1d4', persistentDamage: '1d6', persistentDamageType: 'fire' }),
+      strike({ name: 'Flaming Jaws', damage: '1d4', extraDamage: [{ formula: '1d6', damageType: 'fire', category: 'persistent', baseLevel: 8 }] }),
       8
     );
     expect(out.description).toContain(

@@ -51,10 +51,15 @@ function install(actor: ReturnType<typeof makeActor>): void {
   (globalThis as unknown as { game: unknown }).game = {
     actors: { get: (id: string) => (id === ACTOR_ID ? actor : undefined) }
   };
+  // ForcedReplacement proxies its value, so tests read the replaced object directly.
+  (globalThis as unknown as { foundry: unknown }).foundry = {
+    data: { operators: { ForcedReplacement: { create: (value: unknown) => value } } }
+  };
 }
 
 afterEach(() => {
   delete (globalThis as unknown as { game?: unknown }).game;
+  delete (globalThis as unknown as { foundry?: unknown }).foundry;
 });
 
 const updatePayload = (actor: ReturnType<typeof makeActor>) => actor.update.mock.calls[0][0] as any;

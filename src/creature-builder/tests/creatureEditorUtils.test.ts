@@ -107,26 +107,28 @@ describe('computeStrikeStats', () => {
     expect(s.attackBonus).toBe(21);
     expect(s.damage).toBe('2d8+11');
     expect(s.damageAverage).toBe(20);
-    expect(s.persistentDamage).toBeUndefined();
+    expect(s.persistentDamage).toEqual([]);
     expect(s.combinedDamageAverage).toBe(20);
     expect(s.effectiveDamageAverage).toBe(20);
   });
 
   it('combined = direct + persistent flat; effective = direct + persistent × expected rounds', () => {
     const s = computeStrikeStats(9, makeStrike({
-      persistentBenchmark: 0.5,
-      customPersistentFormula: '1d6'
+      extraDamage: [{ formula: '1d6', damageType: 'fire', category: 'persistent', baseLevel: 9 }]
     }));
-    expect(s.persistentDamage).toBe('1d6');
+    expect(s.persistentDamage).toEqual(['1d6']);
     expect(s.persistentAverage).toBe(3.5);
     expect(s.combinedDamageAverage).toBe(23.5);
     expect(s.effectiveDamageAverage).toBeCloseTo(20 + 3.5 * PERSISTENT_EXPECTED_ROUNDS, 5);
   });
 
-  it('a persistent benchmark without a formula adds nothing', () => {
-    const s = computeStrikeStats(9, makeStrike({ persistentBenchmark: 0.5 }));
-    expect(s.persistentAverage).toBeUndefined();
-    expect(s.combinedDamageAverage).toBe(s.damageAverage);
+  it('counts a direct extra part toward the judged total but keeps the main on the table', () => {
+    const s = computeStrikeStats(9, makeStrike({
+      extraDamage: [{ formula: '1d6', damageType: 'fire', baseLevel: 9 }]
+    }));
+    expect(Math.abs(s.damageAverage - 20)).toBeLessThanOrEqual(0.5);
+    expect(s.mainAverage).toBeLessThan(20);
+    expect(s.persistentAverage).toBe(0);
   });
 
   it('uses a custom damage formula verbatim with its parsed average', () => {

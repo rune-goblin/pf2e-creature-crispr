@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { editorStore, ALL_SECTIONS } from '@/creature-builder/editor';
 import type { CreatureStats, EditableCreature, EditorEnvironment, SpecialAbility } from '@/creature-builder/editor';
 import { BENCHMARK_VALUES_4, createDefaultStrike, getDefaultBenchmarks } from '@/creature-builder/logic/models';
+import { resolveStrikeDamage, strikeDamageScalar } from '@/creature-builder/logic/strikeDamage';
 
 const makeEditable = (overrides: Partial<EditableCreature> = {}): EditableCreature => ({
   name: 'Goblin Warrior',
@@ -394,23 +395,58 @@ describe('strikes', () => {
     expect(editorStore.isDirty).toBe(false);
   });
 
-  it('benchmark and persistent setters write through; clearStrikePersistent strips every persistent field', () => {
+  it('benchmark setters write through', () => {
     editorStore.startCreate();
     editorStore.updateStrikeAttackBenchmark(0, 1);
     editorStore.updateStrikeDamageBenchmark(0, 0);
-    editorStore.updateStrikePersistentType(0, 'fire');
-    editorStore.setStrikeCustomPersistentFormula(0, '2d6');
     const strike = editorStore.creature!.strikes[0];
     expect(strike.attackBenchmark).toBe(1);
     expect(strike.damageBenchmark).toBe(0);
-    expect(strike.persistentDamageType).toBe('fire');
-    expect(strike.customPersistentFormula).toBe('2d6');
-    editorStore.clearStrikePersistent(0);
-    const cleared = editorStore.creature!.strikes[0];
-    expect('persistentBenchmark' in cleared).toBe(false);
-    expect('persistentDamage' in cleared).toBe(false);
-    expect('customPersistentFormula' in cleared).toBe(false);
-    expect('persistentDamageType' in cleared).toBe(false);
+  });
+
+  describe('damage parts', () => {
+    const level = () => editorStore.creature!.level;
+    const resolved = () => resolveStrikeDamage(editorStore.creature!.strikes[0], level());
+
+    beforeEach(() => {
+      editorStore.startCreate();
+      editorStore.setStrikeMainDamage(0, '2d8+4');
+    });
+
+    it('authors the main roll verbatim and re-benchmarks the total', () => {
+      expect(resolved().main).toBe('2d8+4');
+      expect(editorStore.creature!.strikes[0].damageBenchmark).toBe(strikeDamageScalar(13, level()));
+    });
+
+    it('adding a direct part keeps the main and raises the total', () => {
+      editorStore.addStrikeDamagePart(0, { formula: '1d6', damageType: 'fire' });
+      expect(resolved().main).toBe('2d8+4');
+      expect(resolved().directAverage).toBe(16.5);
+    });
+
+    it('a persistent part leaves the judged total alone', () => {
+      editorStore.addStrikeDamagePart(0, { formula: '1d6', damageType: 'fire', category: 'persistent' });
+      expect(resolved().directAverage).toBe(13);
+      expect(resolved().persistentAverage).toBe(3.5);
+    });
+
+    it('updates and removes a part', () => {
+      editorStore.addStrikeDamagePart(0, { formula: '1d6', damageType: 'fire' });
+      editorStore.updateStrikeDamagePart(0, 0, { formula: '2d6', category: 'persistent' });
+      expect(resolved().parts[0]).toMatchObject({ resolved: '2d6', category: 'persistent', damageType: 'fire' });
+      editorStore.updateStrikeDamagePart(0, 0, { category: undefined });
+      expect('category' in editorStore.creature!.strikes[0].extraDamage![0]).toBe(false);
+      editorStore.removeStrikeDamagePart(0, 0);
+      expect(resolved().parts).toEqual([]);
+      expect(resolved().main).toBe('2d8+4');
+    });
+
+    it('a tier click on a strike with no main roll gives it one', () => {
+      editorStore.setStrikeMainDamage(0, '');
+      expect(resolved().main).toBe('');
+      editorStore.updateStrikeDamageBenchmark(0, BENCHMARK_VALUES_4.moderate);
+      expect(resolved().main).not.toBe('');
+    });
   });
 
   it('picking a damage tier discards a typed formula, which would otherwise outrank it', () => {

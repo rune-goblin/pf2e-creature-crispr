@@ -8,6 +8,9 @@ import { requireActor } from './folderManager';
 import { buildActorSystemFromStats, buildIwrSystem, buildSpeedSystem, buildSensesSystem } from './crud';
 import { syncSpellcastingEntriesForLevel } from './spells';
 import { syncAbilityItemsForLevel } from './strikes';
+import { meleeItemToStrike, type MeleeItemView } from './actorQueries';
+import { strikeBenchmarkFlag, replaceValue } from './strikeItemBuilder';
+import { composeDamageRolls, type DamageRollSource } from '../logic/strikeDamage';
 import { CREATURE_FLAG, CREATURE_DATA_KEY, ITEM_BENCHMARK_KEY } from './constants';
 import type { CreatureActorData, ItemBenchmarkData } from './types';
 
@@ -89,7 +92,7 @@ export async function updateCreature(
   const levelChanged = updates.level !== undefined && updates.level !== previousLevel;
   const benchmarksChanged = updates.benchmarks !== undefined && !deepEqual(updates.benchmarks, currentData?.benchmarks);
   if (levelChanged) {
-    await syncMeleeItemsForLevel(actor, level);
+    await syncMeleeItemsForLevel(actor, previousLevel ?? level, level);
     await syncAbilityItemsForLevel(actor, level);
   }
   if (levelChanged || benchmarksChanged) {
@@ -123,53 +126,29 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Re-derive attack bonus and damage for managed melee items at a new level from their
- * stored benchmark flags. Preserves all native PF2e item data and the damageRolls shape.
+ * Re-derive attack bonus and every damage roll for managed melee items at a new level from their
+ * stored benchmark flags. `fromLevel` is the level the items' current formulas were written at.
  */
-async function syncMeleeItemsForLevel(actor: NPCPF2e, level: number): Promise<void> {
+async function syncMeleeItemsForLevel(actor: NPCPF2e, fromLevel: number, level: number): Promise<void> {
   const meleeItems = actor.items.contents.filter((i): i is MeleePF2e<NPCPF2e> => i.type === 'melee');
   if (meleeItems.length === 0) return;
 
   const updates: EmbeddedDocumentUpdateData[] = [];
 
   for (const item of meleeItems) {
-    const benchmarks: ItemBenchmarkData = (item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) as ItemBenchmarkData) || {};
-
+    const benchmarks = item.getFlag(CREATURE_FLAG, ITEM_BENCHMARK_KEY) as ItemBenchmarkData | undefined;
     // Skip items we don't manage (no benchmark flags).
-    if (benchmarks.attackBenchmark === undefined && benchmarks.damageBenchmark === undefined) {
-      continue;
-    }
+    if (benchmarks?.attackBenchmark === undefined && benchmarks?.damageBenchmark === undefined) continue;
 
-    const computed = calculateStrikeStats(
-      level,
-      benchmarks.attackBenchmark ?? 0.5,
-      benchmarks.damageBenchmark ?? 0.33,
-      benchmarks.customDamageFormula,
-      benchmarks.persistentBenchmark,
-      benchmarks.customPersistentFormula
-    );
-
-    const existingRolls = item.system?.damageRolls ?? {};
-    const updatedRolls: Record<string, unknown> = {};
-
-    for (const [key, rollData] of Object.entries(existingRolls)) {
-      if (rollData.category === 'persistent') {
-        updatedRolls[key] = computed.persistentDamage
-          ? { ...rollData, damage: computed.persistentDamage }
-          : rollData;
-      } else if (!updatedRolls._primaryUpdated) {
-        updatedRolls[key] = { ...rollData, damage: computed.damage };
-        updatedRolls._primaryUpdated = true;
-      } else {
-        updatedRolls[key] = rollData;
-      }
-    }
-    delete updatedRolls._primaryUpdated;
+    const strike = meleeItemToStrike(item as unknown as MeleeItemView, fromLevel);
+    const existingRolls = (item.system?.damageRolls ?? {}) as Record<string, DamageRollSource>;
+    const { rolls } = composeDamageRolls(strike, level, existingRolls);
 
     updates.push({
       _id: item.id,
-      'system.bonus.value': computed.attackBonus,
-      'system.damageRolls': updatedRolls
+      'system.bonus.value': calculateStrikeStats(level, strike.attackBenchmark, strike.damageBenchmark).attackBonus,
+      'system.damageRolls': replaceValue(rolls),
+      [`flags.${CREATURE_FLAG}.${ITEM_BENCHMARK_KEY}`]: replaceValue(strikeBenchmarkFlag(strike, level))
     });
   }
 

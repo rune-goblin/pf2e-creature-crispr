@@ -69,9 +69,7 @@ registerItemDropHandler({
   matches: (item) => item.type === 'melee',
   destination: () => 'offense',
   convert: (item, level) => {
-    const strike = meleeItemToStrike(item as unknown as MeleeItemView, parseLevelOf(item, level), {
-      recoverUnflaggedPersistent: true
-    });
+    const strike = meleeItemToStrike(item as unknown as MeleeItemView, parseLevelOf(item, level));
     // updateMeleeItems only persists strikes whose id exists on the target actor (or is absent),
     // so a foreign item id would make the dropped strike silently never save.
     delete strike.id;

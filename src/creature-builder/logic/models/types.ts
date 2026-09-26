@@ -91,21 +91,38 @@ export interface CreatureStrike {
   id?: string;                // Item ID on the actor (for updates)
   name: string;
   attackBenchmark: number;    // Scalar 0-1 for attack bonus
-  damageBenchmark: number;    // Scalar 0-1 for damage
+  damageBenchmark: number;    // Strike-damage scalar of main + direct extra damage; <0 below Low, >1 above Extreme
   attackBonus: number;        // Computed from benchmark + level
   customAttackBonus?: number; // User-specified attack bonus override (from import or manual)
-  damage: string;             // Dice formula like "2d8+6" (computed or custom)
+  damage: string;             // Main roll as authored at damageBaseLevel ('' = no direct main roll)
+  damageBaseLevel?: number;   // Absent = never authored: the main roll comes from the benchmark alone
+  mainRollKey?: string;       // The item's damageRolls key for the main roll
   customDamageFormula?: string;  // User-specified formula override
   damageType: string;         // slashing, piercing, bludgeoning, etc.
+  extraDamage?: StrikeDamagePart[];  // Every roll besides the main one, in item order
   traits?: string[];
   range?: number;             // For ranged attacks (in feet)
   isRanged?: boolean;         // True for ranged attacks
 
-  // Persistent damage component (optional)
-  persistentDamage?: string;        // e.g., "1d6" - computed from benchmark
-  customPersistentFormula?: string; // User override
-  persistentDamageType?: string;    // e.g., "fire"
-  persistentBenchmark?: number;     // Scalar 0-1 (uses 3-benchmark system: low/moderate/high)
+  /** @deprecated Read `extraDamage`. Kept so vendored consumers (ReignMaker) still compile. */
+  persistentDamage?: string;
+  /** @deprecated Read `extraDamage`. */
+  customPersistentFormula?: string;
+  /** @deprecated Read `extraDamage`. */
+  persistentDamageType?: string;
+  /** @deprecated Read `extraDamage`. */
+  persistentBenchmark?: number;
+}
+
+export type StrikeDamageCategory = 'persistent' | 'splash' | 'precision';
+
+/** One extra roll on a strike. Direct parts (no category) count toward the damage benchmark. */
+export interface StrikeDamagePart {
+  formula: string;            // As authored at baseLevel
+  damageType: string;
+  category?: StrikeDamageCategory;
+  baseLevel: number;
+  rollKey?: string;           // The item's damageRolls key; absent until first saved
 }
 
 /**

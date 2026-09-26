@@ -22,7 +22,7 @@ const damageLines = (desc: string, level: number) =>
 
 describe('auditing a written ability', () => {
   it('totals a split line instead of judging its leading term', () => {
-    const desc = buildTroopSweep(strike({ persistentDamage: '1d6', persistentDamageType: 'fire' }), 8).description;
+    const desc = buildTroopSweep(strike({ extraDamage: [{ formula: '1d6', damageType: 'fire', category: 'persistent', baseLevel: 8 }] }), 8).description;
     const three = damageLines(desc, 8).find((d) => d.troopLine === 3)!;
     expect(three.formula).toContain(',');
     // 4d6+1 (15) plus the 2d6 rider (7): the line is 22, not 15.

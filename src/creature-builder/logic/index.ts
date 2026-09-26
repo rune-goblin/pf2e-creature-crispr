@@ -18,3 +18,4 @@ export * from './troopExport';
 // Defined identically in creatureStatTables and abilityScaling; name one explicitly so the
 // star-exports above don't resolve it ambiguously.
 export { parseDiceFormulaAverage } from './abilityScaling';
+export * from './strikeDamage';
