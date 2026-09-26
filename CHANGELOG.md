@@ -5,6 +5,8 @@ Notable changes to **PF2E Creature CRISPR**. Format follows
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-09-26
+
 ### Fixed
 
 - **Strikes keep every damage roll.** The editor modelled one direct roll plus one persistent rider,
