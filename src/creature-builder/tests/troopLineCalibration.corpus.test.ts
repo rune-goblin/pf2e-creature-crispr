@@ -63,7 +63,8 @@ const median = (xs: number[]): number => {
 const LINES: TroopAttackLine[] = [1, 2, 3, 'salvo'];
 
 describe.skipIf(!AVAILABLE)('troop line factors against the published corpus', () => {
-  const samples = corpusSamples();
+  // skipIf still runs this body at collection time, so the scan needs its own guard.
+  const samples = AVAILABLE ? corpusSamples() : [];
 
   it('has enough published lines to calibrate against', () => {
     expect(samples.length).toBeGreaterThan(400);
